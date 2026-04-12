@@ -204,7 +204,7 @@ wait_for_service() {
       echo "${label} 已启动，PID=${pid}"
       return 0
     fi
-    sleep 0.2
+    sleep 2
     attempt=$((attempt + 1))
   done
 
@@ -271,7 +271,7 @@ stop_service() {
   pid="$(read_pid_file "${pid_file}" 2>/dev/null || true)"
   if is_pid_running "${pid}"; then
     kill "${pid}" >/dev/null 2>&1 || true
-    sleep 0.5
+    sleep 5
     if is_pid_running "${pid}"; then
       kill -9 "${pid}" >/dev/null 2>&1 || true
     fi
