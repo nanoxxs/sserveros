@@ -2,6 +2,7 @@ import glob
 import gzip
 import json
 import os
+import socket
 import signal
 import subprocess
 import threading
@@ -9,6 +10,15 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 from config_bootstrap import ensure_config
+from storage import (
+    config_path as _config_path,
+    ensure_runtime_dir as _ensure_runtime_dir,
+    load_config_file,
+    runtime_dir as _runtime_dir,
+    runtime_glob as _runtime_glob,
+    runtime_path as _runtime_path,
+    save_config_file,
+)
 from flask import Flask, jsonify, request, send_file, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -52,7 +62,7 @@ def create_app(script_dir: str = None):
     @app.route('/api/auth/login', methods=['POST'])
     def login():
         data = request.get_json() or {}
-        cfg = _load_config(script_dir)
+        cfg = load_config_file(_config_path(script_dir))
         if check_password_hash(cfg.get('password_hash', ''), data.get('password', '')):
             session['authenticated'] = True
             session.permanent = True
@@ -67,32 +77,30 @@ def create_app(script_dir: str = None):
     @app.route('/api/state')
     @require_auth
     def api_state():
+        cfg = load_config_file(_config_path(script_dir))
         state_path = _runtime_path(script_dir, 'state.json')
-        cfg = _load_config(script_dir)
         if not os.path.exists(state_path):
-            return jsonify({'monitor_running': False, 'gpus': [], 'watch_pids': []})
+            return jsonify(_empty_state(cfg))
         try:
             with open(state_path) as f:
                 state = json.load(f)
         except (json.JSONDecodeError, OSError):
-            return jsonify({'monitor_running': False, 'gpus': [], 'watch_pids': []})
+            return jsonify(_empty_state(cfg))
         try:
             ts = datetime.strptime(state['timestamp'], '%Y-%m-%d %H:%M:%S')
             age = (datetime.now() - ts).total_seconds()
             state['monitor_running'] = age < cfg.get('check_interval', 5) * 3
         except Exception:
             state['monitor_running'] = False
-        pid_notes = {str(wp['pid']): wp.get('note', '')
-                     for wp in cfg.get('watch_pids', [])}
-        for wp in state.get('watch_pids', []):
-            if not wp.get('note'):
-                wp['note'] = pid_notes.get(str(wp['pid']), '')
+        state['watch_pids'] = _merge_watch_pids(state.get('watch_pids', []), cfg)
+        state.setdefault('gpus', [])
+        state.setdefault('hostname', socket.gethostname())
         return jsonify(state)
 
     @app.route('/api/config')
     @require_auth
     def api_config():
-        cfg = _load_config(script_dir)
+        cfg = load_config_file(_config_path(script_dir))
         cfg.pop('password_hash', None)
         cfg.pop('secret_key', None)
         return jsonify(cfg)
@@ -146,7 +154,7 @@ def create_app(script_dir: str = None):
         if not isinstance(pid, int) or pid <= 0:
             return jsonify({'error': 'invalid pid'}), 400
         note = str(data.get('note', '')).strip()
-        cfg = _load_config(script_dir)
+        cfg = load_config_file(_config_path(script_dir))
         watch_pids = cfg.setdefault('watch_pids', [])
         existing = next((wp for wp in watch_pids if wp['pid'] == pid), None)
         if existing:
@@ -155,10 +163,14 @@ def create_app(script_dir: str = None):
             watch_pids.append({'pid': pid, 'note': note})
             with open(_runtime_path(script_dir, 'watch_pids.queue'), 'a') as f:
                 f.write(f'{pid}\n')
-        _save_config(script_dir, cfg)
-        _write_pid_notes_file(script_dir, watch_pids)
-        _signal_sserveros(script_dir, signal.SIGUSR1)
-        return jsonify({'ok': True})
+        save_config_file(_config_path(script_dir), cfg)
+        signal_result = _signal_sserveros(script_dir, signal.SIGUSR1)
+        payload, status = _runtime_feedback(
+            signal_result,
+            applied_message='PID 已加入监控列表',
+            pending_message='PID 已保存到配置，但监控脚本未运行；脚本启动后才会开始监控',
+        )
+        return jsonify(payload), status
 
     @app.route('/api/pids/remove', methods=['POST'])
     @require_auth
@@ -169,64 +181,69 @@ def create_app(script_dir: str = None):
             return jsonify({'error': 'invalid pid'}), 400
         with open(_runtime_path(script_dir, 'remove_pids.queue'), 'a') as f:
             f.write(f'{pid}\n')
-        cfg = _load_config(script_dir)
+        cfg = load_config_file(_config_path(script_dir))
         cfg['watch_pids'] = [wp for wp in cfg.get('watch_pids', []) if wp['pid'] != pid]
-        _save_config(script_dir, cfg)
-        _write_pid_notes_file(script_dir, cfg['watch_pids'])
-        _signal_sserveros(script_dir, signal.SIGUSR2)
-        return jsonify({'ok': True})
+        save_config_file(_config_path(script_dir), cfg)
+        signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
+        payload, status = _runtime_feedback(
+            signal_result,
+            applied_message='PID 已从监控列表移除',
+            pending_message='PID 已从配置中移除，但监控脚本未运行；无需热更新，脚本下次启动时会使用新配置',
+        )
+        return jsonify(payload), status
 
     @app.route('/api/settings', methods=['POST'])
     @require_auth
     def api_settings():
         data = request.get_json() or {}
-        cfg = _load_config(script_dir)
+        cfg = load_config_file(_config_path(script_dir))
+        runtime_reload_needed = False
+        password_changed = False
         for key in _NUMERIC_SETTINGS:
             if key in data:
                 val = data[key]
                 if isinstance(val, bool) or not isinstance(val, (int, float)) or val <= 0:
                     return jsonify({'error': f'invalid value for {key}'}), 400
+                if cfg.get(key) != val:
+                    runtime_reload_needed = True
                 cfg[key] = val
         if 'sendkey' in data:
+            if cfg.get('sendkey') != data['sendkey']:
+                runtime_reload_needed = True
             cfg['sendkey'] = data['sendkey']
         if 'gpus' in data:
             gpus = data['gpus']
             if not isinstance(gpus, list) or not all(isinstance(g, int) and not isinstance(g, bool) and g >= 0 for g in gpus):
                 return jsonify({'error': 'invalid gpus'}), 400
+            if cfg.get('gpus') != gpus:
+                runtime_reload_needed = True
             cfg['gpus'] = gpus
         if data.get('new_password'):
             if not check_password_hash(cfg.get('password_hash', ''),
                                        data.get('current_password', '')):
                 return jsonify({'error': 'current password incorrect'}), 401
             cfg['password_hash'] = generate_password_hash(data['new_password'])
-        _save_config(script_dir, cfg)
-        _signal_sserveros(script_dir, signal.SIGUSR2)
-        return jsonify({'ok': True})
+            password_changed = True
+        save_config_file(_config_path(script_dir), cfg)
+        if not runtime_reload_needed:
+            return jsonify({
+                'ok': True,
+                'runtime_applied': True,
+                'message': '密码已更新' if password_changed else '设置已保存',
+            })
+        signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
+        payload, status = _runtime_feedback(
+            signal_result,
+            applied_message='设置已保存并通知监控脚本重载',
+            pending_message='设置已保存，但监控脚本未运行；脚本启动后才会使用新配置',
+        )
+        return jsonify(payload), status
 
     _start_log_compressor(script_dir)
     return app
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _config_path(script_dir: str) -> str:
-    return os.path.join(script_dir, 'config.json')
-
-
-def _runtime_dir(script_dir: str) -> str:
-    return os.path.join(script_dir, 'runtime')
-
-
-def _runtime_path(script_dir: str, filename: str) -> str:
-    return os.path.join(_runtime_dir(script_dir), filename)
-
-
-def _runtime_glob(script_dir: str, pattern: str) -> str:
-    return os.path.join(_runtime_dir(script_dir), pattern)
-
-
-def _ensure_runtime_dir(script_dir: str):
-    os.makedirs(_runtime_dir(script_dir), exist_ok=True)
 
 
 def _load_dotenv(script_dir: str):
@@ -243,53 +260,84 @@ def _load_dotenv(script_dir: str):
             value = value.strip().strip('"').strip("'")
             os.environ.setdefault(key, value)
 
-
-def _load_config(script_dir: str) -> dict:
-    path = _config_path(script_dir)
-    if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
-    return {}
-
-
-def _save_config(script_dir: str, cfg: dict):
-    path = _config_path(script_dir)
-    tmp = path + '.tmp'
-    with open(tmp, 'w') as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, path)
+def _empty_state(cfg: dict) -> dict:
+    return {
+        'monitor_running': False,
+        'gpus': [],
+        'watch_pids': _merge_watch_pids([], cfg),
+        'hostname': socket.gethostname(),
+    }
 
 
-def _write_pid_notes_file(script_dir: str, watch_pids: list):
-    _ensure_runtime_dir(script_dir)
-    path = _runtime_path(script_dir, 'notes.txt')
-    tmp = path + '.tmp'
-    with open(tmp, 'w') as f:
-        for wp in watch_pids:
-            f.write(f'{wp["pid"]} {wp.get("note", "")}\n')
-    os.replace(tmp, path)
+def _merge_watch_pids(runtime_watch_pids: list, cfg: dict) -> list:
+    note_map = {}
+    for wp in cfg.get('watch_pids', []):
+        pid = wp.get('pid')
+        if isinstance(pid, int) and pid > 0:
+            note_map[pid] = wp.get('note', '')
+
+    merged = []
+    seen = set()
+    for wp in runtime_watch_pids or []:
+        pid = wp.get('pid')
+        if not isinstance(pid, int):
+            continue
+        merged.append({
+            'pid': pid,
+            'alive': bool(wp.get('alive', False)),
+            'cmd': wp.get('cmd', ''),
+            'note': wp.get('note', '') or note_map.get(pid, ''),
+        })
+        seen.add(pid)
+
+    for pid, note in note_map.items():
+        if pid in seen:
+            continue
+        merged.append({'pid': pid, 'alive': False, 'cmd': '', 'note': note})
+    return merged
 
 
-def _signal_sserveros(script_dir: str, sig) -> bool:
+def _signal_sserveros(script_dir: str, sig) -> dict:
+    pid_path = _runtime_path(script_dir, 'sserveros.pid')
     try:
-        pid_path = _runtime_path(script_dir, 'sserveros.pid')
         if os.path.exists(pid_path):
             try:
                 with open(pid_path) as f:
-                    os.kill(int(f.read().strip()), sig)
-                return True
+                    pid = int(f.read().strip())
+                os.kill(pid, sig)
+                return {'sent': True, 'method': 'pid_file', 'pids': [pid]}
             except (OSError, ValueError):
                 pass
+
         result = subprocess.run(['pgrep', '-f', 'sserveros.sh'],
                                 capture_output=True, text=True)
+        sent_pids = []
         for line in result.stdout.strip().splitlines():
             try:
-                os.kill(int(line.strip()), sig)
+                pid = int(line.strip())
+                os.kill(pid, sig)
+                sent_pids.append(pid)
             except (ProcessLookupError, ValueError):
                 pass
-        return True
+        if sent_pids:
+            return {'sent': True, 'method': 'pgrep', 'pids': sent_pids}
+        return {'sent': False, 'reason': 'not_running'}
     except Exception:
-        return False
+        return {'sent': False, 'reason': 'signal_failed'}
+
+
+def _runtime_feedback(signal_result: dict, *, applied_message: str, pending_message: str):
+    if signal_result.get('sent'):
+        return {
+            'ok': True,
+            'runtime_applied': True,
+            'message': applied_message,
+        }, 200
+    return {
+        'ok': True,
+        'runtime_applied': False,
+        'warning': pending_message,
+    }, 202
 
 
 def _compress_log_if_needed(script_dir: str, cfg: dict):
@@ -327,7 +375,7 @@ def _start_log_compressor(script_dir: str):
         while True:
             time.sleep(60)
             try:
-                _compress_log_if_needed(script_dir, _load_config(script_dir))
+                _compress_log_if_needed(script_dir, load_config_file(_config_path(script_dir)))
             except Exception:
                 pass
 
@@ -336,7 +384,7 @@ def _start_log_compressor(script_dir: str):
 
 if __name__ == '__main__':
     app = create_app()
-    cfg = _load_config(os.path.dirname(os.path.abspath(__file__)))
+    cfg = load_config_file(_config_path(os.path.dirname(os.path.abspath(__file__))))
     host = cfg.get('webui_host', '0.0.0.0')
     port = int(cfg.get('webui_port', 6777))
-    app.run(host=host, port=port, debug=False)
+    app.run(host=host, port=port, debug=False, load_dotenv=False)

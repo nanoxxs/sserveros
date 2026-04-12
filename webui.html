@@ -88,6 +88,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .setting-input:focus { border-color: #2563eb; }
 .save-btn { background: #2563eb; color: #fff; border: none; border-radius: 12px; padding: 14px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%; box-shadow: 0 2px 8px rgba(37,99,235,0.3); }
 .save-msg { text-align: center; font-size: 13px; color: #16a34a; margin-top: 8px; display: none; }
+.notice-msg { font-size: 13px; margin-top: 10px; display: none; text-align: center; }
+.notice-msg.success { color: #16a34a; }
+.notice-msg.warn { color: #d97706; }
+.notice-msg.error { color: #ef4444; }
 
 /* Log list */
 .log-row { padding: 12px 16px; border-bottom: 1px solid #f8fafc; display: flex; gap: 10px; align-items: flex-start; cursor: pointer; transition: background .1s; }
@@ -185,6 +189,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
                onkeydown="if(event.key==='Enter')addPid()">
         <button class="add-btn" onclick="addPid()">添加</button>
       </div>
+      <div class="notice-msg" id="pidMsg"></div>
     </div>
   </div>
 
@@ -222,7 +227,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       </div>
     </div>
     <button class="save-btn" onclick="saveSettings()">保存设置</button>
-    <div class="save-msg" id="saveMsg">✓ 已保存</div>
+    <div class="save-msg notice-msg" id="saveMsg"></div>
   </div>
 
   <!-- Log -->
@@ -297,55 +302,26 @@ const TAG_CLASSES = { warn:'tag-warn', found:'tag-found', recover:'tag-recover',
 
 let _refreshTimer = null;
 let _currentTab = 'gpu';
-
-// ── Password cache (sessionStorage, 5-min TTL) ───────────
-const PWD_CACHE_KEY = 'ss_pwd';
-const PWD_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-function savePwdCache(pwd) {
-  try {
-    sessionStorage.setItem(PWD_CACHE_KEY, JSON.stringify({ pwd, exp: Date.now() + PWD_CACHE_TTL }));
-  } catch (e) {}
-}
-
-function loadPwdCache() {
-  try {
-    const raw = sessionStorage.getItem(PWD_CACHE_KEY);
-    if (!raw) return null;
-    const { pwd, exp } = JSON.parse(raw);
-    if (Date.now() > exp) { sessionStorage.removeItem(PWD_CACHE_KEY); return null; }
-    return pwd;
-  } catch (e) { return null; }
-}
-
-function clearPwdCache() {
-  try { sessionStorage.removeItem(PWD_CACHE_KEY); } catch (e) {}
-}
+let _appStarted = false;
 
 // ── Helpers ──────────────────────────────────────────────
 
 async function api(path, opts = {}) {
   const r = await fetch(path, opts);
   if (r.status === 401 && path !== '/api/auth/login') {
-    const cached = loadPwdCache();
-    if (cached) {
-      const re = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: cached })
-      });
-      if (re.ok) {
-        // Retry original request
-        return fetch(path, opts);
-      }
-    }
-    clearPwdCache();
     location.reload();
   }
   return r;
 }
 
 function $(id) { return document.getElementById(id); }
+
+function showMessage(targetId, text, kind = 'success') {
+  const el = $(targetId);
+  el.className = 'notice-msg ' + kind;
+  el.textContent = text;
+  el.style.display = text ? 'block' : 'none';
+}
 
 // ── Auth ─────────────────────────────────────────────────
 
@@ -357,7 +333,6 @@ async function doLogin() {
     body: JSON.stringify({ password: pwd })
   });
   if (r.ok) {
-    savePwdCache(pwd);
     showApp();
   } else {
     $('loginErr').style.display = 'block';
@@ -365,7 +340,6 @@ async function doLogin() {
 }
 
 async function doLogout() {
-  clearPwdCache();
   await fetch('/api/auth/logout', { method: 'POST' });
   location.reload();
 }
@@ -379,28 +353,21 @@ function showApp() {
 // ── Bootstrap ────────────────────────────────────────────
 
 function startApp() {
-  startGpuRefresh();
+  if (_appStarted) return;
+  _appStarted = true;
+  $('headerHost').textContent = '机器: ' + location.hostname;
+  startStateRefresh();
 }
 
 // Silent auth check on page load
 (async function checkAuth() {
-  const r = await fetch('/api/state');
-  if (r.ok) {
-    showApp();
-    return;
-  }
-  // Try cached password
-  const cached = loadPwdCache();
-  if (cached) {
-    const re = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: cached })
-    });
-    if (re.ok) { showApp(); return; }
-    clearPwdCache();
-  }
-  // Show login form
+  try {
+    const r = await fetch('/api/state');
+    if (r.ok) {
+      showApp();
+      return;
+    }
+  } catch (e) {}
   $('loginWrap').style.display = 'flex';
 })();
 
@@ -416,22 +383,21 @@ function switchTab(name) {
     const active = el.id === 'pane' + name[0].toUpperCase() + name.slice(1);
     el.classList.toggle('active', active);
   });
-  if (name === 'gpu') startGpuRefresh();
-  else stopGpuRefresh();
+  if (name === 'gpu' || name === 'pids') fetchState();
   if (name === 'pids') loadPids();
   if (name === 'settings') loadSettings();
   if (name === 'log') { loadLog(); loadArchives(); }
 }
 
-// ── GPU ──────────────────────────────────────────────────
+// ── State ────────────────────────────────────────────────
 
-function startGpuRefresh() {
-  stopGpuRefresh();
+function startStateRefresh() {
+  if (_refreshTimer) return;
   fetchState();
   _refreshTimer = setInterval(fetchState, 5000);
 }
 
-function stopGpuRefresh() {
+function stopStateRefresh() {
   if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
 }
 
@@ -441,6 +407,8 @@ async function fetchState() {
     if (!r.ok) return;
     const data = await r.json();
     renderGpu(data);
+    if (data.hostname) $('headerHost').textContent = '机器: ' + data.hostname;
+    if (_currentTab === 'pids') renderPids(data.watch_pids || []);
     updateStatusBanner(data);
   } catch (e) {}
 }
@@ -478,11 +446,7 @@ function renderGpu(data) {
 
 // ── PIDs ─────────────────────────────────────────────────
 
-async function loadPids() {
-  const r = await api('/api/state');
-  if (!r.ok) return;
-  const data = await r.json();
-  const pids = data.watch_pids || [];
+function renderPids(pids) {
   $('pidCount').textContent = pids.length + ' 个';
   $('pidList').innerHTML = pids.length === 0
     ? '<div style="padding:16px;color:#94a3b8;font-size:14px">暂无监控 PID</div>'
@@ -498,26 +462,46 @@ async function loadPids() {
       </div>`).join('');
 }
 
+async function loadPids() {
+  const r = await api('/api/state');
+  if (!r.ok) return;
+  const data = await r.json();
+  renderPids(data.watch_pids || []);
+}
+
 async function addPid() {
   const input = $('addPidInput');
   const noteInput = $('addNoteInput');
   const pid = parseInt(input.value);
-  if (!pid || pid <= 0) return;
+  if (!pid || pid <= 0) {
+    showMessage('pidMsg', 'PID 必须是正整数', 'error');
+    return;
+  }
   const note = noteInput.value.trim();
   const r = await api('/api/pids/add', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pid, note })
   });
-  if (r.ok) { input.value = ''; noteInput.value = ''; loadPids(); }
+  const payload = await r.json().catch(() => ({}));
+  if (r.ok) {
+    input.value = '';
+    noteInput.value = '';
+    showMessage('pidMsg', payload.warning || payload.message || 'PID 已保存', payload.warning ? 'warn' : 'success');
+    loadPids();
+    return;
+  }
+  showMessage('pidMsg', payload.error || '添加失败', 'error');
 }
 
 async function removePid(pid) {
-  await api('/api/pids/remove', {
+  const r = await api('/api/pids/remove', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pid })
   });
+  const payload = await r.json().catch(() => ({}));
+  showMessage('pidMsg', payload.warning || payload.message || (r.ok ? 'PID 已移除' : '移除失败'), r.ok ? (payload.warning ? 'warn' : 'success') : 'error');
   loadPids();
 }
 
@@ -537,32 +521,63 @@ async function loadSettings() {
 }
 
 async function saveSettings() {
-  const gpusStr = $('cfgGpus').value.trim();
-  const gpus = gpusStr
-    ? gpusStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 0)
-    : [];
-  const body = {
-    mem_threshold_mib: parseInt($('cfgThreshold').value),
-    check_interval:    parseInt($('cfgInterval').value),
-    confirm_times:     parseInt($('cfgConfirm').value),
-    sendkey:           $('cfgSendkey').value,
-    log_max_size_mb:   parseInt($('cfgLogMb').value),
-    log_archive_keep:  parseInt($('cfgLogKeep').value),
-    gpus,
+  const msg = $('saveMsg');
+  const parsePositive = (id, label) => {
+    const value = parseInt($(id).value, 10);
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new Error(label + '必须是正整数');
+    }
+    return value;
   };
+
+  const gpusStr = $('cfgGpus').value.trim();
+  const gpus = [];
+  if (gpusStr) {
+    const seen = new Set();
+    for (const raw of gpusStr.split(',')) {
+      const token = raw.trim();
+      if (!token) continue;
+      if (!/^\d+$/.test(token)) {
+        showMessage('saveMsg', 'GPU 索引格式错误，请输入如 0,1,2', 'error');
+        return;
+      }
+      const value = Number(token);
+      if (seen.has(value)) {
+        showMessage('saveMsg', 'GPU 索引不能重复', 'error');
+        return;
+      }
+      seen.add(value);
+      gpus.push(value);
+    }
+  }
+
+  let body;
+  try {
+    body = {
+      mem_threshold_mib: parsePositive('cfgThreshold', '显存告警阈值'),
+      check_interval:    parsePositive('cfgInterval', '检测间隔'),
+      confirm_times:     parsePositive('cfgConfirm', '确认次数'),
+      sendkey:           $('cfgSendkey').value,
+      log_max_size_mb:   parsePositive('cfgLogMb', '日志压缩触发大小'),
+      log_archive_keep:  parsePositive('cfgLogKeep', '历史存档保留数量'),
+      gpus,
+    };
+  } catch (err) {
+    showMessage('saveMsg', err.message || '输入不合法', 'error');
+    return;
+  }
+
   const r = await api('/api/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
-  const msg = $('saveMsg');
+  const payload = await r.json().catch(() => ({}));
   if (r.ok) {
-    msg.style.display = 'block';
-    setTimeout(() => { msg.style.display = 'none'; }, 2000);
+    showMessage('saveMsg', payload.warning || payload.message || '已保存', payload.warning ? 'warn' : 'success');
+    setTimeout(() => { msg.style.display = 'none'; }, 2500);
   } else {
-    msg.textContent = '保存失败';
-    msg.style.color = '#ef4444';
-    msg.style.display = 'block';
+    showMessage('saveMsg', payload.error || '保存失败', 'error');
   }
 }
 
@@ -600,14 +615,15 @@ async function changePassword() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ current_password: cur, new_password: nw })
   });
+  const payload = await r.json().catch(() => ({}));
   if (r.ok) {
-    msg.style.color = '#16a34a';
-    msg.textContent = '✓ 密码已修改';
+    msg.className = 'notice-msg success';
+    msg.textContent = payload.message || '密码已修改';
     msg.style.display = 'block';
     setTimeout(() => closePwdModal(), 1200);
   } else {
-    const err = await r.json().catch(() => ({}));
-    msg.textContent = err.error || '修改失败';
+    msg.className = 'notice-msg error';
+    msg.textContent = payload.error || '修改失败';
     msg.style.display = 'block';
   }
 }

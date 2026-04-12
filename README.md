@@ -61,7 +61,6 @@ runtime/
   sserveros.pid         # 监控脚本 PID
   watch_pids.queue      # WebUI / CLI 动态添加 PID 队列
   remove_pids.queue     # WebUI 动态删除 PID 队列
-  notes.txt             # PID 备注
 .env                    # 本地敏感变量（不提交）
 ```
 
@@ -97,6 +96,7 @@ SSERVEROS_PASSWORD=your-password
 
 - `sserveros.sh` 会在启动时自动加载项目根目录下的 `.env`，不需要先手动 `source .env`
 - `webui.py` 在启动时也会读取项目根目录下的 `.env`
+- `webui.py` 自己会读取 `.env`，不依赖 `python-dotenv`
 - `SSERVEROS_PASSWORD` 只在第一次自动生成 `config.json` 时使用；后续再改这个值不会直接修改已存在的登录密码
 
 ### 3. 首次启动并自动生成配置
@@ -118,14 +118,34 @@ python webui.py
 
 ### 4. 启动监控脚本
 
+方式 A：前台运行（适合首次配置 / 观察实时输出）
+
 ```bash
-./sserveros.sh
+bash ./sserveros.sh
 ```
 
-如果不想使用 `.env`，也可以直接覆盖环境变量：
+方式 B：后台运行，不保存日志
 
 ```bash
-SENDKEY=SCTxxx ./sserveros.sh
+SENDKEY=SCTxxx nohup bash ./sserveros.sh > /dev/null 2>&1 &
+```
+
+方式 C：后台运行，并把标准输出追加到日志文件
+
+```bash
+SENDKEY=SCTxxx nohup bash ./sserveros.sh >> ./sserveros.log 2>&1 &
+```
+
+说明：
+
+- 如果已经在 `.env` 中配置了 `SENDKEY`，后台启动时不必重复写 `SENDKEY=...`
+- 脚本启动后会自动写入 `runtime/sserveros.pid`，不需要手动执行 `echo $! > ./sserveros.pid`
+- `nohup` 模式下如需查看运行日志，可直接 `tail -f ./sserveros.log`
+
+如果你只是想临时覆盖 `.env` 中的 `SENDKEY`，也可以直接这样启动：
+
+```bash
+SENDKEY=SCTxxx bash ./sserveros.sh
 ```
 
 ### 5. 访问 WebUI
@@ -140,7 +160,7 @@ python webui.py
 - 本机：`http://127.0.0.1:6777`
 - 局域网 / Tailscale：`http://<你的机器IP>:6777`
 
-两个进程**完全独立**，建议分别在两个终端前台启动，便于观察日志和停止。
+两个进程**完全独立**。你可以让 `sserveros.sh` 后台运行，只把 `webui.py` 留在前台。
 
 ### 6. 基本检查
 
@@ -148,11 +168,17 @@ python webui.py
 # 确认监控脚本已启动
 cat runtime/sserveros.pid
 
+# 或直接看进程
+pgrep -af sserveros.sh
+
 # 查看最近状态快照
 cat runtime/state.json
 
 # 查看最近事件日志
 tail -n 20 runtime/log.json
+
+# 如果你用了 nohup + 日志文件
+tail -n 20 ./sserveros.log
 ```
 
 建议你在 WebUI 中至少完成这几项检查：
@@ -175,6 +201,7 @@ tail -n 20 runtime/log.json
 
 - `PIDs` 标签页添加 PID 和备注
 - 删除时直接在列表中移除
+- 如果监控脚本暂时没启动，WebUI 仍会先把改动保存到 `config.json`，并明确提示“脚本启动后生效”
 
 ### 8. 运行测试
 
@@ -189,15 +216,25 @@ pytest -q
 
 ### 9. 停止服务
 
-如果你是按上面的方式前台启动：
+如果你是前台启动：
 
 - 在 `sserveros.sh` 所在终端按 `Ctrl-C`
 - 在 `webui.py` 所在终端按 `Ctrl-C`
 
-如果你需要从另一个终端停止监控脚本：
+如果你是后台启动，常用命令如下：
 
 ```bash
+# 通过 PID 文件停止（推荐）
 kill "$(cat runtime/sserveros.pid)"
+
+# 或直接按进程名停止
+pkill -f sserveros.sh
+
+# 查看是否仍在运行
+pgrep -af sserveros.sh
+
+# 查看 nohup 日志（如果你启用了日志文件）
+tail -f ./sserveros.log
 ```
 
 停止后可检查：

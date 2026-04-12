@@ -44,6 +44,7 @@ def _prepare_project(tmp_path: Path):
     project_dir.mkdir()
     shutil.copy2(ROOT_DIR / 'sserveros.sh', project_dir / 'sserveros.sh')
     shutil.copy2(ROOT_DIR / 'config_bootstrap.py', project_dir / 'config_bootstrap.py')
+    shutil.copy2(ROOT_DIR / 'storage.py', project_dir / 'storage.py')
     (project_dir / 'runtime').mkdir()
     fakebin = project_dir / 'bin'
     fakebin.mkdir()

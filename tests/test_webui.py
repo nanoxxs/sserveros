@@ -9,6 +9,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from webui import create_app
 
 
+SIGNAL_SENT = {'sent': True, 'method': 'test', 'pids': [123]}
+
+
 @pytest.fixture
 def tmp_config(tmp_path):
     from werkzeug.security import generate_password_hash
@@ -84,6 +87,19 @@ def test_state_no_file(auth_client):
     assert data['gpus'] == []
 
 
+def test_state_no_file_includes_configured_watch_pids(auth_client, tmp_config):
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    cfg['watch_pids'] = [{'pid': 12345, 'note': 'train job'}]
+    (tmp_config / 'config.json').write_text(json.dumps(cfg))
+    data = auth_client.get('/api/state').get_json()
+    assert data['watch_pids'] == [{
+        'pid': 12345,
+        'alive': False,
+        'cmd': '',
+        'note': 'train job',
+    }]
+
+
 def test_state_with_recent_file(auth_client, tmp_config):
     state = {
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -143,14 +159,14 @@ def test_archives_lists_gz_files(auth_client, tmp_config):
 # ── PID add/remove ──────────────────────────────────────
 
 def test_add_pid_writes_queue_file(auth_client, tmp_config, monkeypatch):
-    monkeypatch.setattr('webui._signal_sserveros', lambda *a: True)
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
     auth_client.post('/api/pids/add', json={'pid': 12345},
                      content_type='application/json')
     assert '12345' in (tmp_config / 'runtime' / 'watch_pids.queue').read_text()
 
 
 def test_add_pid_persists_to_config(auth_client, tmp_config, monkeypatch):
-    monkeypatch.setattr('webui._signal_sserveros', lambda *a: True)
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
     auth_client.post('/api/pids/add', json={'pid': 12345, 'note': 'train job'},
                      content_type='application/json')
     cfg = json.loads((tmp_config / 'config.json').read_text())
@@ -159,21 +175,31 @@ def test_add_pid_persists_to_config(auth_client, tmp_config, monkeypatch):
 
 
 def test_add_pid_rejects_invalid(auth_client, monkeypatch):
-    monkeypatch.setattr('webui._signal_sserveros', lambda *a: True)
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
     r = auth_client.post('/api/pids/add', json={'pid': -1},
                          content_type='application/json')
     assert r.status_code == 400
 
 
+def test_add_pid_reports_pending_when_monitor_not_running(auth_client, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: {'sent': False, 'reason': 'not_running'})
+    r = auth_client.post('/api/pids/add', json={'pid': 12345},
+                         content_type='application/json')
+    data = r.get_json()
+    assert r.status_code == 202
+    assert data['runtime_applied'] is False
+    assert '监控脚本未运行' in data['warning']
+
+
 def test_remove_pid_writes_queue_file(auth_client, tmp_config, monkeypatch):
-    monkeypatch.setattr('webui._signal_sserveros', lambda *a: True)
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
     auth_client.post('/api/pids/remove', json={'pid': 99999},
                      content_type='application/json')
     assert '99999' in (tmp_config / 'runtime' / 'remove_pids.queue').read_text()
 
 
 def test_remove_pid_persists_to_config(auth_client, tmp_config, monkeypatch):
-    monkeypatch.setattr('webui._signal_sserveros', lambda *a: True)
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
     cfg = json.loads((tmp_config / 'config.json').read_text())
     cfg['watch_pids'] = [{'pid': 99999, 'note': ''}]
     (tmp_config / 'config.json').write_text(json.dumps(cfg))
@@ -186,7 +212,7 @@ def test_remove_pid_persists_to_config(auth_client, tmp_config, monkeypatch):
 # ── Settings ────────────────────────────────────────────
 
 def test_save_settings_updates_config(auth_client, tmp_config, monkeypatch):
-    monkeypatch.setattr('webui._signal_sserveros', lambda *a: True)
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
     auth_client.post('/api/settings', json={
         'mem_threshold_mib': 8192, 'check_interval': 10,
         'confirm_times': 3, 'log_max_size_mb': 5, 'log_archive_keep': 2,
@@ -197,7 +223,7 @@ def test_save_settings_updates_config(auth_client, tmp_config, monkeypatch):
 
 
 def test_save_settings_updates_gpus(auth_client, tmp_config, monkeypatch):
-    monkeypatch.setattr('webui._signal_sserveros', lambda *a: True)
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
     auth_client.post('/api/settings', json={'gpus': [0, 1]},
                      content_type='application/json')
     cfg = json.loads((tmp_config / 'config.json').read_text())
@@ -205,21 +231,21 @@ def test_save_settings_updates_gpus(auth_client, tmp_config, monkeypatch):
 
 
 def test_save_settings_rejects_invalid_gpus(auth_client, monkeypatch):
-    monkeypatch.setattr('webui._signal_sserveros', lambda *a: True)
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
     r = auth_client.post('/api/settings', json={'gpus': [-1]},
                          content_type='application/json')
     assert r.status_code == 400
 
 
 def test_save_settings_rejects_bool_numeric_values(auth_client, monkeypatch):
-    monkeypatch.setattr('webui._signal_sserveros', lambda *a: True)
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
     r = auth_client.post('/api/settings', json={'check_interval': True},
                          content_type='application/json')
     assert r.status_code == 400
 
 
 def test_change_password_requires_current(auth_client, monkeypatch):
-    monkeypatch.setattr('webui._signal_sserveros', lambda *a: True)
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
     r = auth_client.post('/api/settings',
                          json={'new_password': 'hunter2'},
                          content_type='application/json')
@@ -227,7 +253,7 @@ def test_change_password_requires_current(auth_client, monkeypatch):
 
 
 def test_change_password_wrong_current(auth_client, monkeypatch):
-    monkeypatch.setattr('webui._signal_sserveros', lambda *a: True)
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
     r = auth_client.post('/api/settings',
                          json={'current_password': 'WRONG', 'new_password': 'hunter2'},
                          content_type='application/json')
@@ -236,13 +262,20 @@ def test_change_password_wrong_current(auth_client, monkeypatch):
 
 def test_change_password_success(auth_client, tmp_config, monkeypatch):
     from werkzeug.security import check_password_hash
-    monkeypatch.setattr('webui._signal_sserveros', lambda *a: True)
+    signal_called = {'value': False}
+
+    def fake_signal(*_args):
+        signal_called['value'] = True
+        return SIGNAL_SENT
+
+    monkeypatch.setattr('webui._signal_sserveros', fake_signal)
     r = auth_client.post('/api/settings',
                          json={'current_password': 'pass', 'new_password': 'hunter2'},
                          content_type='application/json')
     assert r.status_code == 200
     cfg = json.loads((tmp_config / 'config.json').read_text())
     assert check_password_hash(cfg['password_hash'], 'hunter2')
+    assert signal_called['value'] is False
 
 
 # ── Log compression ─────────────────────────────────────

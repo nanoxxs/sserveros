@@ -32,7 +32,6 @@ runtime/
   sserveros.pid          # 监控脚本 PID 文件
   watch_pids.queue       # 动态添加 PID 的队列文件（SIGUSR1 触发读取）
   remove_pids.queue      # 动态删除 PID 的队列文件（SIGUSR2 触发读取）
-  notes.txt              # PID 备注文件（格式：`<pid> <note>`）
 webui.log                # WebUI 进程的标准输出日志
 ```
 
@@ -110,7 +109,6 @@ webui.log                # WebUI 进程的标准输出日志
 |------|------|
 | `_load_config` / `_save_config` | 读写 config.json（_save 用临时文件原子替换）|
 | `_ensure_config` | 首次启动时生成随机密码并确保 `runtime/` 存在 |
-| `_write_pid_notes_file` | 将 pid_notes 写到 `runtime/notes.txt` |
 | `_signal_sserveros` | 优先读取 `runtime/sserveros.pid` 并发信号，失败时退回 pgrep |
 | `_compress_log_if_needed` | 检查 `runtime/log.json` 大小，超限则压缩 + 清理旧存档 |
 | `_start_log_compressor` | 启动后台线程，每 60 秒调用 `_compress_log_if_needed` |

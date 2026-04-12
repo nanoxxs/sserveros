@@ -11,7 +11,6 @@ STATE_FILE="${RUNTIME_DIR}/state.json"
 LOG_FILE="${RUNTIME_DIR}/log.json"
 WATCH_QUEUE_FILE="${RUNTIME_DIR}/watch_pids.queue"
 REMOVE_QUEUE_FILE="${RUNTIME_DIR}/remove_pids.queue"
-NOTES_FILE="${RUNTIME_DIR}/notes.txt"
 # 加载 .env（如存在），用于注入 SENDKEY 等敏感变量
 [ -f "${SCRIPT_DIR}/.env" ] && source "${SCRIPT_DIR}/.env"
 if [[ "${1:-}" == "add" && -n "${2:-}" ]]; then
@@ -79,23 +78,41 @@ print(password or '')
 }
 _ensure_config_file
 
+_read_config_snapshot() {
+  local mode="${1:-initial}"
+  [ -f "${SCRIPT_DIR}/config.json" ] || return 1
+  [ -n "${PYTHON_BIN}" ] || return 1
+  "${PYTHON_BIN}" -c "
+import json, sys
+mode = sys.argv[1]
+d = json.load(open(sys.argv[2]))
+
+if mode == 'initial':
+    print(d.get('check_interval', ''))
+    print(d.get('confirm_times', ''))
+    print(d.get('mem_threshold_mib', ''))
+    gpus = d.get('gpus', [])
+    print(' '.join(str(g) for g in gpus) if gpus else '')
+    watch_pids = d.get('watch_pids', [])
+    print(' '.join(str(wp['pid']) for wp in watch_pids) if watch_pids else '')
+    print(d.get('sendkey', ''))
+elif mode == 'reload':
+    print(d.get('mem_threshold_mib', ''))
+    print(d.get('check_interval', ''))
+    print(d.get('confirm_times', ''))
+    gpus = d.get('gpus', [])
+    print(' '.join(str(g) for g in gpus) if gpus else '__AUTO__')
+    print(d.get('sendkey', ''))
+elif mode == 'notes':
+    for wp in d.get('watch_pids', []):
+        print(f\"{wp['pid']} {wp.get('note', '')}\")
+" "${mode}" "${SCRIPT_DIR}/config.json" 2>/dev/null
+}
+
 # 从 config.json 加载配置（覆盖上方默认值；SENDKEY 仅在环境变量未设置时读取）
 _load_initial_config() {
-  [ -f "${SCRIPT_DIR}/config.json" ] || return
-  [ -n "${PYTHON_BIN}" ] || return
   local cfg
-  cfg=$("${PYTHON_BIN}" -c "
-import json, sys
-d = json.load(open(sys.argv[1]))
-print(d.get('check_interval', ''))
-print(d.get('confirm_times', ''))
-print(d.get('mem_threshold_mib', ''))
-gpus = d.get('gpus', [])
-print(' '.join(str(g) for g in gpus) if gpus else '')
-watch_pids = d.get('watch_pids', [])
-print(' '.join(str(wp['pid']) for wp in watch_pids) if watch_pids else '')
-print(d.get('sendkey', ''))
-" "${SCRIPT_DIR}/config.json" 2>/dev/null) || return
+  cfg=$(_read_config_snapshot initial) || return
   local new_interval new_times new_threshold new_gpus new_pids new_sk
   new_interval=$(echo "$cfg"  | sed -n '1p')
   new_times=$(echo "$cfg"     | sed -n '2p')
@@ -223,10 +240,17 @@ send_sc() {
   # 写 runtime/log.json（需要 python3，无则静默跳过）
   [ -n "${PYTHON_BIN}" ] || return 0
   local event_type="info"
-  [[ "$title" == *"消失"*    ]] && event_type="warn"
-  [[ "$title" == *"低于阈值"* ]] && event_type="warn"
-  [[ "$title" == *"恢复"*    ]] && event_type="recover"
-  [[ "$title" == *"发现"*    ]] && event_type="found"
+  if [[ "$title" == *"指定PID消失"* ]]; then
+    event_type="pid"
+  elif [[ "$title" == *"消失"* ]]; then
+    event_type="warn"
+  elif [[ "$title" == *"低于阈值"* ]]; then
+    event_type="warn"
+  elif [[ "$title" == *"恢复"* ]]; then
+    event_type="recover"
+  elif [[ "$title" == *"发现"* ]]; then
+    event_type="found"
+  fi
   local send_success="false"
   [ "${http_status:-0}" = "200" ] && send_success="true"
 
@@ -271,23 +295,14 @@ _reload_pids() {
     echo "[$(date '+%F %T')] 动态加入 WATCH_PID: $pid"
   done < "$EXTRA_PID_FILE"
   > "$EXTRA_PID_FILE"  # 读完清空，避免重复加载
-  _load_pid_notes
+  _load_pid_notes_from_config
 }
 trap '_reload_pids' USR1
 _reload_settings() {
   # 从 config.json 重新加载监控参数
   if [ -n "${PYTHON_BIN}" ] && [ -f "${SCRIPT_DIR}/config.json" ]; then
     local cfg
-    cfg=$("${PYTHON_BIN}" -c "
-import json, sys
-d = json.load(open(sys.argv[1]))
-print(d.get('mem_threshold_mib', ''))
-print(d.get('check_interval', ''))
-print(d.get('confirm_times', ''))
-gpus = d.get('gpus', [])
-print(' '.join(str(g) for g in gpus) if gpus else '__AUTO__')
-print(d.get('sendkey', ''))
-" "${SCRIPT_DIR}/config.json" 2>/dev/null)
+    cfg=$(_read_config_snapshot reload)
     local new_threshold new_interval new_times new_gpus new_key
     new_threshold=$(echo "$cfg" | sed -n '1p')
     new_interval=$(echo "$cfg"  | sed -n '2p')
@@ -326,27 +341,12 @@ print(d.get('sendkey', ''))
     done < "$remove_file"
     > "$remove_file"
   fi
-  _load_pid_notes
+  _load_pid_notes_from_config
 }
 trap '_reload_settings' USR2
 
-# 从 runtime/notes.txt 文件加载备注（格式：pid 备注文字）
-_load_pid_notes() {
-  local notes_file="${NOTES_FILE}"
-  [ -f "$notes_file" ] || return
-  while IFS= read -r line; do
-    local note_pid note_text
-    note_pid="${line%% *}"
-    note_text="${line#* }"
-    [[ "$note_pid" =~ ^[0-9]+$ ]] || continue
-    [ "$note_pid" = "$note_text" ] && note_text=""  # 没有备注
-    watch_pid_note["$note_pid"]="$note_text"
-  done < "$notes_file"
-}
-
 _load_pid_notes_from_config() {
-  [ -f "${SCRIPT_DIR}/config.json" ] || return
-  [ -n "${PYTHON_BIN}" ] || return
+  watch_pid_note=()
   while IFS= read -r line; do
     local note_pid note_text
     note_pid="${line%% *}"
@@ -354,19 +354,19 @@ _load_pid_notes_from_config() {
     [[ "$note_pid" =~ ^[0-9]+$ ]] || continue
     [ "$note_pid" = "$note_text" ] && note_text=""
     watch_pid_note["$note_pid"]="$note_text"
-  done < <("${PYTHON_BIN}" -c "
-import json, sys
-d = json.load(open(sys.argv[1]))
-for wp in d.get('watch_pids', []):
-    print(f\"{wp['pid']} {wp.get('note', '')}\")
-" "${SCRIPT_DIR}/config.json" 2>/dev/null)
+  done < <(_read_config_snapshot notes)
 }
 
 # 清理长时间消失的 PID，防止状态字典无限增长
-STALE_THRESHOLD=$(( CONFIRM_TIMES * 10 ))
+_stale_threshold() {
+  echo $(( CONFIRM_TIMES * 10 ))
+}
+
 purge_stale_pids() {
+  local stale_threshold
+  stale_threshold=$(_stale_threshold)
   for pid in "${!pid_miss_count[@]}"; do
-    [ "${pid_miss_count[$pid]:-0}" -lt "$STALE_THRESHOLD" ] && continue
+    [ "${pid_miss_count[$pid]:-0}" -lt "$stale_threshold" ] && continue
     unset "pid_seen_notified[$pid]"  "pid_disappear_notified[$pid]" \
           "pid_miss_count[$pid]"     "prev_pid_present[$pid]"       \
           "pid_last_psfp[$pid]"      "pid_last_cmd[$pid]"           \
@@ -432,7 +432,6 @@ for pid in "${WATCH_PIDS[@]}"; do
   fi
 done
 _load_pid_notes_from_config
-_load_pid_notes
 
 ########################################
 # 临时文件（EXIT 时自动清理）
@@ -760,14 +759,16 @@ EOF
   _state_args=()
   for _gpu in "${GPUS[@]}"; do
     _top_pid="${current_gpu_top_pid[$_gpu]:-}"
+    _top_cmd=""
     [ -n "$_top_pid" ] && fill_pid_cache_if_alive "$_top_pid"
+    [ -n "$_top_pid" ] && _top_cmd="${pid_last_cmd[$_top_pid]:-}"
     _state_args+=(
       "GPU" "$_gpu"
       "${gpu_mem_used[$_gpu]:-0}"
       "${gpu_mem_total[$_gpu]:-0}"
       "${gpu_name[$_gpu]:-}"
       "$_top_pid"
-      "${pid_last_cmd[$_top_pid]:-}"
+      "$_top_cmd"
     )
   done
   for _pid in "${WATCH_PIDS[@]}"; do
