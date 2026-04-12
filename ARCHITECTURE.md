@@ -6,8 +6,9 @@ GPU 监控 + WebUI 项目。核心是一个 Bash 脚本，通过 Server Chan 推
 
 ## 文件一览
 
-```
+``` 
 sserveros/
+├── manage.sh            # 一键初始化 / 启动 / 停止 / 改密码
 ├── sserveros.sh          # 主监控脚本（Bash）
 ├── webui.py              # Web 后端（Flask）
 ├── webui.html            # 前端页面（单文件，内嵌 CSS + JS）
@@ -30,6 +31,7 @@ runtime/
   log.json               # JSON Lines 格式的事件日志（当前）
   log_*.json.gz          # 自动压缩的历史日志存档
   sserveros.pid          # 监控脚本 PID 文件
+  webui.pid              # WebUI 进程 PID 文件
   watch_pids.queue       # 动态添加 PID 的队列文件（SIGUSR1 触发读取）
   remove_pids.queue      # 动态删除 PID 的队列文件（SIGUSR2 触发读取）
 webui.log                # WebUI 进程的标准输出日志
@@ -85,7 +87,7 @@ webui.log                # WebUI 进程的标准输出日志
 ### 入口
 
 - `create_app(script_dir)` → 工厂函数，返回 Flask app 实例
-- `if __name__ == '__main__'` → 直接运行时绑定 `0.0.0.0:6777`
+- `if __name__ == '__main__'` → 直接运行时绑定 `0.0.0.0:6777`，并写 `runtime/webui.pid`
 
 ### API 路由
 
@@ -107,9 +109,9 @@ webui.log                # WebUI 进程的标准输出日志
 
 | 函数 | 作用 |
 |------|------|
-| `_load_config` / `_save_config` | 读写 config.json（_save 用临时文件原子替换）|
-| `_ensure_config` | 首次启动时生成随机密码并确保 `runtime/` 存在 |
+| `ensure_config` | 首次启动时生成随机密码并确保 `runtime/` 存在 |
 | `_signal_sserveros` | 优先读取 `runtime/sserveros.pid` 并发信号，失败时退回 pgrep |
+| `_write_webui_pid` / `_cleanup_webui_pid` | 启动时写 `runtime/webui.pid`，退出时清理 |
 | `_compress_log_if_needed` | 检查 `runtime/log.json` 大小，超限则压缩 + 清理旧存档 |
 | `_start_log_compressor` | 启动后台线程，每 60 秒调用 `_compress_log_if_needed` |
 
@@ -171,6 +173,14 @@ webui.log                # WebUI 进程的标准输出日志
 ## 数据流
 
 ```
+manage.sh
+  │  首次运行：复制 .env.example → .env，提示输入 SENDKEY
+  │  后台启动 sserveros.sh / webui.py
+  │  后续运行：检测 PID，提供启动 / 停止 / 改密码菜单
+  │
+  ├──────────────► sserveros.sh
+  └──────────────► webui.py
+
 sserveros.sh
   │  每轮写 runtime/state.json（原子替换）
   │  事件写 runtime/log.json（追加）
@@ -195,18 +205,17 @@ webui.html（浏览器）
 ## 启动方式
 
 ```bash
-# 1. 启动监控脚本
-SENDKEY=SCTxxxxxxx ./sserveros.sh
+# 推荐：直接使用一键脚本
+bash ./manage.sh
 
-# 2. 启动 WebUI（另一个终端）
-conda run -n yolo26 python webui.py
-# 首次启动打印初始密码，访问 http://<tailscale-ip>:6777
+# 或手动启动监控脚本
+nohup bash ./sserveros.sh > /dev/null 2>&1 &
 
-# 动态添加 PID 监控
-./sserveros.sh add <pid>
+# 可选：再单独启动 WebUI
+nohup python webui.py > /dev/null 2>&1 &
 ```
 
-两个进程完全独立，互不依赖。
+`sserveros.sh` 是核心服务，`webui.py` 是可选管理界面；`manage.sh` 只是对初始化和启停流程的封装。
 
 ---
 

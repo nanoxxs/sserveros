@@ -2,6 +2,33 @@
 
 GPU 服务器监控工具。通过 [Server Chan](https://sct.ftqq.com/) 推送微信通知，配套 Web 界面（Flask）可在局域网（Tailscale）查看 GPU 状态、管理监控任务、查看事件日志。
 
+## 一键脚本
+
+推荐直接使用项目根目录下的 `manage.sh`：
+
+```bash
+bash ./manage.sh
+```
+
+它会提供一个交互式菜单。
+
+首次运行时：
+
+- 自动复制 `.env.example` 为 `.env`
+- 提示输入 `SENDKEY`
+- 后台启动 `sserveros.sh`（不保留 `nohup bash` 的标准输出日志）
+- 询问是否同时后台启动 `webui.py`（默认也不保留 `nohup` 标准输出日志）
+- 如果首次自动生成了 WebUI 随机密码，会直接打印出来提醒你保存
+
+后续再次运行时：
+
+- 自动检测 `sserveros.sh` 和 `webui.py` 是否已经启动
+- 可以直接停止这两个进程
+- 可以修改 WebUI 密码
+- 可以更新 `.env` 中的 `SENDKEY`
+
+如果你不想使用一键脚本，后文也保留了手动启动方式。
+
 ## 前置条件
 
 开始前请先确认机器上已经具备以下环境：
@@ -37,6 +64,7 @@ nvidia-smi
 
 ```
 sserveros/
+├── manage.sh            # 一键初始化 / 启动 / 停止 / 改密码
 ├── sserveros.sh          # 主监控脚本（Bash）
 ├── webui.py              # Web 后端（Flask，端口 6777）
 ├── webui.html            # 前端页面（单文件）
@@ -101,20 +129,20 @@ SSERVEROS_PASSWORD=your-password
 
 ### 3. 首次启动并自动生成配置
 
-推荐先启动 WebUI：
+推荐先启动监控脚本：
 
 ```bash
-python webui.py
+bash ./sserveros.sh
 ```
 
-如果当前目录还没有 `config.json`，第一次启动时会自动：
+如果当前目录还没有 `config.json`，第一次启动 `sserveros.sh` 或 `webui.py` 时会自动：
 
 - 生成 `config.json`
 - 生成随机 `secret_key`
 - 生成初始密码哈希
-- 在终端打印初始密码
+- 在终端打印 WebUI 初始密码
 
-请保存终端里打印出来的初始密码，并在首次登录后尽快修改。
+如果你打算使用 WebUI，请保存终端里打印出来的初始密码，并在首次登录后尽快修改。
 
 ### 4. 启动监控脚本
 
@@ -127,40 +155,71 @@ bash ./sserveros.sh
 方式 B：后台运行，不保存日志
 
 ```bash
-SENDKEY=SCTxxx nohup bash ./sserveros.sh > /dev/null 2>&1 &
+nohup bash ./sserveros.sh > /dev/null 2>&1 &
 ```
 
 方式 C：后台运行，并把标准输出追加到日志文件
 
 ```bash
-SENDKEY=SCTxxx nohup bash ./sserveros.sh >> ./sserveros.log 2>&1 &
+nohup bash ./sserveros.sh >> ./sserveros.log 2>&1 &
 ```
 
 说明：
 
-- 如果已经在 `.env` 中配置了 `SENDKEY`，后台启动时不必重复写 `SENDKEY=...`
+- 上面两条命令默认使用 `.env` 中的 `SENDKEY`
 - 脚本启动后会自动写入 `runtime/sserveros.pid`，不需要手动执行 `echo $! > ./sserveros.pid`
 - `nohup` 模式下如需查看运行日志，可直接 `tail -f ./sserveros.log`
 
-如果你只是想临时覆盖 `.env` 中的 `SENDKEY`，也可以直接这样启动：
+如果你想临时覆盖 `.env` 中的 `SENDKEY`，可以这样启动：
 
 ```bash
 SENDKEY=SCTxxx bash ./sserveros.sh
 ```
 
-### 5. 访问 WebUI
+或后台运行：
 
 ```bash
-# 如果 WebUI 还没启动，再单独执行
+SENDKEY=SCTxxx nohup bash ./sserveros.sh >> ./sserveros.log 2>&1 &
+```
+
+脚本本身就是主服务。即使完全不启动 WebUI，你也可以通过：
+
+- 命令行启动 / 停止监控
+- `./sserveros.sh add <pid>` 动态添加 PID
+- 查看 `runtime/state.json` / `runtime/log.json` 了解当前状态和事件记录
+
+### 5. 可选：启动 WebUI
+
+首次启动 WebUI 时，建议不要用“静默后台运行（`> /dev/null 2>&1`）”，因为初始化密码只会打印到终端 / 日志里；如果输出被丢弃，初始密码就看不到了。
+
+```bash
+# 需要图形界面时再单独执行
 python webui.py
 ```
+
+后台运行：
+
+```bash
+nohup python webui.py > /dev/null 2>&1 &
+```
+
+或保留日志：
+
+```bash
+nohup python webui.py >> ./webui.log 2>&1 &
+```
+
+首次启动更推荐这两种方式：
+
+- 前台运行 `python webui.py`，直接看终端输出
+- 后台运行但保留日志，然后执行 `tail -f ./webui.log` 查看初始密码
 
 默认访问地址：
 
 - 本机：`http://127.0.0.1:6777`
 - 局域网 / Tailscale：`http://<你的机器IP>:6777`
 
-两个进程**完全独立**。你可以让 `sserveros.sh` 后台运行，只把 `webui.py` 留在前台。
+`sserveros.sh` 是核心服务，`webui.py` 只是可选的管理界面。两个进程**完全独立**；你可以只运行 `sserveros.sh`，也可以让 `sserveros.sh` 后台运行、只把 `webui.py` 留在前台。
 
 ### 6. 基本检查
 
@@ -179,9 +238,16 @@ tail -n 20 runtime/log.json
 
 # 如果你用了 nohup + 日志文件
 tail -n 20 ./sserveros.log
+
+# 如果 WebUI 在运行
+cat runtime/webui.pid
+pgrep -af webui.py
+
+# 如果你用了 WebUI 后台日志
+tail -n 20 ./webui.log
 ```
 
-建议你在 WebUI 中至少完成这几项检查：
+如果你启用了 WebUI，建议至少完成这几项检查：
 
 1. 用首启打印出来的初始密码登录
 2. 在 `GPU` 标签页确认能看到 GPU 状态
@@ -197,7 +263,7 @@ tail -n 20 ./sserveros.log
 ./sserveros.sh add <pid>
 ```
 
-方式 B：WebUI
+方式 B：WebUI（可选）
 
 - `PIDs` 标签页添加 PID 和备注
 - 删除时直接在列表中移除
@@ -215,6 +281,8 @@ pytest -q
 - `sserveros.sh` 的状态写入、信号热更新、GPU 选择重载
 
 ### 9. 停止服务
+
+如果你只运行了 `sserveros.sh`，停掉它即可。
 
 如果你是前台启动：
 
@@ -235,6 +303,18 @@ pgrep -af sserveros.sh
 
 # 查看 nohup 日志（如果你启用了日志文件）
 tail -f ./sserveros.log
+
+# 停止 WebUI
+kill "$(cat runtime/webui.pid)"
+
+# 或直接按进程名停止
+pkill -f webui.py
+
+# 查看 WebUI 是否仍在运行
+pgrep -af webui.py
+
+# 查看 WebUI 后台日志（如果你启用了日志文件）
+tail -f ./webui.log
 ```
 
 停止后可检查：
@@ -243,7 +323,7 @@ tail -f ./sserveros.log
 ls runtime/
 ```
 
-其中 `runtime/sserveros.pid` 应该会被自动清理。
+其中 `runtime/sserveros.pid` 和 `runtime/webui.pid` 都应该会被自动清理。
 
 ## 配置说明
 
@@ -256,6 +336,40 @@ ls runtime/
 - 默认端口：6777
 - 初始密码：首次启动时自动生成并打印
 - 修改密码：WebUI → 设置 → 修改密码（需输入当前密码）
+
+### 忘记密码
+
+如果忘记了 WebUI 密码，原密码无法直接找回，只能重置。
+
+注意：
+
+- `config.json` 中保存的是 `password_hash`，不是明文密码
+- 修改 `.env` 中的 `SSERVEROS_PASSWORD` 对已经存在的 `config.json` 不会生效
+
+可直接执行下面的命令重置密码：
+
+```bash
+python3 - <<'PY'
+import json
+from werkzeug.security import generate_password_hash
+
+path = 'config.json'
+new_password = '你的新密码'
+
+with open(path) as f:
+    cfg = json.load(f)
+
+cfg['password_hash'] = generate_password_hash(new_password)
+
+with open(path, 'w') as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+
+print('已重置 WebUI 密码为:', new_password)
+PY
+```
+
+重置后重启 `webui.py`，再用新密码登录即可。
 
 ## 依赖
 

@@ -340,6 +340,28 @@ def _runtime_feedback(signal_result: dict, *, applied_message: str, pending_mess
     }, 202
 
 
+def _write_webui_pid(script_dir: str) -> str:
+    _ensure_runtime_dir(script_dir)
+    path = _runtime_path(script_dir, 'webui.pid')
+    tmp = path + '.tmp'
+    with open(tmp, 'w') as f:
+        f.write(f'{os.getpid()}\n')
+    os.replace(tmp, path)
+    return path
+
+
+def _cleanup_webui_pid(pid_path: str):
+    try:
+        if not os.path.exists(pid_path):
+            return
+        with open(pid_path) as f:
+            recorded_pid = int(f.read().strip())
+        if recorded_pid == os.getpid():
+            os.remove(pid_path)
+    except (OSError, ValueError):
+        pass
+
+
 def _compress_log_if_needed(script_dir: str, cfg: dict):
     _ensure_runtime_dir(script_dir)
     log_path = _runtime_path(script_dir, 'log.json')
@@ -387,4 +409,8 @@ if __name__ == '__main__':
     cfg = load_config_file(_config_path(os.path.dirname(os.path.abspath(__file__))))
     host = cfg.get('webui_host', '0.0.0.0')
     port = int(cfg.get('webui_port', 6777))
-    app.run(host=host, port=port, debug=False, load_dotenv=False)
+    pid_path = _write_webui_pid(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        app.run(host=host, port=port, debug=False, load_dotenv=False)
+    finally:
+        _cleanup_webui_pid(pid_path)

@@ -330,6 +330,17 @@ def test_compress_preserves_entries_written_after_rotation(tmp_config, monkeypat
     assert log_path.read_text() == '{"time":"new"}\n'
 
 
+def test_webui_pid_file_write_and_cleanup(tmp_config, monkeypatch):
+    from webui import _cleanup_webui_pid, _write_webui_pid
+
+    monkeypatch.setattr('webui.os.getpid', lambda: 4321)
+    pid_path = _write_webui_pid(str(tmp_config))
+    assert (tmp_config / 'runtime' / 'webui.pid').read_text() == '4321\n'
+
+    _cleanup_webui_pid(pid_path)
+    assert not (tmp_config / 'runtime' / 'webui.pid').exists()
+
+
 def test_create_app_bootstraps_config_from_dotenv(tmp_path, capsys):
     (tmp_path / '.env').write_text('SSERVEROS_PASSWORD=dotenv-pass\n')
     app = create_app(script_dir=str(tmp_path))
