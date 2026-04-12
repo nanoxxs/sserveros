@@ -11,6 +11,8 @@ WEBUI_PID_FILE="${RUNTIME_DIR}/webui.pid"
 PLACEHOLDER_SENDKEY="SCTxxxxxxxxxxxxxxxx"
 PYTHON_BIN=""
 LAST_GENERATED_PASSWORD=""
+COLOR_RESET=""
+COLOR_HIGHLIGHT=""
 
 need_cmd() {
   local cmd="$1"
@@ -33,6 +35,13 @@ check_manage_requirements() {
   need_cmd pgrep "请先安装 procps。"
   need_cmd pkill "请先安装 procps。"
   need_cmd ps "请先安装 procps。"
+}
+
+init_colors() {
+  if [ -t 1 ]; then
+    COLOR_RESET=$'\033[0m'
+    COLOR_HIGHLIGHT=$'\033[1;33m'
+  fi
 }
 
 find_python_bin() {
@@ -216,7 +225,8 @@ print(password or '')
 
   if [ -n "${LAST_GENERATED_PASSWORD}" ]; then
     echo
-    echo "首次运行已生成 WebUI 初始密码：${LAST_GENERATED_PASSWORD}"
+    printf '首次运行已生成 WebUI 初始密码：%s%s%s\n' \
+      "${COLOR_HIGHLIGHT}" "${LAST_GENERATED_PASSWORD}" "${COLOR_RESET}"
     echo "请妥善保存，后续可在 WebUI 或本脚本中修改。"
     echo
   fi
@@ -413,6 +423,7 @@ menu_loop() {
 
 main() {
   check_manage_requirements
+  init_colors
   ensure_runtime_dir
 
   if [ ! -f "${CONFIG_FILE}" ] && ! service_running "${BACKEND_PID_FILE}" && ! service_running "${WEBUI_PID_FILE}"; then
