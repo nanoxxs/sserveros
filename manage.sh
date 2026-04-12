@@ -12,6 +12,29 @@ PLACEHOLDER_SENDKEY="SCTxxxxxxxxxxxxxxxx"
 PYTHON_BIN=""
 LAST_GENERATED_PASSWORD=""
 
+need_cmd() {
+  local cmd="$1"
+  local hint="${2:-}"
+  if command -v "${cmd}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "错误：未找到命令 ${cmd}"
+  [ -n "${hint}" ] && echo "${hint}"
+  exit 1
+}
+
+check_manage_requirements() {
+  need_cmd bash "请先安装 bash。"
+  need_cmd nohup "请先安装 coreutils / busybox 中的 nohup。"
+  need_cmd grep
+  need_cmd cut
+  need_cmd tr
+  need_cmd pgrep "请先安装 procps。"
+  need_cmd pkill "请先安装 procps。"
+  need_cmd ps "请先安装 procps。"
+}
+
 find_python_bin() {
   local candidate
   if [ -n "${PYTHON_BIN}" ]; then
@@ -29,6 +52,17 @@ find_python_bin() {
   echo "错误：未找到可用的 Python 解释器（需能导入 werkzeug）。"
   echo "请先安装 Flask / Werkzeug，再运行本脚本。"
   exit 1
+}
+
+check_backend_requirements() {
+  need_cmd nvidia-smi "请先安装并配置 NVIDIA 驱动，确保 nvidia-smi 可用。"
+  need_cmd curl "请先安装 curl。"
+  need_cmd xargs "请先安装 findutils。"
+  find_python_bin
+}
+
+check_webui_requirements() {
+  find_python_bin
 }
 
 ensure_runtime_dir() {
@@ -170,7 +204,7 @@ wait_for_service() {
 }
 
 bootstrap_config() {
-  find_python_bin
+  check_webui_requirements
   load_env_exports
   LAST_GENERATED_PASSWORD="$("${PYTHON_BIN}" -c "
 import os, sys
@@ -189,6 +223,7 @@ print(password or '')
 }
 
 start_backend() {
+  check_backend_requirements
   if service_running "${BACKEND_PID_FILE}"; then
     echo "sserveros.sh 已在运行。"
     return 0
@@ -206,12 +241,12 @@ start_backend() {
 }
 
 start_webui() {
+  check_webui_requirements
   if service_running "${WEBUI_PID_FILE}"; then
     echo "WebUI 已在运行。"
     return 0
   fi
 
-  find_python_bin
   ensure_runtime_dir
   nohup "${PYTHON_BIN}" "${SCRIPT_DIR}/webui.py" > /dev/null 2>&1 &
   wait_for_service "${WEBUI_PID_FILE}" "WebUI"
@@ -286,7 +321,7 @@ prompt_yes_no() {
 
 change_webui_password() {
   local new_password confirm_password
-  find_python_bin
+  check_webui_requirements
   bootstrap_config >/dev/null
 
   while true; do
@@ -377,7 +412,7 @@ menu_loop() {
 }
 
 main() {
-  find_python_bin
+  check_manage_requirements
   ensure_runtime_dir
 
   if [ ! -f "${CONFIG_FILE}" ] && ! service_running "${BACKEND_PID_FILE}" && ! service_running "${WEBUI_PID_FILE}"; then

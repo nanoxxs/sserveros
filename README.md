@@ -26,6 +26,7 @@ bash ./manage.sh
 - 可以直接停止这两个进程
 - 可以修改 WebUI 密码
 - 可以更新 `.env` 中的 `SENDKEY`
+- 会自动检查当前环境是否具备必要工具；缺少 `python`、`curl`、`nvidia-smi`、`pgrep/pkill` 等依赖时会直接提示
 
 如果你不想使用一键脚本，后文也保留了手动启动方式。
 
