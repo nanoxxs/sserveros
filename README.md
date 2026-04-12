@@ -1,6 +1,6 @@
 # sserveros
 
-GPU 服务器监控工具。通过 [Server Chan](https://sct.ftqq.com/) 推送微信通知，配套 Web 界面（Flask）可在局域网（Tailscale）查看 GPU 状态、管理监控任务、查看事件日志。
+GPU 服务器监控工具。通过 [Server酱](https://sct.ftqq.com/) 推送微信通知，配套 Web 界面（Flask）可在局域网（Tailscale）查看 GPU 状态、管理监控任务、查看事件日志。
 
 ## 一键脚本
 
