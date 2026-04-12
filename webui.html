@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sserveros</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; font-size: 15px; }
+
+/* Login */
+.login-wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 32px; width: 100%; max-width: 360px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); margin: 16px; }
+.login-title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+.login-sub { font-size: 13px; color: #94a3b8; margin-bottom: 24px; }
+.login-input { width: 100%; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 14px; font-size: 15px; outline: none; margin-bottom: 12px; }
+.login-input:focus { border-color: #2563eb; }
+.login-btn { width: 100%; background: #2563eb; color: #fff; border: none; border-radius: 10px; padding: 13px; font-size: 15px; font-weight: 600; cursor: pointer; }
+.login-error { color: #ef4444; font-size: 13px; margin-top: 10px; display: none; }
+
+/* App shell */
+.app { display: none; }
+.offline-banner { background: #fee2e2; color: #b91c1c; padding: 10px 16px; font-size: 13px; font-weight: 500; text-align: center; display: none; }
+.header { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; }
+.header-title { font-weight: 700; font-size: 17px; }
+.header-host { font-size: 12px; color: #94a3b8; margin-top: 1px; }
+.status-badge { background: #dcfce7; color: #16a34a; font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 500; }
+.status-badge.offline { background: #fee2e2; color: #ef4444; }
+.logout-btn { font-size: 12px; color: #94a3b8; background: none; border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 12px; cursor: pointer; margin-left: 10px; }
+.pwd-btn { font-size: 12px; color: #64748b; background: none; border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 10px; cursor: pointer; margin-left: 4px; }
+
+/* Modal */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 100; align-items: center; justify-content: center; }
+.modal-overlay.open { display: flex; }
+.modal-box { background: #fff; border-radius: 16px; padding: 24px; width: 100%; max-width: 340px; margin: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); }
+.modal-title { font-weight: 700; font-size: 16px; margin-bottom: 18px; }
+.modal-input { width: 100%; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; font-size: 14px; outline: none; margin-bottom: 10px; }
+.modal-input:focus { border-color: #2563eb; }
+.modal-actions { display: flex; gap: 8px; margin-top: 4px; }
+.modal-submit { flex: 1; background: #2563eb; color: #fff; border: none; border-radius: 10px; padding: 11px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.modal-cancel { background: none; color: #64748b; border: 1px solid #e2e8f0; border-radius: 10px; padding: 11px 16px; font-size: 14px; cursor: pointer; }
+.modal-msg { font-size: 13px; margin-top: 8px; display: none; }
+
+/* Tabs */
+.tabs { background: #fff; border-bottom: 1px solid #e2e8f0; display: flex; overflow-x: auto; }
+.tab { flex: 1; min-width: 70px; padding: 14px 8px; text-align: center; font-size: 14px; color: #94a3b8; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+.tab.active { color: #2563eb; border-bottom-color: #2563eb; font-weight: 600; }
+
+/* Panes */
+.pane { padding: 16px; max-width: 900px; margin: 0 auto; display: none; flex-direction: column; gap: 14px; }
+.pane.active { display: flex; }
+
+/* Generic card */
+.card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+.card-header { padding: 14px 16px; border-bottom: 1px solid #f1f5f9; font-weight: 600; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+
+/* GPU */
+.gpu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.gpu-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+.gpu-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.gpu-name { font-weight: 700; font-size: 16px; }
+.gpu-model { font-size: 12px; color: #94a3b8; margin-left: 6px; }
+.gpu-pct { background: #dbeafe; color: #2563eb; font-size: 12px; padding: 3px 9px; border-radius: 12px; font-weight: 600; }
+.bar-bg { background: #e2e8f0; border-radius: 4px; height: 8px; margin-bottom: 8px; }
+.bar-fill { height: 100%; background: linear-gradient(90deg, #2563eb, #60a5fa); border-radius: 4px; transition: width 0.4s; }
+.gpu-meta { display: flex; justify-content: space-between; font-size: 13px; color: #64748b; }
+.gpu-cmd { font-size: 12px; color: #94a3b8; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.refresh-hint { text-align: center; font-size: 12px; color: #cbd5e1; }
+
+/* PIDs */
+.pid-row { padding: 14px 16px; border-bottom: 1px solid #f8fafc; display: flex; justify-content: space-between; align-items: center; }
+.pid-row:last-child { border-bottom: none; }
+.pid-num { font-size: 15px; font-weight: 600; }
+.pid-cmd { font-size: 12px; color: #94a3b8; margin-top: 2px; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.badge-alive { background: #dcfce7; color: #16a34a; font-size: 11px; padding: 3px 8px; border-radius: 10px; }
+.badge-dead { background: #fee2e2; color: #ef4444; font-size: 11px; padding: 3px 8px; border-radius: 10px; }
+.del-btn { background: none; border: none; color: #ef4444; font-size: 20px; cursor: pointer; padding: 4px 8px; line-height: 1; }
+.add-row { display: flex; gap: 10px; padding: 14px 16px; }
+.add-input { flex: 1; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; font-size: 14px; outline: none; }
+.add-input:focus { border-color: #2563eb; }
+.add-btn { background: #2563eb; color: #fff; border: none; border-radius: 10px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+
+/* Settings */
+.setting-row { padding: 14px 16px; border-bottom: 1px solid #f8fafc; }
+.setting-row:last-child { border-bottom: none; }
+.setting-label { font-size: 12px; color: #64748b; margin-bottom: 6px; }
+.setting-input { width: 100%; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; font-size: 14px; outline: none; }
+.setting-input:focus { border-color: #2563eb; }
+.save-btn { background: #2563eb; color: #fff; border: none; border-radius: 12px; padding: 14px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%; box-shadow: 0 2px 8px rgba(37,99,235,0.3); }
+.save-msg { text-align: center; font-size: 13px; color: #16a34a; margin-top: 8px; display: none; }
+
+/* Log list */
+.log-row { padding: 12px 16px; border-bottom: 1px solid #f8fafc; display: flex; gap: 10px; align-items: flex-start; cursor: pointer; transition: background .1s; }
+.log-row:hover { background: #f8fafc; }
+.log-row:last-child { border-bottom: none; }
+.log-tag { font-size: 11px; padding: 3px 8px; border-radius: 6px; white-space: nowrap; margin-top: 2px; font-weight: 500; flex-shrink: 0; }
+.tag-warn { background: #fee2e2; color: #ef4444; }
+.tag-found { background: #dbeafe; color: #2563eb; }
+.tag-recover { background: #dcfce7; color: #16a34a; }
+.tag-pid { background: #fef3c7; color: #d97706; }
+.tag-info { background: #f1f5f9; color: #64748b; }
+.log-main { flex: 1; min-width: 0; }
+.log-title-text { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-time-text { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+.log-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.send-ok { font-size: 11px; color: #16a34a; }
+.send-fail { font-size: 11px; color: #ef4444; }
+.chevron { color: #cbd5e1; font-size: 16px; }
+
+/* Log detail */
+.detail-header { padding: 14px 16px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 10px; }
+.back-btn { background: none; border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer; color: #64748b; white-space: nowrap; }
+.detail-title-text { font-weight: 600; font-size: 14px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.detail-meta { padding: 14px 16px; border-bottom: 1px solid #f1f5f9; display: flex; flex-direction: column; gap: 10px; }
+.meta-row { display: flex; gap: 10px; font-size: 13px; }
+.meta-label { color: #94a3b8; width: 64px; flex-shrink: 0; }
+.meta-value { color: #1e293b; font-weight: 500; }
+.meta-ok { color: #16a34a; font-weight: 600; }
+.meta-fail { color: #ef4444; font-weight: 600; }
+.detail-body { padding: 14px 16px; }
+.detail-body-label { font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+.detail-body-content { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 13px; color: #334155; line-height: 1.6; white-space: pre-wrap; font-family: monospace; max-height: 50vh; overflow-y: auto; word-break: break-all; }
+
+/* Archive */
+.archive-row { padding: 12px 16px; border-bottom: 1px solid #f8fafc; display: flex; justify-content: space-between; align-items: center; }
+.archive-row:last-child { border-bottom: none; }
+.dl-btn { font-size: 12px; color: #2563eb; background: none; border: 1px solid #dbeafe; border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<!-- ── Login ─────────────────────────────────────────── -->
+<div class="login-wrap" id="loginWrap" style="display:none">
+  <div class="login-card">
+    <div class="login-title">sserveros</div>
+    <div class="login-sub">请输入访问密码</div>
+    <input class="login-input" type="password" id="loginPwd" placeholder="密码"
+           onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="login-btn" onclick="doLogin()">登录</button>
+    <div class="login-error" id="loginErr">密码错误，请重试</div>
+  </div>
+</div>
+
+<!-- ── App ───────────────────────────────────────────── -->
+<div class="app" id="app">
+  <div class="offline-banner" id="offlineBanner">⚠ 监控脚本未运行</div>
+
+  <div class="header">
+    <div>
+      <div class="header-title">sserveros</div>
+      <div class="header-host" id="headerHost"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="status-badge" id="statusBadge">● 运行中</span>
+      <button class="pwd-btn" onclick="openPwdModal()" title="修改密码">🔑</button>
+      <button class="logout-btn" onclick="doLogout()">退出</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('gpu')">GPU</div>
+    <div class="tab" onclick="switchTab('pids')">PIDs</div>
+    <div class="tab" onclick="switchTab('settings')">设置</div>
+    <div class="tab" onclick="switchTab('log')">日志</div>
+  </div>
+
+  <!-- GPU -->
+  <div class="pane active" id="paneGpu">
+    <div class="gpu-grid" id="gpuGrid"></div>
+    <div class="refresh-hint">每 5 秒自动刷新</div>
+  </div>
+
+  <!-- PIDs -->
+  <div class="pane" id="panePids">
+    <div class="card">
+      <div class="card-header">
+        <span>监控 PID 列表</span>
+        <span style="font-size:13px;color:#94a3b8;font-weight:400" id="pidCount"></span>
+      </div>
+      <div id="pidList"></div>
+      <div class="add-row">
+        <input class="add-input" id="addPidInput" placeholder="PID 号" type="number" style="max-width:110px"
+               onkeydown="if(event.key==='Enter')addPid()">
+        <input class="add-input" id="addNoteInput" placeholder="备注（可选）"
+               onkeydown="if(event.key==='Enter')addPid()">
+        <button class="add-btn" onclick="addPid()">添加</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="pane" id="paneSettings">
+    <div class="card">
+      <div class="card-header">监控参数</div>
+      <div class="setting-row">
+        <div class="setting-label">显存告警阈值 (MiB)</div>
+        <input class="setting-input" id="cfgThreshold" type="number">
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">检测间隔 (秒)</div>
+        <input class="setting-input" id="cfgInterval" type="number">
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">确认次数</div>
+        <input class="setting-input" id="cfgConfirm" type="number">
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">SENDKEY</div>
+        <input class="setting-input" id="cfgSendkey" placeholder="SCTxxxxxxxx">
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">日志压缩触发大小 (MB)</div>
+        <input class="setting-input" id="cfgLogMb" type="number">
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">历史存档保留数量</div>
+        <input class="setting-input" id="cfgLogKeep" type="number">
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">监控 GPU 索引（逗号分隔，留空自动检测）</div>
+        <input class="setting-input" id="cfgGpus" placeholder="例：0,1,2">
+      </div>
+    </div>
+    <button class="save-btn" onclick="saveSettings()">保存设置</button>
+    <div class="save-msg" id="saveMsg">✓ 已保存</div>
+  </div>
+
+  <!-- Log -->
+  <div class="pane" id="paneLog">
+    <div id="logListView">
+      <div class="card">
+        <div class="card-header">
+          <span>事件日志</span>
+          <span style="font-size:13px;color:#94a3b8;font-weight:400">最近 200 条</span>
+        </div>
+        <div id="logList"></div>
+      </div>
+      <div class="card" id="archiveCard">
+        <div class="card-header">
+          <span>历史存档</span>
+          <span style="font-size:13px;color:#94a3b8;font-weight:400" id="archiveCount"></span>
+        </div>
+        <div id="archiveList"></div>
+      </div>
+    </div>
+    <div id="logDetailView" style="display:none">
+      <div class="card">
+        <div class="detail-header">
+          <button class="back-btn" onclick="showLogList()">← 返回</button>
+          <span class="detail-title-text" id="detailTitle"></span>
+          <span class="log-tag" id="detailTag"></span>
+        </div>
+        <div class="detail-meta">
+          <div class="meta-row">
+            <span class="meta-label">时间</span>
+            <span class="meta-value" id="detailTime"></span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">发送至</span>
+            <span class="meta-value" id="detailSendkey"></span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">发送状态</span>
+            <span id="detailStatus"></span>
+          </div>
+        </div>
+        <div class="detail-body">
+          <div class="detail-body-label">通知内容</div>
+          <div class="detail-body-content" id="detailContent"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Password Modal -->
+<div class="modal-overlay" id="pwdModal" onclick="if(event.target===this)closePwdModal()">
+  <div class="modal-box">
+    <div class="modal-title">修改密码</div>
+    <input class="modal-input" id="cfgCurPwd" type="password" placeholder="当前密码"
+           onkeydown="if(event.key==='Enter')changePassword()">
+    <input class="modal-input" id="cfgNewPwd" type="password" placeholder="新密码"
+           onkeydown="if(event.key==='Enter')changePassword()">
+    <input class="modal-input" id="cfgConfirmPwd" type="password" placeholder="再次输入新密码"
+           onkeydown="if(event.key==='Enter')changePassword()">
+    <div class="modal-msg" id="pwdMsg"></div>
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closePwdModal()">取消</button>
+      <button class="modal-submit" onclick="changePassword()">确认修改</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const TAG_LABELS = { warn:'告警', found:'发现', recover:'恢复', pid:'PID消失', info:'信息' };
+const TAG_CLASSES = { warn:'tag-warn', found:'tag-found', recover:'tag-recover', pid:'tag-pid', info:'tag-info' };
+
+let _refreshTimer = null;
+let _currentTab = 'gpu';
+
+// ── Password cache (sessionStorage, 5-min TTL) ───────────
+const PWD_CACHE_KEY = 'ss_pwd';
+const PWD_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function savePwdCache(pwd) {
+  try {
+    sessionStorage.setItem(PWD_CACHE_KEY, JSON.stringify({ pwd, exp: Date.now() + PWD_CACHE_TTL }));
+  } catch (e) {}
+}
+
+function loadPwdCache() {
+  try {
+    const raw = sessionStorage.getItem(PWD_CACHE_KEY);
+    if (!raw) return null;
+    const { pwd, exp } = JSON.parse(raw);
+    if (Date.now() > exp) { sessionStorage.removeItem(PWD_CACHE_KEY); return null; }
+    return pwd;
+  } catch (e) { return null; }
+}
+
+function clearPwdCache() {
+  try { sessionStorage.removeItem(PWD_CACHE_KEY); } catch (e) {}
+}
+
+// ── Helpers ──────────────────────────────────────────────
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  if (r.status === 401 && path !== '/api/auth/login') {
+    const cached = loadPwdCache();
+    if (cached) {
+      const re = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: cached })
+      });
+      if (re.ok) {
+        // Retry original request
+        return fetch(path, opts);
+      }
+    }
+    clearPwdCache();
+    location.reload();
+  }
+  return r;
+}
+
+function $(id) { return document.getElementById(id); }
+
+// ── Auth ─────────────────────────────────────────────────
+
+async function doLogin() {
+  const pwd = $('loginPwd').value;
+  const r = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: pwd })
+  });
+  if (r.ok) {
+    savePwdCache(pwd);
+    showApp();
+  } else {
+    $('loginErr').style.display = 'block';
+  }
+}
+
+async function doLogout() {
+  clearPwdCache();
+  await fetch('/api/auth/logout', { method: 'POST' });
+  location.reload();
+}
+
+function showApp() {
+  $('loginWrap').style.display = 'none';
+  $('app').style.display = 'block';
+  startApp();
+}
+
+// ── Bootstrap ────────────────────────────────────────────
+
+function startApp() {
+  startGpuRefresh();
+}
+
+// Silent auth check on page load
+(async function checkAuth() {
+  const r = await fetch('/api/state');
+  if (r.ok) {
+    showApp();
+    return;
+  }
+  // Try cached password
+  const cached = loadPwdCache();
+  if (cached) {
+    const re = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: cached })
+    });
+    if (re.ok) { showApp(); return; }
+    clearPwdCache();
+  }
+  // Show login form
+  $('loginWrap').style.display = 'flex';
+})();
+
+// ── Tab switching ────────────────────────────────────────
+
+function switchTab(name) {
+  _currentTab = name;
+  const TABS = ['gpu', 'pids', 'settings', 'log'];
+  document.querySelectorAll('.tab').forEach((el, i) => {
+    el.classList.toggle('active', TABS[i] === name);
+  });
+  document.querySelectorAll('.pane').forEach(el => {
+    const active = el.id === 'pane' + name[0].toUpperCase() + name.slice(1);
+    el.classList.toggle('active', active);
+  });
+  if (name === 'gpu') startGpuRefresh();
+  else stopGpuRefresh();
+  if (name === 'pids') loadPids();
+  if (name === 'settings') loadSettings();
+  if (name === 'log') { loadLog(); loadArchives(); }
+}
+
+// ── GPU ──────────────────────────────────────────────────
+
+function startGpuRefresh() {
+  stopGpuRefresh();
+  fetchState();
+  _refreshTimer = setInterval(fetchState, 5000);
+}
+
+function stopGpuRefresh() {
+  if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+}
+
+async function fetchState() {
+  try {
+    const r = await api('/api/state');
+    if (!r.ok) return;
+    const data = await r.json();
+    renderGpu(data);
+    updateStatusBanner(data);
+  } catch (e) {}
+}
+
+function updateStatusBanner(data) {
+  const running = data.monitor_running;
+  $('offlineBanner').style.display = running ? 'none' : 'block';
+  const badge = $('statusBadge');
+  badge.textContent = running ? '● 运行中' : '● 未运行';
+  badge.className = 'status-badge' + (running ? '' : ' offline');
+}
+
+function renderGpu(data) {
+  const grid = $('gpuGrid');
+  if (!data.gpus || !data.gpus.length) {
+    grid.innerHTML = '<p style="color:#94a3b8;padding:16px;font-size:14px">暂无 GPU 数据</p>';
+    return;
+  }
+  grid.innerHTML = data.gpus.map(gpu => {
+    const pct = gpu.mem_total > 0 ? Math.round(gpu.mem_used / gpu.mem_total * 100) : 0;
+    return `<div class="gpu-card">
+      <div class="gpu-top">
+        <div><span class="gpu-name">GPU ${gpu.index}</span><span class="gpu-model">${escHtml(gpu.name || '')}</span></div>
+        <span class="gpu-pct">${pct}%</span>
+      </div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <div class="gpu-meta">
+        <span>${gpu.mem_used} / ${gpu.mem_total} MiB</span>
+        <span>主PID: <b>${gpu.top_pid || '—'}</b></span>
+      </div>
+      <div class="gpu-cmd" title="${escHtml(gpu.top_cmd || '')}">${escHtml(gpu.top_cmd || '')}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── PIDs ─────────────────────────────────────────────────
+
+async function loadPids() {
+  const r = await api('/api/state');
+  if (!r.ok) return;
+  const data = await r.json();
+  const pids = data.watch_pids || [];
+  $('pidCount').textContent = pids.length + ' 个';
+  $('pidList').innerHTML = pids.length === 0
+    ? '<div style="padding:16px;color:#94a3b8;font-size:14px">暂无监控 PID</div>'
+    : pids.map(p => `<div class="pid-row">
+        <div>
+          <div class="pid-num">${p.pid}${p.note ? `<span style="font-size:12px;font-weight:400;color:#64748b;margin-left:8px">${escHtml(p.note)}</span>` : ''}</div>
+          <div class="pid-cmd" title="${escHtml(p.cmd || '')}">${escHtml(p.cmd || '')}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="${p.alive ? 'badge-alive' : 'badge-dead'}">${p.alive ? '存活' : '已消失'}</span>
+          <button class="del-btn" onclick="removePid(${p.pid})">×</button>
+        </div>
+      </div>`).join('');
+}
+
+async function addPid() {
+  const input = $('addPidInput');
+  const noteInput = $('addNoteInput');
+  const pid = parseInt(input.value);
+  if (!pid || pid <= 0) return;
+  const note = noteInput.value.trim();
+  const r = await api('/api/pids/add', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pid, note })
+  });
+  if (r.ok) { input.value = ''; noteInput.value = ''; loadPids(); }
+}
+
+async function removePid(pid) {
+  await api('/api/pids/remove', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pid })
+  });
+  loadPids();
+}
+
+// ── Settings ─────────────────────────────────────────────
+
+async function loadSettings() {
+  const r = await api('/api/config');
+  if (!r.ok) return;
+  const cfg = await r.json();
+  $('cfgThreshold').value = cfg.mem_threshold_mib ?? 10240;
+  $('cfgInterval').value  = cfg.check_interval ?? 5;
+  $('cfgConfirm').value   = cfg.confirm_times ?? 2;
+  $('cfgSendkey').value   = cfg.sendkey ?? '';
+  $('cfgLogMb').value     = cfg.log_max_size_mb ?? 10;
+  $('cfgLogKeep').value   = cfg.log_archive_keep ?? 5;
+  $('cfgGpus').value      = (cfg.gpus || []).join(',');
+}
+
+async function saveSettings() {
+  const gpusStr = $('cfgGpus').value.trim();
+  const gpus = gpusStr
+    ? gpusStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 0)
+    : [];
+  const body = {
+    mem_threshold_mib: parseInt($('cfgThreshold').value),
+    check_interval:    parseInt($('cfgInterval').value),
+    confirm_times:     parseInt($('cfgConfirm').value),
+    sendkey:           $('cfgSendkey').value,
+    log_max_size_mb:   parseInt($('cfgLogMb').value),
+    log_archive_keep:  parseInt($('cfgLogKeep').value),
+    gpus,
+  };
+  const r = await api('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const msg = $('saveMsg');
+  if (r.ok) {
+    msg.style.display = 'block';
+    setTimeout(() => { msg.style.display = 'none'; }, 2000);
+  } else {
+    msg.textContent = '保存失败';
+    msg.style.color = '#ef4444';
+    msg.style.display = 'block';
+  }
+}
+
+function openPwdModal() {
+  $('cfgCurPwd').value = '';
+  $('cfgNewPwd').value = '';
+  $('cfgConfirmPwd').value = '';
+  $('pwdMsg').style.display = 'none';
+  $('pwdModal').classList.add('open');
+  setTimeout(() => $('cfgCurPwd').focus(), 50);
+}
+
+function closePwdModal() {
+  $('pwdModal').classList.remove('open');
+}
+
+async function changePassword() {
+  const cur = $('cfgCurPwd').value;
+  const nw  = $('cfgNewPwd').value;
+  const cf  = $('cfgConfirmPwd').value;
+  const msg = $('pwdMsg');
+  msg.style.color = '#ef4444';
+  if (!cur || !nw) {
+    msg.textContent = '请填写当前密码和新密码';
+    msg.style.display = 'block';
+    return;
+  }
+  if (nw !== cf) {
+    msg.textContent = '两次输入的新密码不一致';
+    msg.style.display = 'block';
+    return;
+  }
+  const r = await api('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: cur, new_password: nw })
+  });
+  if (r.ok) {
+    msg.style.color = '#16a34a';
+    msg.textContent = '✓ 密码已修改';
+    msg.style.display = 'block';
+    setTimeout(() => closePwdModal(), 1200);
+  } else {
+    const err = await r.json().catch(() => ({}));
+    msg.textContent = err.error || '修改失败';
+    msg.style.display = 'block';
+  }
+}
+
+// ── Log ──────────────────────────────────────────────────
+
+async function loadLog() {
+  const r = await api('/api/log');
+  if (!r.ok) return;
+  const entries = await r.json();
+  $('logList').innerHTML = entries.length === 0
+    ? '<div style="padding:16px;color:#94a3b8;font-size:14px">暂无日志</div>'
+    : entries.map((e, i) => {
+        const tagClass = TAG_CLASSES[e.type] || 'tag-info';
+        const tagLabel = TAG_LABELS[e.type] || e.type;
+        return `<div class="log-row" onclick="showLogDetail(${i})">
+          <span class="log-tag ${tagClass}">${tagLabel}</span>
+          <div class="log-main">
+            <div class="log-title-text">${escHtml(e.title)}</div>
+            <div class="log-time-text">${e.time}</div>
+          </div>
+          <div class="log-right">
+            <span class="${e.send_success ? 'send-ok' : 'send-fail'}">${e.send_success ? '✓ 已发送' : '✗ 失败'}</span>
+            <span class="chevron">›</span>
+          </div>
+        </div>`;
+      }).join('');
+  window._logEntries = entries;
+}
+
+async function loadArchives() {
+  const r = await api('/api/log/archives');
+  if (!r.ok) return;
+  const archives = await r.json();
+  $('archiveCount').textContent = archives.length + ' 个';
+  $('archiveList').innerHTML = archives.length === 0
+    ? '<div style="padding:16px;color:#94a3b8;font-size:14px">暂无存档</div>'
+    : archives.map(a => {
+        const kb = (a.size_bytes / 1024).toFixed(1);
+        return `<div class="archive-row">
+          <div>
+            <div style="font-size:14px">${escHtml(a.filename)}</div>
+            <div style="font-size:12px;color:#94a3b8">${kb} KB</div>
+          </div>
+          <a href="/api/log/archives/${encodeURIComponent(a.filename)}" download>
+            <button class="dl-btn">下载</button>
+          </a>
+        </div>`;
+      }).join('');
+}
+
+function showLogDetail(idx) {
+  const e = (window._logEntries || [])[idx];
+  if (!e) return;
+  const tagClass = TAG_CLASSES[e.type] || 'tag-info';
+  const tagLabel = TAG_LABELS[e.type] || e.type;
+  $('detailTitle').textContent = e.title;
+  $('detailTag').textContent = tagLabel;
+  $('detailTag').className = 'log-tag ' + tagClass;
+  $('detailTime').textContent = e.time;
+  $('detailSendkey').textContent = 'Server Chan · ' + (e.sendkey_hint || '');
+  const statusEl = $('detailStatus');
+  if (e.send_success) {
+    statusEl.innerHTML = `<span class="meta-ok">✓ 成功（HTTP ${e.http_status}）</span>`;
+  } else {
+    statusEl.innerHTML = `<span class="meta-fail">✗ 失败（HTTP ${e.http_status}）</span>`;
+  }
+  $('detailContent').textContent = e.content;
+  $('logListView').style.display = 'none';
+  $('logDetailView').style.display = 'block';
+}
+
+function showLogList() {
+  $('logDetailView').style.display = 'none';
+  $('logListView').style.display = 'block';
+}
+
+// ── Util ─────────────────────────────────────────────────
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+</script>
+</body>
+</html>

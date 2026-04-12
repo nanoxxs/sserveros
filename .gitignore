@@ -1,0 +1,42 @@
+# Superpowers temporary files
+.superpowers/
+
+# Runtime files
+runtime/
+config.json
+config.json.tmp
+
+# WebUI runtime log
+webui.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# Environment
+.env
+*.local
+
+# Pytest cache
+.pytest_cache/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Claude Code local settings
+.claude/
+.codex
