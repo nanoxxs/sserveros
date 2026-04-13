@@ -52,13 +52,13 @@ find_python_bin() {
 
   for candidate in python3 python; do
     command -v "${candidate}" >/dev/null 2>&1 || continue
-    if "${candidate}" -c "import werkzeug.security" >/dev/null 2>&1; then
+    if "${candidate}" -c "import werkzeug.security, psutil" >/dev/null 2>&1; then
       PYTHON_BIN="${candidate}"
       return 0
     fi
   done
 
-  echo "错误：未找到可用的 Python 解释器（需能导入 werkzeug）。"
+  echo "错误：未找到可用的 Python 解释器（需能导入 werkzeug 和 psutil）。"
   echo "请先安装 Flask / Werkzeug，再运行本脚本。"
   exit 1
 }
@@ -250,12 +250,38 @@ start_backend() {
   wait_for_service "${BACKEND_PID_FILE}" "sserveros.sh"
 }
 
+get_webui_port() {
+  "${PYTHON_BIN}" -c "
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        print(json.load(f).get('webui_port', 6777))
+except Exception:
+    print(6777)
+" "${CONFIG_FILE}"
+}
+
+check_webui_port() {
+  local port="$1"
+  if ss -tlnp 2>/dev/null | grep -q ":${port} " || \
+     ss -tlnp 2>/dev/null | grep -q ":${port}$"; then
+    echo "错误：端口 ${port} 已被占用，WebUI 无法启动。"
+    echo "请修改 ${CONFIG_FILE} 中的 webui_port 字段后重试。"
+    return 1
+  fi
+  return 0
+}
+
 start_webui() {
   check_webui_requirements
   if service_running "${WEBUI_PID_FILE}"; then
     echo "WebUI 已在运行。"
     return 0
   fi
+
+  local port
+  port="$(get_webui_port)"
+  check_webui_port "${port}" || return 1
 
   ensure_runtime_dir
   nohup "${PYTHON_BIN}" "${SCRIPT_DIR}/webui.py" > /dev/null 2>&1 &
