@@ -1,6 +1,7 @@
 import gzip
 import json
 import os
+import shutil
 import sys
 from datetime import datetime
 import pytest
@@ -30,6 +31,10 @@ def tmp_config(tmp_path):
     }
     (tmp_path / 'config.json').write_text(json.dumps(cfg))
     (tmp_path / 'runtime').mkdir()
+    shutil.copyfile(
+        os.path.join(os.path.dirname(__file__), '..', 'webui.html'),
+        tmp_path / 'webui.html',
+    )
     return tmp_path
 
 
@@ -77,6 +82,15 @@ def test_login_correct_password(auth_client):
 def test_logout_clears_session(auth_client):
     auth_client.post('/api/auth/logout')
     assert auth_client.get('/api/state').status_code == 401
+
+
+def test_index_contains_project_links(client):
+    r = client.get('/')
+    text = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert 'https://github.com/nanoxxs/sserveros' in text
+    assert 'https://github.com/nanoxxs/sserveros/blob/main/README.md' in text
+    assert '第三方教程可能已过时，请以官方文档为准' in text
 
 
 # ── State / Config ──────────────────────────────────────
