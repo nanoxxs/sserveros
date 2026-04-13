@@ -738,20 +738,27 @@ prompt_yes_no() {
   done
 }
 
+read_secret_input() {
+  local prompt="$1"
+  printf '%s' "${prompt}"
+  IFS= read -r -s REPLY
+  printf '\n'
+}
+
 change_webui_password() {
   local new_password confirm_password
   check_webui_requirements
   bootstrap_config >/dev/null
 
   while true; do
-    printf '请输入新的 WebUI 密码： '
-    read -r new_password
+    read_secret_input '请输入新的 WebUI 密码： '
+    new_password="${REPLY}"
     if [ -z "${new_password}" ]; then
       echo "密码不能为空。"
       continue
     fi
-    printf '请再次输入新的 WebUI 密码： '
-    read -r confirm_password
+    read_secret_input '请再次输入新的 WebUI 密码： '
+    confirm_password="${REPLY}"
     if [ "${new_password}" != "${confirm_password}" ]; then
       echo "两次输入不一致，请重试。"
       continue
@@ -759,17 +766,18 @@ change_webui_password() {
     break
   done
 
-  "${PYTHON_BIN}" -c "
+  printf '%s' "${new_password}" | "${PYTHON_BIN}" -c "
 import json, sys
 from werkzeug.security import generate_password_hash
-path, password = sys.argv[1], sys.argv[2]
+path = sys.argv[1]
+password = sys.stdin.read()
 with open(path) as f:
     cfg = json.load(f)
 cfg['password_hash'] = generate_password_hash(password)
 with open(path, 'w') as f:
     json.dump(cfg, f, indent=2, ensure_ascii=False)
     f.write('\n')
-" "${CONFIG_FILE}" "${new_password}"
+" "${CONFIG_FILE}"
 
   echo "WebUI 密码已更新。"
 }
@@ -796,40 +804,78 @@ quick_start_flow() {
   show_status
 }
 
+backend_menu() {
+  local choice
+  while true; do
+    show_status
+    echo "sserveros.sh 管理："
+    echo "1. 启动"
+    echo "2. 停止"
+    echo "0. 返回上一级"
+    printf '输入编号： '
+    read -r choice
+
+    case "${choice}" in
+      1)
+        bootstrap_config
+        start_backend
+        ;;
+      2) stop_service "sserveros.sh" "${BACKEND_PID_FILE}" "${SCRIPT_DIR}/sserveros.sh" ;;
+      0) return 0 ;;
+      *) echo "无效输入，请重试。" ;;
+    esac
+  done
+}
+
+webui_menu() {
+  local choice webui_port
+  while true; do
+    show_status
+    echo "WebUI 管理："
+    echo "1. 启动"
+    echo "2. 停止"
+    echo "3. 修改 WebUI 密码"
+    echo "0. 返回上一级"
+    printf '输入编号： '
+    read -r choice
+
+    case "${choice}" in
+      1)
+        bootstrap_config
+        start_webui
+        webui_port="$(get_webui_port)"
+        echo "WebUI 默认地址：http://127.0.0.1:${webui_port}"
+        ;;
+      2) stop_service "WebUI" "${WEBUI_PID_FILE}" "${SCRIPT_DIR}/webui.py" ;;
+      3) change_webui_password ;;
+      0) return 0 ;;
+      *) echo "无效输入，请重试。" ;;
+    esac
+  done
+}
+
 menu_loop() {
   local choice
   while true; do
     show_status
     echo "请选择操作："
     echo "1. 一键初始化并启动"
-    echo "2. 启动 sserveros.sh"
-    echo "3. 停止 sserveros.sh"
-    echo "4. 启动 WebUI"
-    echo "5. 停止 WebUI"
-    echo "6. 查看并停止项目相关进程"
-    echo "7. 修改 WebUI 密码"
-    echo "8. 更新 SENDKEY"
-    echo "9. 拉取最新脚本"
+    echo "2. 管理 sserveros.sh"
+    echo "3. 管理 WebUI"
+    echo "4. 查看并停止项目相关进程"
+    echo "5. 更新 SENDKEY"
+    echo "6. 拉取最新脚本"
     echo "0. 退出"
     printf '输入编号： '
     read -r choice
 
     case "${choice}" in
       1) quick_start_flow ;;
-      2)
-        bootstrap_config
-        start_backend
-        ;;
-      3) stop_service "sserveros.sh" "${BACKEND_PID_FILE}" "${SCRIPT_DIR}/sserveros.sh" ;;
-      4)
-        bootstrap_config
-        start_webui
-        ;;
-      5) stop_service "WebUI" "${WEBUI_PID_FILE}" "${SCRIPT_DIR}/webui.py" ;;
-      6) stop_project_process_from_menu ;;
-      7) change_webui_password ;;
-      8) prompt_sendkey ;;
-      9) pull_latest_scripts ;;
+      2) backend_menu ;;
+      3) webui_menu ;;
+      4) stop_project_process_from_menu ;;
+      5) prompt_sendkey ;;
+      6) pull_latest_scripts ;;
       0) exit 0 ;;
       *) echo "无效输入，请重试。" ;;
     esac
