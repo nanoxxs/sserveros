@@ -45,21 +45,29 @@ init_colors() {
 }
 
 find_python_bin() {
-  local candidate
+  local candidate missing pip_cmd
   if [ -n "${PYTHON_BIN}" ]; then
     return 0
   fi
 
   for candidate in python3 python; do
     command -v "${candidate}" >/dev/null 2>&1 || continue
-    if "${candidate}" -c "import werkzeug.security, psutil" >/dev/null 2>&1; then
+    # 找到解释器，逐个检测依赖
+    missing=""
+    "${candidate}" -c "import werkzeug.security" >/dev/null 2>&1 || missing="${missing} flask"
+    "${candidate}" -c "import psutil"            >/dev/null 2>&1 || missing="${missing} psutil"
+    if [ -z "${missing}" ]; then
       PYTHON_BIN="${candidate}"
       return 0
     fi
+    # 有缺失依赖，给出明确安装指引
+    pip_cmd="$(command -v pip3 2>/dev/null || command -v pip 2>/dev/null || echo pip)"
+    echo "错误：找到 ${candidate}，但缺少必要依赖：${missing}"
+    echo "请运行：${pip_cmd} install${missing}"
+    exit 1
   done
 
-  echo "错误：未找到可用的 Python 解释器（需能导入 werkzeug 和 psutil）。"
-  echo "请先安装 Flask / Werkzeug，再运行本脚本。"
+  echo "错误：未找到可用的 Python 3 解释器，请先安装 Python 3。"
   exit 1
 }
 
