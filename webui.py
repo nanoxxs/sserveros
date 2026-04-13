@@ -283,6 +283,33 @@ def create_app(script_dir: str = None):
         gpu_info['processes'] = processes
         return jsonify(gpu_info)
 
+    @app.route('/api/notify/test', methods=['POST'])
+    @require_auth
+    def api_notify_test():
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+        cfg = load_config_file(_config_path(script_dir))
+        sendkey = cfg.get('sendkey', '').strip()
+        if not sendkey:
+            return jsonify({'error': 'SENDKEY 未配置，请先在设置页填写'}), 400
+        url = f'https://sctapi.ftqq.com/{sendkey}.send'
+        data = urllib.parse.urlencode({
+            'title': 'sserveros 测试通知',
+            'desp': '这是一条来自 sserveros WebUI 的测试通知。\n\n如果你看到此消息，说明 SENDKEY 配置正确。',
+        }).encode()
+        try:
+            req = urllib.request.Request(url, data=data, method='POST')
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                http_status = resp.status
+            return jsonify({'ok': True, 'http_status': http_status,
+                            'message': f'测试通知已发送（HTTP {http_status}）'})
+        except urllib.error.HTTPError as e:
+            return jsonify({'ok': False, 'http_status': e.code,
+                            'error': f'发送失败（HTTP {e.code}）'}), 502
+        except Exception as e:
+            return jsonify({'error': f'请求失败：{e}'}), 500
+
     @app.route('/api/settings', methods=['POST'])
     @require_auth
     def api_settings():

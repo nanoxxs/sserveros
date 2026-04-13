@@ -28,6 +28,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .status-badge.offline { background: #fee2e2; color: #ef4444; }
 .logout-btn { font-size: 12px; color: #94a3b8; background: none; border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 12px; cursor: pointer; margin-left: 10px; }
 .pwd-btn { font-size: 12px; color: #64748b; background: none; border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 10px; cursor: pointer; margin-left: 4px; }
+.menu-btn { font-size: 16px; color: #64748b; background: none; border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 10px; cursor: pointer; margin-left: 4px; line-height: 1.2; }
+.dropdown { position: relative; display: inline-block; }
+.dropdown-menu { display: none; position: absolute; right: 0; top: calc(100% + 6px); background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.12); min-width: 152px; z-index: 50; overflow: hidden; }
+.dropdown-menu.open { display: block; }
+.dropdown-item { display: block; width: 100%; padding: 11px 16px; font-size: 14px; color: #1e293b; background: none; border: none; border-bottom: 1px solid #f1f5f9; cursor: pointer; text-align: left; transition: background .1s; white-space: nowrap; }
+.dropdown-item:last-child { border-bottom: none; }
+.dropdown-item:hover { background: #f8fafc; }
+.dropdown-item.danger { color: #ef4444; }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1e293b; color: #fff; padding: 10px 20px; border-radius: 10px; font-size: 14px; z-index: 300; opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap; }
+.toast.show { opacity: 1; }
 
 /* Modal */
 .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 100; align-items: center; justify-content: center; }
@@ -145,6 +155,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .detail-header { padding: 14px 16px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 10px; }
 .back-btn { background: none; border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer; color: #64748b; white-space: nowrap; }
 .detail-title-text { font-weight: 600; font-size: 14px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 480px) {
+  #gpuDetailView .detail-header { flex-wrap: wrap; padding-bottom: 10px; }
+  #gpuDetailTitle { flex-basis: 100%; white-space: normal; word-break: break-word; overflow: visible; text-overflow: unset; font-size: 13px; }
+}
 .detail-meta { padding: 14px 16px; border-bottom: 1px solid #f1f5f9; display: flex; flex-direction: column; gap: 10px; }
 .meta-row { display: flex; gap: 10px; font-size: 13px; }
 .meta-label { color: #94a3b8; width: 64px; flex-shrink: 0; }
@@ -186,8 +200,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     </div>
     <div style="display:flex;align-items:center;gap:8px">
       <span class="status-badge" id="statusBadge">● 运行中</span>
-      <button class="pwd-btn" onclick="openPwdModal()" title="修改密码">🔑</button>
-      <button class="logout-btn" onclick="doLogout()">退出</button>
+      <div class="dropdown" id="headerDropdown">
+        <button class="menu-btn" onclick="toggleDropdown()" title="操作菜单">⚙</button>
+        <div class="dropdown-menu" id="headerMenu">
+          <button class="dropdown-item" onclick="closeDropdown();openPwdModal()">🔑 修改密码</button>
+          <button class="dropdown-item" onclick="closeDropdown();sendTestNotify()" id="testNotifyBtn">🔔 测试通知</button>
+          <button class="dropdown-item danger" onclick="closeDropdown();doLogout()">退出登录</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -222,7 +242,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     <div class="card">
       <div class="card-header">
         <span>监控 PID 列表</span>
-        <span style="font-size:13px;color:#94a3b8;font-weight:400" id="pidCount"></span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:13px;color:#94a3b8;font-weight:400" id="pidCount"></span>
+          <button class="back-btn" onclick="clearDeadPids()" id="clearDeadBtn" style="display:none;color:#ef4444;border-color:#fecaca">清除已死</button>
+        </div>
       </div>
       <div id="pidList"></div>
       <div class="add-row">
@@ -321,6 +344,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   </div>
 </div>
 
+<div class="toast" id="toast"></div>
+
 <!-- Password Modal -->
 <div class="modal-overlay" id="pwdModal" onclick="if(event.target===this)closePwdModal()">
   <div class="modal-box">
@@ -346,6 +371,7 @@ const TAG_CLASSES = { warn:'tag-warn', found:'tag-found', recover:'tag-recover',
 let _refreshTimer = null;
 let _currentTab = 'gpu';
 let _appStarted = false;
+let _pidData = [];
 
 // ── Helpers ──────────────────────────────────────────────
 
@@ -365,6 +391,33 @@ function showMessage(targetId, text, kind = 'success') {
   el.textContent = text;
   el.style.display = text ? 'block' : 'none';
 }
+
+// ── Toast ────────────────────────────────────────────────
+
+let _toastTimer = null;
+function showToast(msg, ok = true) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.style.background = ok ? '#1e293b' : '#ef4444';
+  el.classList.add('show');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+// ── Dropdown ─────────────────────────────────────────────
+
+function toggleDropdown() {
+  $('headerMenu').classList.toggle('open');
+}
+
+function closeDropdown() {
+  $('headerMenu').classList.remove('open');
+}
+
+document.addEventListener('click', e => {
+  const dd = $('headerDropdown');
+  if (dd && !dd.contains(e.target)) closeDropdown();
+});
 
 // ── Auth ─────────────────────────────────────────────────
 
@@ -565,7 +618,16 @@ function showGpuList() {
 // ── PIDs ─────────────────────────────────────────────────
 
 function renderPids(pids) {
+  _pidData = pids;
+  const deadCount = pids.filter(p => !p.alive).length;
   $('pidCount').textContent = pids.length + ' 个';
+  const clearBtn = $('clearDeadBtn');
+  if (deadCount > 0) {
+    clearBtn.style.display = 'block';
+    clearBtn.textContent = `清除已死 (${deadCount})`;
+  } else {
+    clearBtn.style.display = 'none';
+  }
   $('pidList').innerHTML = pids.length === 0
     ? '<div style="padding:16px;color:#94a3b8;font-size:14px">暂无监控 PID</div>'
     : pids.map(p => `<div class="pid-row">
@@ -744,6 +806,42 @@ async function changePassword() {
     msg.textContent = payload.error || '修改失败';
     msg.style.display = 'block';
   }
+}
+
+// ── Notify Test ──────────────────────────────────────────
+
+async function sendTestNotify() {
+  const btn = $('testNotifyBtn');
+  const orig = btn.textContent;
+  btn.textContent = '发送中…';
+  btn.disabled = true;
+  try {
+    const r = await api('/api/notify/test', { method: 'POST' });
+    const payload = await r.json().catch(() => ({}));
+    showToast(r.ok ? (payload.message || '已发送') : (payload.error || '发送失败'), r.ok);
+  } catch (e) {
+    showToast('请求出错', false);
+  } finally {
+    btn.textContent = orig;
+    btn.disabled = false;
+  }
+}
+
+// ── Clear Dead PIDs ──────────────────────────────────────
+
+async function clearDeadPids() {
+  const dead = _pidData.filter(p => !p.alive);
+  if (!dead.length) return;
+  if (!confirm(`确认移除全部 ${dead.length} 个已消失的 PID？`)) return;
+  for (const p of dead) {
+    await api('/api/pids/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pid: p.pid })
+    });
+  }
+  showMessage('pidMsg', `已移除 ${dead.length} 个已消失的 PID`, 'success');
+  loadPids();
 }
 
 // ── Log ──────────────────────────────────────────────────
