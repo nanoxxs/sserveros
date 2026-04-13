@@ -62,7 +62,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .gpu-model { font-size: 12px; color: #94a3b8; margin-left: 6px; }
 .gpu-pct { background: #dbeafe; color: #2563eb; font-size: 12px; padding: 3px 9px; border-radius: 12px; font-weight: 600; }
 .bar-bg { background: #e2e8f0; border-radius: 4px; height: 8px; margin-bottom: 8px; }
-.bar-fill { height: 100%; background: linear-gradient(90deg, #2563eb, #60a5fa); border-radius: 4px; transition: width 0.4s; }
+.bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s, background 0.4s; }
 .gpu-meta { display: flex; justify-content: space-between; font-size: 13px; color: #64748b; }
 .gpu-cmd { font-size: 12px; color: #94a3b8; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .refresh-hint { text-align: center; font-size: 12px; color: #cbd5e1; }
@@ -75,10 +75,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .badge-alive { background: #dcfce7; color: #16a34a; font-size: 11px; padding: 3px 8px; border-radius: 10px; }
 .badge-dead { background: #fee2e2; color: #ef4444; font-size: 11px; padding: 3px 8px; border-radius: 10px; }
 .del-btn { background: none; border: none; color: #ef4444; font-size: 20px; cursor: pointer; padding: 4px 8px; line-height: 1; }
-.add-row { display: flex; gap: 10px; padding: 14px 16px; }
-.add-input { flex: 1; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; font-size: 14px; outline: none; }
+.add-row { display: flex; gap: 10px; padding: 14px 16px; flex-wrap: wrap; }
+.add-input { flex: 1; min-width: 0; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; font-size: 14px; outline: none; }
 .add-input:focus { border-color: #2563eb; }
 .add-btn { background: #2563eb; color: #fff; border: none; border-radius: 10px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+@media (max-width: 480px) {
+  .add-row { flex-direction: column; gap: 8px; }
+  .add-row .add-input { width: 100%; max-width: none !important; }
+  .add-btn { width: 100%; padding: 12px; }
+}
 
 /* Settings */
 .setting-row { padding: 14px 16px; border-bottom: 1px solid #f8fafc; }
@@ -123,7 +128,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .meta-fail { color: #ef4444; font-weight: 600; }
 .detail-body { padding: 14px 16px; }
 .detail-body-label { font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
-.detail-body-content { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 13px; color: #334155; line-height: 1.6; white-space: pre-wrap; font-family: monospace; max-height: 50vh; overflow-y: auto; word-break: break-all; }
+.detail-body-content { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 13px; color: #334155; line-height: 1.6; white-space: pre; font-family: monospace; max-height: 50vh; overflow-x: auto; overflow-y: auto; }
 
 /* Archive */
 .archive-row { padding: 12px 16px; border-bottom: 1px solid #f8fafc; display: flex; justify-content: space-between; align-items: center; }
@@ -432,9 +437,9 @@ function renderGpu(data) {
     return `<div class="gpu-card">
       <div class="gpu-top">
         <div><span class="gpu-name">GPU ${gpu.index}</span><span class="gpu-model">${escHtml(gpu.name || '')}</span></div>
-        <span class="gpu-pct">${pct}%</span>
+        <span class="gpu-pct" style="${memBadgeStyle(pct)}">${pct}%</span>
       </div>
-      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${memBarGradient(pct)}"></div></div>
       <div class="gpu-meta">
         <span>${gpu.mem_used} / ${gpu.mem_total} MiB</span>
         <span>主PID: <b>${gpu.top_pid || '—'}</b></span>
@@ -707,6 +712,18 @@ function escHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function memBarGradient(pct) {
+  if (pct >= 80) return 'linear-gradient(90deg,#ef4444,#f87171)';
+  if (pct >= 60) return 'linear-gradient(90deg,#f59e0b,#fbbf24)';
+  return 'linear-gradient(90deg,#22c55e,#4ade80)';
+}
+
+function memBadgeStyle(pct) {
+  if (pct >= 80) return 'background:#fee2e2;color:#ef4444';
+  if (pct >= 60) return 'background:#fef3c7;color:#d97706';
+  return 'background:#dcfce7;color:#16a34a';
 }
 </script>
 </body>
