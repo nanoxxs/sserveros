@@ -56,7 +56,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 /* GPU */
 .gpu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
-.gpu-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+.gpu-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.gpu-card:hover { border-color: #2563eb; box-shadow: 0 2px 10px rgba(37,99,235,0.12); }
 .gpu-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .gpu-name { font-weight: 700; font-size: 16px; }
 .gpu-model { font-size: 12px; color: #94a3b8; margin-left: 6px; }
@@ -66,6 +67,30 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .gpu-meta { display: flex; justify-content: space-between; font-size: 13px; color: #64748b; }
 .gpu-cmd { font-size: 12px; color: #94a3b8; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .refresh-hint { text-align: center; font-size: 12px; color: #cbd5e1; }
+
+/* GPU detail */
+.gpu-stat-row { display: flex; gap: 16px; flex-wrap: wrap; padding: 14px 16px; border-bottom: 1px solid #f1f5f9; }
+.gpu-stat { display: flex; flex-direction: column; gap: 2px; }
+.gpu-stat-label { font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+.gpu-stat-value { font-size: 16px; font-weight: 700; color: #1e293b; }
+.proc-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.proc-table { width: 100%; border-collapse: collapse; }
+.proc-table th { text-align: left; font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; padding: 10px 16px 6px; border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
+.proc-table td { padding: 10px 16px; font-size: 13px; border-bottom: 1px solid #f8fafc; vertical-align: top; }
+.proc-table tr:last-child td { border-bottom: none; }
+.proc-pid-cell { font-weight: 600; color: #1e293b; white-space: nowrap; }
+.proc-mem-cell { white-space: nowrap; color: #2563eb; font-weight: 500; }
+.proc-cmd-cell { color: #475569; font-family: monospace; font-size: 12px; word-break: break-all; max-width: 400px; }
+@media (max-width: 639px) {
+  .proc-table thead { display: none; }
+  .proc-table, .proc-table tbody, .proc-table tr, .proc-table td { display: block; width: 100%; }
+  .proc-table tr { border-bottom: 1px solid #e2e8f0; padding: 10px 0; }
+  .proc-table tr:last-child { border-bottom: none; }
+  .proc-table td { border: none; padding: 3px 16px; display: flex; gap: 10px; align-items: baseline; font-size: 13px; }
+  .proc-table td::before { content: attr(data-label); font-size: 10px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; min-width: 48px; flex-shrink: 0; }
+  .proc-cmd-cell { word-break: break-all; font-size: 12px; }
+  .proc-table td.proc-cmd-cell { align-items: flex-start; }
+}
 
 /* PIDs */
 .pid-row { padding: 14px 16px; border-bottom: 1px solid #f8fafc; display: flex; justify-content: space-between; align-items: center; }
@@ -175,8 +200,21 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
   <!-- GPU -->
   <div class="pane active" id="paneGpu">
-    <div class="gpu-grid" id="gpuGrid"></div>
-    <div class="refresh-hint">每 5 秒自动刷新</div>
+    <div id="gpuListView">
+      <div class="gpu-grid" id="gpuGrid"></div>
+      <div class="refresh-hint">每 5 秒自动刷新 · 点击卡片查看进程详情</div>
+    </div>
+    <div id="gpuDetailView" style="display:none">
+      <div class="card">
+        <div class="detail-header">
+          <button class="back-btn" onclick="showGpuList()">← 返回</button>
+          <span class="detail-title-text" id="gpuDetailTitle"></span>
+          <button class="back-btn" onclick="refreshGpuDetail()" style="margin-left:auto">刷新</button>
+        </div>
+        <div class="gpu-stat-row" id="gpuDetailStats"></div>
+        <div id="gpuDetailProcs"></div>
+      </div>
+    </div>
   </div>
 
   <!-- PIDs -->
@@ -434,7 +472,7 @@ function renderGpu(data) {
   }
   grid.innerHTML = data.gpus.map(gpu => {
     const pct = gpu.mem_total > 0 ? Math.round(gpu.mem_used / gpu.mem_total * 100) : 0;
-    return `<div class="gpu-card">
+    return `<div class="gpu-card" onclick="showGpuDetail(${gpu.index})">
       <div class="gpu-top">
         <div><span class="gpu-name">GPU ${gpu.index}</span><span class="gpu-model">${escHtml(gpu.name || '')}</span></div>
         <span class="gpu-pct" style="${memBadgeStyle(pct)}">${pct}%</span>
@@ -447,6 +485,81 @@ function renderGpu(data) {
       <div class="gpu-cmd" title="${escHtml(gpu.top_cmd || '')}">${escHtml(gpu.top_cmd || '')}</div>
     </div>`;
   }).join('');
+}
+
+// ── GPU Detail ───────────────────────────────────────────
+
+let _currentGpuIndex = null;
+
+async function showGpuDetail(gpuIdx) {
+  _currentGpuIndex = gpuIdx;
+  $('gpuListView').style.display = 'none';
+  $('gpuDetailView').style.display = 'block';
+  $('gpuDetailTitle').textContent = `GPU ${gpuIdx}`;
+  $('gpuDetailStats').innerHTML = '<span style="color:#94a3b8;font-size:13px">加载中…</span>';
+  $('gpuDetailProcs').innerHTML = '';
+  await _loadGpuDetail(gpuIdx);
+}
+
+async function refreshGpuDetail() {
+  if (_currentGpuIndex === null) return;
+  $('gpuDetailStats').innerHTML = '<span style="color:#94a3b8;font-size:13px">刷新中…</span>';
+  $('gpuDetailProcs').innerHTML = '';
+  await _loadGpuDetail(_currentGpuIndex);
+}
+
+async function _loadGpuDetail(gpuIdx) {
+  try {
+    const r = await api(`/api/gpu/${gpuIdx}/processes`);
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      $('gpuDetailStats').innerHTML = `<span style="color:#ef4444;font-size:13px">${escHtml(err.error || '获取失败')}</span>`;
+      return;
+    }
+    const d = await r.json();
+    $('gpuDetailTitle').textContent = `GPU ${gpuIdx}${d.gpu_name ? ' — ' + escHtml(d.gpu_name) : ''}`;
+
+    const memPct = (d.mem_total > 0) ? Math.round(d.mem_used / d.mem_total * 100) : null;
+    const stats = [];
+    if (d.mem_used != null && d.mem_total != null) {
+      stats.push({ label: '显存', value: `${d.mem_used} / ${d.mem_total} MiB${memPct != null ? ' (' + memPct + '%)' : ''}` });
+    }
+    if (d.util_pct != null) stats.push({ label: 'GPU 利用率', value: `${d.util_pct}%` });
+    if (d.temp_c != null) stats.push({ label: '温度', value: `${d.temp_c}°C` });
+    stats.push({ label: '进程数', value: `${d.processes.length}` });
+
+    $('gpuDetailStats').innerHTML = stats.map(s =>
+      `<div class="gpu-stat"><div class="gpu-stat-label">${s.label}</div><div class="gpu-stat-value">${s.value}</div></div>`
+    ).join('');
+
+    if (d.processes.length === 0) {
+      $('gpuDetailProcs').innerHTML = '<div style="padding:16px;color:#94a3b8;font-size:14px">当前无 Compute 进程</div>';
+    } else {
+      const sorted = [...d.processes].sort((a, b) => b.mem_mib - a.mem_mib);
+      $('gpuDetailProcs').innerHTML = `<div class="proc-table-wrap"><table class="proc-table">
+        <thead><tr>
+          <th>PID</th><th>显存 (MiB)</th><th>用户</th><th>启动时间</th><th>命令</th>
+        </tr></thead>
+        <tbody>${sorted.map(p => {
+          const typeBadge = `<span style="font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;margin-left:5px;vertical-align:middle;${p.type==='C'?'background:#dbeafe;color:#2563eb':'background:#f1f5f9;color:#64748b'}">${escHtml(p.type||'?')}</span>`;
+          return `<tr>
+          <td data-label="PID" class="proc-pid-cell">${p.pid}${typeBadge}</td>
+          <td data-label="显存" class="proc-mem-cell">${p.mem_mib} MiB</td>
+          <td data-label="用户" style="white-space:nowrap;color:#475569">${escHtml(p.user || '—')}</td>
+          <td data-label="启动" style="white-space:nowrap;color:#64748b;font-size:12px">${escHtml(fmtStartTime(p.start_time))}</td>
+          <td data-label="命令" class="proc-cmd-cell">${escHtml(p.cmd || '—')}</td>
+        </tr>`;}).join('')}</tbody>
+      </table></div>`;
+    }
+  } catch (e) {
+    $('gpuDetailStats').innerHTML = '<span style="color:#ef4444;font-size:13px">请求出错</span>';
+  }
+}
+
+function showGpuList() {
+  _currentGpuIndex = null;
+  $('gpuDetailView').style.display = 'none';
+  $('gpuListView').style.display = 'block';
 }
 
 // ── PIDs ─────────────────────────────────────────────────
@@ -707,6 +820,15 @@ function showLogList() {
 }
 
 // ── Util ─────────────────────────────────────────────────
+
+// "Mon Apr 13 10:07:46 2026" → "Apr 13 10:07"
+function fmtStartTime(s) {
+  if (!s) return '—';
+  const p = s.trim().split(/\s+/);
+  // [weekday, month, day, time, year]
+  if (p.length >= 5) return `${p[1]} ${p[2]} ${p[3].slice(0, 5)}`;
+  return s;
+}
 
 function escHtml(s) {
   return String(s)

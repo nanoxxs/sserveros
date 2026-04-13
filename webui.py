@@ -192,6 +192,97 @@ def create_app(script_dir: str = None):
         )
         return jsonify(payload), status
 
+    @app.route('/api/gpu/<int:gpu_index>/processes')
+    @require_auth
+    def api_gpu_processes(gpu_index):
+        import xml.etree.ElementTree as ET
+
+        if gpu_index < 0:
+            return jsonify({'error': 'invalid gpu index'}), 400
+        try:
+            xml_result = subprocess.run(
+                ['nvidia-smi', '-i', str(gpu_index), '-q', '--xml-format'],
+                capture_output=True, text=True, timeout=10
+            )
+        except FileNotFoundError:
+            return jsonify({'error': 'nvidia-smi not found'}), 503
+        except subprocess.TimeoutExpired:
+            return jsonify({'error': 'nvidia-smi timeout'}), 503
+
+        try:
+            root = ET.fromstring(xml_result.stdout)
+        except ET.ParseError:
+            return jsonify({'error': 'failed to parse nvidia-smi output'}), 500
+
+        gpu_elem = root.find('.//gpu')
+        if gpu_elem is None:
+            return jsonify({'error': f'GPU {gpu_index} not found'}), 404
+
+        def _mib(text):
+            if not text:
+                return 0
+            try:
+                return int(text.replace('MiB', '').strip())
+            except ValueError:
+                return 0
+
+        def _try_int(text):
+            if not text:
+                return None
+            s = text.strip().rstrip('%').rstrip('C').strip()
+            try:
+                return int(s)
+            except ValueError:
+                return None
+
+        gpu_info = {
+            'gpu_index': gpu_index,
+            'gpu_name':  (gpu_elem.findtext('product_name') or '').strip(),
+            'mem_used':  _mib(gpu_elem.findtext('.//fb_memory_usage/used')),
+            'mem_total': _mib(gpu_elem.findtext('.//fb_memory_usage/total')),
+            'util_pct':  _try_int(gpu_elem.findtext('.//utilization/gpu_util')),
+            'temp_c':    _try_int(gpu_elem.findtext('.//temperature/gpu_temp')),
+        }
+
+        processes = []
+        for proc in gpu_elem.findall('.//processes/process_info'):
+            pid_text = proc.findtext('pid', '')
+            try:
+                pid = int(pid_text)
+            except ValueError:
+                continue
+            mem = _mib(proc.findtext('used_memory', '0 MiB'))
+            proc_type = (proc.findtext('type') or '').strip()
+
+            user = start_time = cmd = ''
+            try:
+                ps_ul = subprocess.run(
+                    ['ps', '-p', str(pid), '-o', 'user=,lstart='],
+                    capture_output=True, text=True, timeout=2
+                )
+                ul_tokens = ps_ul.stdout.strip().split(None, 1)
+                user = ul_tokens[0] if ul_tokens else ''
+                start_time = ul_tokens[1].strip() if len(ul_tokens) > 1 else ''
+            except Exception:
+                pass
+            try:
+                ps_cmd = subprocess.run(
+                    ['ps', '-p', str(pid), '-o', 'args='],
+                    capture_output=True, text=True, timeout=2
+                )
+                cmd = ps_cmd.stdout.strip()
+            except Exception:
+                pass
+
+            processes.append({
+                'pid': pid, 'type': proc_type,
+                'mem_mib': mem, 'user': user,
+                'start_time': start_time, 'cmd': cmd,
+            })
+
+        gpu_info['processes'] = processes
+        return jsonify(gpu_info)
+
     @app.route('/api/settings', methods=['POST'])
     @require_auth
     def api_settings():
