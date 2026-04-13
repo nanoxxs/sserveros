@@ -64,6 +64,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
 .card-header { padding: 14px 16px; border-bottom: 1px solid #f1f5f9; font-weight: 600; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
 
+/* Sysinfo */
+.sysinfo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+@media (max-width: 560px) { .sysinfo-grid { grid-template-columns: 1fr; } }
+.sysinfo-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+.sysinfo-label { font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
+.sysinfo-value { font-size: 18px; font-weight: 700; color: #1e293b; margin-bottom: 10px; line-height: 1.2; }
+.sysinfo-sub { font-size: 12px; color: #64748b; margin-top: 5px; }
+.sysinfo-section-title { font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .5px; padding: 4px 0 2px; }
+
 /* GPU */
 .gpu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
 .gpu-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
@@ -212,7 +221,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   </div>
 
   <div class="tabs">
-    <div class="tab active" onclick="switchTab('gpu')">GPU</div>
+    <div class="tab active" onclick="switchTab('gpu')">概览</div>
     <div class="tab" onclick="switchTab('pids')">PIDs</div>
     <div class="tab" onclick="switchTab('settings')">设置</div>
     <div class="tab" onclick="switchTab('log')">日志</div>
@@ -221,6 +230,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   <!-- GPU -->
   <div class="pane active" id="paneGpu">
     <div id="gpuListView">
+      <div class="sysinfo-grid" id="sysinfoGrid">
+        <div class="sysinfo-card"><div class="sysinfo-label">CPU</div><div class="sysinfo-value" id="siCpuVal">—</div><div class="bar-bg"><div class="bar-fill" id="siCpuBar" style="width:0%"></div></div></div>
+        <div class="sysinfo-card"><div class="sysinfo-label">内存</div><div class="sysinfo-value" id="siRamVal">—</div><div class="bar-bg"><div class="bar-fill" id="siRamBar" style="width:0%"></div></div><div class="sysinfo-sub" id="siRamSub"></div></div>
+        <div class="sysinfo-card"><div class="sysinfo-label">磁盘</div><div class="sysinfo-value" id="siDiskVal">—</div><div class="bar-bg"><div class="bar-fill" id="siDiskBar" style="width:0%"></div></div><div class="sysinfo-sub" id="siDiskSub"></div></div>
+      </div>
+      <div class="sysinfo-section-title">GPU</div>
       <div class="gpu-grid" id="gpuGrid"></div>
       <div class="refresh-hint">每 5 秒自动刷新 · 点击卡片查看进程详情</div>
     </div>
@@ -490,7 +505,8 @@ function switchTab(name) {
 function startStateRefresh() {
   if (_refreshTimer) return;
   fetchState();
-  _refreshTimer = setInterval(fetchState, 5000);
+  fetchSysinfo();
+  _refreshTimer = setInterval(() => { fetchState(); fetchSysinfo(); }, 5000);
 }
 
 function stopStateRefresh() {
@@ -915,6 +931,37 @@ function showLogDetail(idx) {
 function showLogList() {
   $('logDetailView').style.display = 'none';
   $('logListView').style.display = 'block';
+}
+
+// ── Sysinfo ──────────────────────────────────────────────
+
+async function fetchSysinfo() {
+  try {
+    const r = await api('/api/sysinfo');
+    if (!r.ok) return;
+    renderSysinfo(await r.json());
+  } catch (e) {}
+}
+
+function renderSysinfo(d) {
+  const cpuPct = d.cpu_pct ?? 0;
+  $('siCpuVal').textContent = d.cpu_pct != null ? d.cpu_pct.toFixed(1) + '%' : '—';
+  $('siCpuBar').style.width = cpuPct + '%';
+  $('siCpuBar').style.background = memBarGradient(cpuPct);
+
+  const ramPct = d.ram_total_mib > 0 ? Math.round(d.ram_used_mib / d.ram_total_mib * 100) : 0;
+  $('siRamVal').textContent = d.ram_total_mib
+    ? (d.ram_used_mib / 1024).toFixed(1) + ' / ' + (d.ram_total_mib / 1024).toFixed(1) + ' GB'
+    : '—';
+  $('siRamBar').style.width = ramPct + '%';
+  $('siRamBar').style.background = memBarGradient(ramPct);
+  $('siRamSub').textContent = d.ram_total_mib ? ramPct + '%' : '';
+
+  const diskPct = d.disk_pct ?? 0;
+  $('siDiskVal').textContent = d.disk_total_gb ? d.disk_used_gb + ' / ' + d.disk_total_gb + ' GB' : '—';
+  $('siDiskBar').style.width = diskPct + '%';
+  $('siDiskBar').style.background = memBarGradient(diskPct);
+  $('siDiskSub').textContent = d.disk_total_gb ? diskPct.toFixed(1) + '%' : '';
 }
 
 // ── Util ─────────────────────────────────────────────────

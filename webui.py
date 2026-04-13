@@ -192,6 +192,22 @@ def create_app(script_dir: str = None):
         )
         return jsonify(payload), status
 
+    @app.route('/api/sysinfo')
+    @require_auth
+    def api_sysinfo():
+        import psutil
+        cpu_pct = psutil.cpu_percent(interval=0.2)
+        vm = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        return jsonify({
+            'cpu_pct': round(cpu_pct, 1),
+            'ram_used_mib': vm.used // (1024 * 1024),
+            'ram_total_mib': vm.total // (1024 * 1024),
+            'disk_used_gb': round(disk.used / (1024 ** 3), 1),
+            'disk_total_gb': round(disk.total / (1024 ** 3), 1),
+            'disk_pct': round(disk.percent, 1),
+        })
+
     @app.route('/api/gpu/<int:gpu_index>/processes')
     @require_auth
     def api_gpu_processes(gpu_index):
