@@ -9,10 +9,15 @@ CONFIG_FILE="${SCRIPT_DIR}/config.json"
 BACKEND_PID_FILE="${RUNTIME_DIR}/sserveros.pid"
 WEBUI_PID_FILE="${RUNTIME_DIR}/webui.pid"
 PLACEHOLDER_SENDKEY="SCTxxxxxxxxxxxxxxxx"
+REPO_URL="https://github.com/nanoxxs/sserveros"
+REPO_ZIP_URL="${REPO_URL}/archive/refs/heads/main.zip"
 PYTHON_BIN=""
 LAST_GENERATED_PASSWORD=""
 COLOR_RESET=""
 COLOR_HIGHLIGHT=""
+PORT_INSPECT_STATE="free"
+declare -a PORT_INSPECT_PROJECT_PIDS=()
+declare -a PORT_INSPECT_OTHER_PIDS=()
 
 need_cmd() {
   local cmd="$1"
@@ -259,7 +264,11 @@ start_backend() {
 }
 
 get_webui_port() {
-  "${PYTHON_BIN}" -c "
+  local candidate
+  for candidate in "${PYTHON_BIN}" python3 python; do
+    [ -n "${candidate}" ] || continue
+    if command -v "${candidate}" >/dev/null 2>&1; then
+      "${candidate}" -c "
 import json, sys
 try:
     with open(sys.argv[1]) as f:
@@ -267,25 +276,218 @@ try:
 except Exception:
     print(6777)
 " "${CONFIG_FILE}"
+      return 0
+    fi
+  done
+
+  printf '6777\n'
+}
+
+process_cmdline() {
+  local pid="$1"
+  ps -p "${pid}" -o args= 2>/dev/null || true
+}
+
+is_project_webui_process() {
+  local pid="$1"
+  local cmd recorded_pid
+  recorded_pid="$(read_pid_file "${WEBUI_PID_FILE}" 2>/dev/null || true)"
+  if [ -n "${recorded_pid}" ] && [ "${recorded_pid}" = "${pid}" ]; then
+    return 0
+  fi
+  cmd="$(process_cmdline "${pid}")"
+  [[ "${cmd}" == *"${SCRIPT_DIR}/webui.py"* ]]
+}
+
+known_service_label() {
+  local cmd="$1"
+  if [[ "${cmd}" == *"${SCRIPT_DIR}/sserveros.sh"* ]]; then
+    printf 'sserveros.sh'
+  elif [[ "${cmd}" == *"${SCRIPT_DIR}/webui.py"* ]]; then
+    printf 'webui.py'
+  elif [[ "${cmd}" == *"${SCRIPT_DIR}/manage.sh"* ]]; then
+    printf 'manage.sh'
+  else
+    printf '项目相关进程'
+  fi
+}
+
+get_port_listener_pids() {
+  local port="$1"
+  local pid
+  declare -A seen=()
+
+  if command -v ss >/dev/null 2>&1; then
+    while IFS= read -r pid; do
+      [ -n "${pid}" ] || continue
+      [ -n "${seen[${pid}]:-}" ] && continue
+      seen["${pid}"]=1
+      printf '%s\n' "${pid}"
+    done < <(
+      ss -ltnp "( sport = :${port} )" 2>/dev/null |
+        grep -oE 'pid=[0-9]+' |
+        cut -d= -f2
+    )
+    return 0
+  fi
+
+  if command -v lsof >/dev/null 2>&1; then
+    while IFS= read -r pid; do
+      [ -n "${pid}" ] || continue
+      [ -n "${seen[${pid}]:-}" ] && continue
+      seen["${pid}"]=1
+      printf '%s\n' "${pid}"
+    done < <(lsof -nP -iTCP:"${port}" -sTCP:LISTEN -t 2>/dev/null || true)
+    return 0
+  fi
+
+  return 1
+}
+
+inspect_port_usage() {
+  local port="$1"
+  local pid listener_output
+  PORT_INSPECT_STATE="free"
+  PORT_INSPECT_PROJECT_PIDS=()
+  PORT_INSPECT_OTHER_PIDS=()
+
+  if ! listener_output="$(get_port_listener_pids "${port}")"; then
+    PORT_INSPECT_STATE="unknown"
+    return 0
+  fi
+
+  while IFS= read -r pid; do
+    [ -n "${pid}" ] || continue
+    if is_project_webui_process "${pid}"; then
+      PORT_INSPECT_PROJECT_PIDS+=("${pid}")
+    else
+      PORT_INSPECT_OTHER_PIDS+=("${pid}")
+    fi
+  done <<< "${listener_output}"
+
+  if [ "${#PORT_INSPECT_PROJECT_PIDS[@]}" -eq 0 ] && [ "${#PORT_INSPECT_OTHER_PIDS[@]}" -eq 0 ]; then
+    PORT_INSPECT_STATE="free"
+  elif [ "${#PORT_INSPECT_PROJECT_PIDS[@]}" -gt 0 ] && [ "${#PORT_INSPECT_OTHER_PIDS[@]}" -eq 0 ]; then
+    PORT_INSPECT_STATE="project"
+  elif [ "${#PORT_INSPECT_PROJECT_PIDS[@]}" -eq 0 ] && [ "${#PORT_INSPECT_OTHER_PIDS[@]}" -gt 0 ]; then
+    PORT_INSPECT_STATE="external"
+  else
+    PORT_INSPECT_STATE="mixed"
+  fi
+
+  return 0
+}
+
+show_pid_details() {
+  local pid="$1"
+  local cmd
+  cmd="$(process_cmdline "${pid}")"
+  if [ -n "${cmd}" ]; then
+    printf 'PID %s: %s\n' "${pid}" "${cmd}"
+  else
+    printf 'PID %s: <命令行不可用>\n' "${pid}"
+  fi
+}
+
+cleanup_pid_files_for_pid() {
+  local pid="$1"
+  local recorded_pid pid_file
+  for pid_file in "${BACKEND_PID_FILE}" "${WEBUI_PID_FILE}"; do
+    recorded_pid="$(read_pid_file "${pid_file}" 2>/dev/null || true)"
+    if [ -n "${recorded_pid}" ] && [ "${recorded_pid}" = "${pid}" ]; then
+      rm -f "${pid_file}"
+    fi
+  done
+}
+
+stop_pid_gracefully() {
+  local pid="$1"
+  local label="$2"
+  local attempt=0
+
+  if ! is_pid_running "${pid}"; then
+    cleanup_pid_files_for_pid "${pid}"
+    echo "${label} 不在运行。"
+    return 0
+  fi
+
+  kill "${pid}" >/dev/null 2>&1 || true
+  while [ "${attempt}" -lt 5 ]; do
+    if ! is_pid_running "${pid}"; then
+      cleanup_pid_files_for_pid "${pid}"
+      echo "${label} 已停止。"
+      return 0
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+
+  kill -9 "${pid}" >/dev/null 2>&1 || true
+  sleep 1
+  cleanup_pid_files_for_pid "${pid}"
+  if is_pid_running "${pid}"; then
+    echo "${label} 停止失败，请手动处理。"
+    return 1
+  fi
+
+  echo "${label} 已强制停止。"
+  return 0
 }
 
 check_webui_port() {
   local port="$1"
-  if ss -tlnp 2>/dev/null | grep -q ":${port} " || \
-     ss -tlnp 2>/dev/null | grep -q ":${port}$"; then
-    echo "错误：端口 ${port} 已被占用，WebUI 无法启动。"
-    echo "请修改 ${CONFIG_FILE} 中的 webui_port 字段后重试。"
-    return 1
-  fi
-  return 0
+  local pid
+
+  inspect_port_usage "${port}"
+
+  case "${PORT_INSPECT_STATE}" in
+    free)
+      return 0
+      ;;
+    project)
+      echo "检测到端口 ${port} 已被本项目之前启动的 WebUI 占用。"
+      for pid in "${PORT_INSPECT_PROJECT_PIDS[@]}"; do
+        show_pid_details "${pid}"
+      done
+      if ! prompt_yes_no "是否终止旧实例并覆盖启动？"; then
+        echo "已取消启动。"
+        return 1
+      fi
+      for pid in "${PORT_INSPECT_PROJECT_PIDS[@]}"; do
+        stop_pid_gracefully "${pid}" "旧 WebUI 进程(PID ${pid})" || return 1
+      done
+      inspect_port_usage "${port}"
+      if [ "${PORT_INSPECT_STATE}" = "free" ]; then
+        return 0
+      fi
+      echo "错误：端口 ${port} 仍未释放，请稍后重试。"
+      return 1
+      ;;
+    external)
+      echo "错误：端口 ${port} 已被其他进程占用，WebUI 无法启动。"
+      for pid in "${PORT_INSPECT_OTHER_PIDS[@]}"; do
+        show_pid_details "${pid}"
+      done
+      return 1
+      ;;
+    mixed)
+      echo "错误：端口 ${port} 同时被本项目和其他进程占用，未自动覆盖。"
+      for pid in "${PORT_INSPECT_PROJECT_PIDS[@]}"; do
+        show_pid_details "${pid}"
+      done
+      for pid in "${PORT_INSPECT_OTHER_PIDS[@]}"; do
+        show_pid_details "${pid}"
+      done
+      return 1
+      ;;
+  esac
+
+  echo "错误：无法确认端口 ${port} 的占用状态。"
+  return 1
 }
 
 start_webui() {
   check_webui_requirements
-  if service_running "${WEBUI_PID_FILE}"; then
-    echo "WebUI 已在运行。"
-    return 0
-  fi
 
   local port
   port="$(get_webui_port)"
@@ -301,23 +503,21 @@ stop_service() {
   local pid_file="$2"
   local fallback_pattern="$3"
   local pid
+  local -a matched_pids=()
 
   pid="$(read_pid_file "${pid_file}" 2>/dev/null || true)"
   if is_pid_running "${pid}"; then
-    kill "${pid}" >/dev/null 2>&1 || true
-    sleep 5
-    if is_pid_running "${pid}"; then
-      kill -9 "${pid}" >/dev/null 2>&1 || true
-    fi
+    stop_pid_gracefully "${pid}" "${label}" || return 1
     rm -f "${pid_file}"
-    echo "${label} 已停止。"
     return 0
   fi
 
-  if pgrep -f "${fallback_pattern}" >/dev/null 2>&1; then
-    pkill -f "${fallback_pattern}" >/dev/null 2>&1 || true
+  mapfile -t matched_pids < <(pgrep -f "${fallback_pattern}" || true)
+  if [ "${#matched_pids[@]}" -gt 0 ]; then
+    for pid in "${matched_pids[@]}"; do
+      stop_pid_gracefully "${pid}" "${label} (PID ${pid})" || return 1
+    done
     rm -f "${pid_file}"
-    echo "${label} 已停止（通过进程名匹配）。"
     return 0
   fi
 
@@ -325,10 +525,184 @@ stop_service() {
   echo "${label} 当前未运行。"
 }
 
+port_status_summary() {
+  local port="$1"
+
+  inspect_port_usage "${port}"
+  case "${PORT_INSPECT_STATE}" in
+    free)
+      printf '空闲'
+      ;;
+    project)
+      printf '本项目占用 (PID %s)' "${PORT_INSPECT_PROJECT_PIDS[*]}"
+      ;;
+    external)
+      printf '其他进程占用 (PID %s)' "${PORT_INSPECT_OTHER_PIDS[*]}"
+      ;;
+    mixed)
+      printf '混合占用 (本项目 PID %s / 其他 PID %s)' \
+        "${PORT_INSPECT_PROJECT_PIDS[*]}" "${PORT_INSPECT_OTHER_PIDS[*]}"
+      ;;
+    *)
+      printf '未知'
+      ;;
+  esac
+}
+
+collect_project_processes() {
+  local line pid cmd label
+
+  while IFS= read -r line; do
+    [ -n "${line}" ] || continue
+    if [[ ! "${line}" =~ ^[[:space:]]*([0-9]+)[[:space:]]+(.*)$ ]]; then
+      continue
+    fi
+    pid="${BASH_REMATCH[1]}"
+    cmd="${BASH_REMATCH[2]}"
+
+    [ "${pid}" = "$$" ] && continue
+    [[ "${cmd}" == *"${SCRIPT_DIR}/"* ]] || continue
+
+    label="$(known_service_label "${cmd}")"
+    printf '%s\t%s\t%s\n' "${pid}" "${label}" "${cmd}"
+  done < <(ps -eo pid=,args=)
+}
+
+stop_project_process_from_menu() {
+  local choice selected pid label cmd
+  local -a processes=()
+  local index=1
+
+  mapfile -t processes < <(collect_project_processes)
+  if [ "${#processes[@]}" -eq 0 ]; then
+    echo "当前没有检测到可停止的项目相关进程。"
+    return 0
+  fi
+
+  echo "当前项目相关进程："
+  for selected in "${processes[@]}"; do
+    IFS=$'\t' read -r pid label cmd <<< "${selected}"
+    printf '%s. [%s] PID %s - %s\n' "${index}" "${label}" "${pid}" "${cmd}"
+    index=$((index + 1))
+  done
+  echo "0. 返回上一级"
+  printf '输入要停止的编号： '
+  read -r choice
+
+  if [ -z "${choice}" ] || [ "${choice}" = "0" ]; then
+    echo "已取消。"
+    return 0
+  fi
+
+  if ! [[ "${choice}" =~ ^[0-9]+$ ]] || [ "${choice}" -lt 1 ] || [ "${choice}" -gt "${#processes[@]}" ]; then
+    echo "无效输入，请重试。"
+    return 1
+  fi
+
+  selected="${processes[$((choice - 1))]}"
+  IFS=$'\t' read -r pid label cmd <<< "${selected}"
+
+  if ! prompt_yes_no "确认停止 ${label} (PID ${pid})？"; then
+    echo "已取消。"
+    return 0
+  fi
+
+  stop_pid_gracefully "${pid}" "${label} (PID ${pid})"
+}
+
+update_from_zip() {
+  local tmpdir archive extracted_dir item
+  local -a update_items=(
+    manage.sh
+    sserveros.sh
+    webui.py
+    webui.html
+    config_bootstrap.py
+    storage.py
+    README.md
+    CONFIG.md
+    ARCHITECTURE.md
+    LICENSE
+    tests
+  )
+
+  need_cmd unzip "请先安装 unzip。"
+
+  tmpdir="$(mktemp -d)"
+  archive="${tmpdir}/sserveros.zip"
+
+  if command -v wget >/dev/null 2>&1; then
+    if ! wget -O "${archive}" "${REPO_ZIP_URL}"; then
+      echo "错误：下载最新脚本失败。"
+      rm -rf "${tmpdir}"
+      return 1
+    fi
+  elif command -v curl >/dev/null 2>&1; then
+    if ! curl -L -o "${archive}" "${REPO_ZIP_URL}"; then
+      echo "错误：下载最新脚本失败。"
+      rm -rf "${tmpdir}"
+      return 1
+    fi
+  else
+    echo "错误：未找到 wget 或 curl，无法下载最新脚本。"
+    rm -rf "${tmpdir}"
+    return 1
+  fi
+
+  if ! unzip -q "${archive}" -d "${tmpdir}"; then
+    echo "错误：解压下载的脚本包失败。"
+    rm -rf "${tmpdir}"
+    return 1
+  fi
+  extracted_dir=""
+  for item in "${tmpdir}"/sserveros-*; do
+    [ -d "${item}" ] || continue
+    extracted_dir="${item}"
+    break
+  done
+
+  if [ -z "${extracted_dir}" ]; then
+    echo "错误：未找到下载后的脚本目录。"
+    rm -rf "${tmpdir}"
+    return 1
+  fi
+
+  for item in "${update_items[@]}"; do
+    if [ -d "${extracted_dir}/${item}" ]; then
+      rm -rf "${SCRIPT_DIR:?}/${item}"
+      cp -R "${extracted_dir}/${item}" "${SCRIPT_DIR}/${item}"
+    elif [ -f "${extracted_dir}/${item}" ]; then
+      cp -f "${extracted_dir}/${item}" "${SCRIPT_DIR}/${item}"
+    fi
+  done
+
+  chmod +x "${SCRIPT_DIR}/manage.sh" "${SCRIPT_DIR}/sserveros.sh"
+  rm -rf "${tmpdir}"
+  echo "已通过 zip 包更新脚本。"
+}
+
+pull_latest_scripts() {
+  if ! prompt_yes_no "将拉取最新脚本并覆盖当前代码文件（保留 .env、config.json、runtime），是否继续？"; then
+    echo "已取消拉取。"
+    return 0
+  fi
+
+  if command -v git >/dev/null 2>&1 && git -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if git -C "${SCRIPT_DIR}" pull --ff-only; then
+      echo "已通过 git 拉取最新脚本。"
+      return 0
+    fi
+    echo "git 拉取失败，改为尝试 README 中的 zip 地址。"
+  fi
+
+  update_from_zip
+}
+
 show_status() {
-  local backend_pid webui_pid backend_state webui_state
+  local backend_pid webui_pid backend_state webui_state port
   backend_pid="$(read_pid_file "${BACKEND_PID_FILE}" 2>/dev/null || true)"
   webui_pid="$(read_pid_file "${WEBUI_PID_FILE}" 2>/dev/null || true)"
+  port="$(get_webui_port)"
 
   if is_pid_running "${backend_pid}"; then
     backend_state="运行中 (PID ${backend_pid})"
@@ -346,6 +720,7 @@ show_status() {
   echo "当前状态"
   echo "sserveros.sh: ${backend_state}"
   echo "WebUI:       ${webui_state}"
+  echo "端口 ${port}:   $(port_status_summary "${port}")"
   echo
 }
 
@@ -400,13 +775,15 @@ with open(path, 'w') as f:
 }
 
 quick_start_flow() {
+  local webui_port
   prompt_sendkey
   bootstrap_config
   start_backend
 
   if prompt_yes_no "是否同时启动 WebUI？"; then
     start_webui
-    echo "WebUI 默认地址：http://127.0.0.1:6777"
+    webui_port="$(get_webui_port)"
+    echo "WebUI 默认地址：http://127.0.0.1:${webui_port}"
   else
     echo "已跳过 WebUI 启动。"
   fi
@@ -429,8 +806,10 @@ menu_loop() {
     echo "3. 停止 sserveros.sh"
     echo "4. 启动 WebUI"
     echo "5. 停止 WebUI"
-    echo "6. 修改 WebUI 密码"
-    echo "7. 更新 SENDKEY"
+    echo "6. 查看并停止项目相关进程"
+    echo "7. 修改 WebUI 密码"
+    echo "8. 更新 SENDKEY"
+    echo "9. 拉取最新脚本"
     echo "0. 退出"
     printf '输入编号： '
     read -r choice
@@ -447,8 +826,10 @@ menu_loop() {
         start_webui
         ;;
       5) stop_service "WebUI" "${WEBUI_PID_FILE}" "${SCRIPT_DIR}/webui.py" ;;
-      6) change_webui_password ;;
-      7) prompt_sendkey ;;
+      6) stop_project_process_from_menu ;;
+      7) change_webui_password ;;
+      8) prompt_sendkey ;;
+      9) pull_latest_scripts ;;
       0) exit 0 ;;
       *) echo "无效输入，请重试。" ;;
     esac
