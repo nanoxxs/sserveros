@@ -196,16 +196,64 @@ def create_app(script_dir: str = None):
     @require_auth
     def api_sysinfo():
         import psutil
+        import re as _re
         cpu_pct = psutil.cpu_percent(interval=0.2)
         vm = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
+
+        _VIRTUAL_FS = {
+            'tmpfs', 'devtmpfs', 'devfs', 'overlay', 'squashfs', 'proc',
+            'sysfs', 'cgroup', 'cgroup2', 'pstore', 'bpf', 'tracefs',
+            'debugfs', 'fusectl', 'efivarfs', 'mqueue', 'hugetlbfs',
+            'securityfs', 'autofs', 'ramfs', 'rootfs', 'nsfs', 'configfs',
+        }
+
+        def _disk_type(device):
+            if not device.startswith('/dev/'):
+                return 'unknown'
+            dev = device[len('/dev/'):]
+            # sda1 -> sda, nvme0n1p1 -> nvme0n1
+            base = _re.sub(r'p?\d+$', '', dev) or dev
+            try:
+                with open(f'/sys/block/{base}/queue/rotational') as f:
+                    return 'HDD' if f.read().strip() == '1' else 'SSD'
+            except OSError:
+                return 'unknown'
+
+        disks = []
+        seen_devices = set()
+        total_used = total_size = 0
+
+        for part in psutil.disk_partitions(all=False):
+            if part.fstype in _VIRTUAL_FS:
+                continue
+            if part.device in seen_devices:
+                continue
+            seen_devices.add(part.device)
+            try:
+                usage = psutil.disk_usage(part.mountpoint)
+            except (PermissionError, OSError):
+                continue
+            total_used += usage.used
+            total_size += usage.total
+            disks.append({
+                'mountpoint': part.mountpoint,
+                'device': part.device,
+                'fstype': part.fstype,
+                'disk_type': _disk_type(part.device),
+                'used_gb': round(usage.used / (1024 ** 3), 1),
+                'total_gb': round(usage.total / (1024 ** 3), 1),
+                'pct': round(usage.percent, 1),
+            })
+
+        agg_pct = round(total_used / total_size * 100, 1) if total_size > 0 else 0
         return jsonify({
             'cpu_pct': round(cpu_pct, 1),
             'ram_used_mib': vm.used // (1024 * 1024),
             'ram_total_mib': vm.total // (1024 * 1024),
-            'disk_used_gb': round(disk.used / (1024 ** 3), 1),
-            'disk_total_gb': round(disk.total / (1024 ** 3), 1),
-            'disk_pct': round(disk.percent, 1),
+            'disk_used_gb': round(total_used / (1024 ** 3), 1),
+            'disk_total_gb': round(total_size / (1024 ** 3), 1),
+            'disk_pct': agg_pct,
+            'disks': disks,
         })
 
     @app.route('/api/gpu/<int:gpu_index>/processes')

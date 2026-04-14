@@ -68,6 +68,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .sysinfo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 @media (max-width: 560px) { .sysinfo-grid { grid-template-columns: 1fr; } }
 .sysinfo-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+.sysinfo-card-link { cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.sysinfo-card-link:hover { border-color: #2563eb; box-shadow: 0 2px 10px rgba(37,99,235,0.12); }
 .sysinfo-label { font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
 .sysinfo-value { font-size: 18px; font-weight: 700; color: #1e293b; margin-bottom: 10px; line-height: 1.2; }
 .sysinfo-sub { font-size: 12px; color: #64748b; margin-top: 5px; }
@@ -237,7 +239,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <div class="sysinfo-grid" id="sysinfoGrid">
         <div class="sysinfo-card"><div class="sysinfo-label">CPU</div><div class="sysinfo-value" id="siCpuVal">—</div><div class="bar-bg"><div class="bar-fill" id="siCpuBar" style="width:0%"></div></div></div>
         <div class="sysinfo-card"><div class="sysinfo-label">内存</div><div class="sysinfo-value" id="siRamVal">—</div><div class="bar-bg"><div class="bar-fill" id="siRamBar" style="width:0%"></div></div><div class="sysinfo-sub" id="siRamSub"></div></div>
-        <div class="sysinfo-card"><div class="sysinfo-label">磁盘</div><div class="sysinfo-value" id="siDiskVal">—</div><div class="bar-bg"><div class="bar-fill" id="siDiskBar" style="width:0%"></div></div><div class="sysinfo-sub" id="siDiskSub"></div></div>
+        <div class="sysinfo-card sysinfo-card-link" onclick="showDiskDetail()"><div class="sysinfo-label">磁盘</div><div class="sysinfo-value" id="siDiskVal">—</div><div class="bar-bg"><div class="bar-fill" id="siDiskBar" style="width:0%"></div></div><div class="sysinfo-sub" id="siDiskSub"></div><div style="font-size:11px;color:#94a3b8;margin-top:6px">点击查看各分区 ›</div></div>
       </div>
       <div class="sysinfo-section-title">GPU</div>
       <div class="gpu-grid" id="gpuGrid"></div>
@@ -252,6 +254,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
         </div>
         <div class="gpu-stat-row" id="gpuDetailStats"></div>
         <div id="gpuDetailProcs"></div>
+      </div>
+    </div>
+    <div id="diskDetailView" style="display:none">
+      <div class="card">
+        <div class="detail-header">
+          <button class="back-btn" onclick="showDiskList()">← 返回</button>
+          <span class="detail-title-text">磁盘分区详情</span>
+        </div>
+        <div id="diskDetailBody"></div>
       </div>
     </div>
   </div>
@@ -951,6 +962,8 @@ function showLogList() {
 
 // ── Sysinfo ──────────────────────────────────────────────
 
+let _diskData = [];
+
 async function fetchSysinfo() {
   try {
     const r = await api('/api/sysinfo');
@@ -973,11 +986,56 @@ function renderSysinfo(d) {
   $('siRamBar').style.background = memBarGradient(ramPct);
   $('siRamSub').textContent = d.ram_total_mib ? ramPct + '%' : '';
 
+  _diskData = d.disks || [];
   const diskPct = d.disk_pct ?? 0;
   $('siDiskVal').textContent = d.disk_total_gb ? d.disk_used_gb + ' / ' + d.disk_total_gb + ' GB' : '—';
   $('siDiskBar').style.width = diskPct + '%';
   $('siDiskBar').style.background = memBarGradient(diskPct);
   $('siDiskSub').textContent = d.disk_total_gb ? diskPct.toFixed(1) + '%' : '';
+}
+
+// ── Disk Detail ──────────────────────────────────────────
+
+function showDiskDetail() {
+  if (!_diskData.length) return;
+  $('gpuListView').style.display = 'none';
+  $('gpuDetailView').style.display = 'none';
+  $('diskDetailView').style.display = 'block';
+  renderDiskDetail(_diskData);
+}
+
+function showDiskList() {
+  $('diskDetailView').style.display = 'none';
+  $('gpuListView').style.display = 'block';
+}
+
+function renderDiskDetail(disks) {
+  if (!disks || !disks.length) {
+    $('diskDetailBody').innerHTML = '<div style="padding:16px;color:#94a3b8;font-size:14px">无磁盘数据</div>';
+    return;
+  }
+  $('diskDetailBody').innerHTML = disks.map(d => {
+    const typeStyle = d.disk_type === 'SSD'
+      ? 'background:#dbeafe;color:#2563eb'
+      : d.disk_type === 'HDD'
+        ? 'background:#fef3c7;color:#d97706'
+        : 'background:#f1f5f9;color:#64748b';
+    const pct = d.pct ?? 0;
+    return `<div style="padding:14px 16px;border-bottom:1px solid #f8fafc">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div>
+          <span style="font-weight:600;font-size:15px">${escHtml(d.mountpoint)}</span>
+          <span style="font-size:11px;padding:2px 7px;border-radius:8px;font-weight:600;margin-left:8px;${typeStyle}">${escHtml(d.disk_type)}</span>
+        </div>
+        <span style="font-size:13px;color:#64748b">${pct.toFixed(1)}%</span>
+      </div>
+      <div class="bar-bg" style="margin-bottom:6px"><div class="bar-fill" style="width:${pct}%;background:${memBarGradient(pct)}"></div></div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#94a3b8">
+        <span>${escHtml(d.device)} · ${escHtml(d.fstype)}</span>
+        <span>${d.used_gb} / ${d.total_gb} GB</span>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 // ── Util ─────────────────────────────────────────────────
