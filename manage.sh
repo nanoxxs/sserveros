@@ -253,11 +253,6 @@ start_backend() {
   fi
 
   load_env_exports
-  if is_placeholder_sendkey "${SENDKEY:-}"; then
-    echo "错误：.env 中缺少有效的 SENDKEY。"
-    return 1
-  fi
-
   ensure_runtime_dir
   nohup "${PYTHON_BIN:-python3}" "${SCRIPT_DIR}/monitor.py" > /dev/null 2>&1 &
   wait_for_service "${BACKEND_PID_FILE}" "monitor.py"
@@ -615,6 +610,7 @@ update_from_zip() {
   local -a update_items=(
     manage.sh
     monitor.py
+    notifier.py
     webui.py
     webui.html
     config_bootstrap.py
