@@ -34,6 +34,7 @@ PYTHON_BIN="${SSERVEROS_PYTHON:-}"
 CHECK_INTERVAL=5
 CONFIRM_TIMES=2
 MEM_THRESHOLD_MIB=10240
+GPU_MEM_MONITOR_ENABLED=1
 
 # 监控哪些 GPU（留空则自动检测所有可用 GPU）
 GPUS=()
@@ -96,6 +97,7 @@ if mode == 'initial':
     watch_pids = d.get('watch_pids', [])
     print(' '.join(str(wp['pid']) for wp in watch_pids) if watch_pids else '')
     print(d.get('sendkey', ''))
+    print(d.get('gpu_mem_monitor_enabled', True))
 elif mode == 'reload':
     print(d.get('mem_threshold_mib', ''))
     print(d.get('check_interval', ''))
@@ -103,6 +105,7 @@ elif mode == 'reload':
     gpus = d.get('gpus', [])
     print(' '.join(str(g) for g in gpus) if gpus else '__AUTO__')
     print(d.get('sendkey', ''))
+    print(d.get('gpu_mem_monitor_enabled', True))
 elif mode == 'notes':
     for wp in d.get('watch_pids', []):
         print(f\"{wp['pid']} {wp.get('note', '')}\")
@@ -114,18 +117,20 @@ _load_initial_config() {
   local cfg
   cfg=$(_read_config_snapshot initial) || return
   local new_interval new_times new_threshold new_gpus new_pids new_sk
-  new_interval=$(echo "$cfg"  | sed -n '1p')
-  new_times=$(echo "$cfg"     | sed -n '2p')
-  new_threshold=$(echo "$cfg" | sed -n '3p')
-  new_gpus=$(echo "$cfg"      | sed -n '4p')
-  new_pids=$(echo "$cfg"      | sed -n '5p')
-  new_sk=$(echo "$cfg"        | sed -n '6p')
+  new_interval=$(echo "$cfg"       | sed -n '1p')
+  new_times=$(echo "$cfg"          | sed -n '2p')
+  new_threshold=$(echo "$cfg"      | sed -n '3p')
+  new_gpus=$(echo "$cfg"           | sed -n '4p')
+  new_pids=$(echo "$cfg"           | sed -n '5p')
+  new_sk=$(echo "$cfg"             | sed -n '6p')
+  new_gpu_mem_monitor=$(echo "$cfg" | sed -n '7p')
   [ -n "$new_interval"  ] && CHECK_INTERVAL="$new_interval"
   [ -n "$new_times"     ] && CONFIRM_TIMES="$new_times"
   [ -n "$new_threshold" ] && MEM_THRESHOLD_MIB="$new_threshold"
   [ -n "$new_gpus"      ] && IFS=' ' read -ra GPUS <<< "$new_gpus"
   [ -n "$new_pids"      ] && IFS=' ' read -ra WATCH_PIDS <<< "$new_pids"
   [ -z "${SENDKEY}" ] && [ -n "$new_sk" ] && SENDKEY="$new_sk"
+  [ "$new_gpu_mem_monitor" = "False" ] && GPU_MEM_MONITOR_ENABLED=0 || GPU_MEM_MONITOR_ENABLED=1
 }
 _load_initial_config
 
@@ -304,11 +309,12 @@ _reload_settings() {
     local cfg
     cfg=$(_read_config_snapshot reload)
     local new_threshold new_interval new_times new_gpus new_key
-    new_threshold=$(echo "$cfg" | sed -n '1p')
-    new_interval=$(echo "$cfg"  | sed -n '2p')
-    new_times=$(echo "$cfg"     | sed -n '3p')
-    new_gpus=$(echo "$cfg"      | sed -n '4p')
-    new_key=$(echo "$cfg"       | sed -n '5p')
+    new_threshold=$(echo "$cfg"       | sed -n '1p')
+    new_interval=$(echo "$cfg"        | sed -n '2p')
+    new_times=$(echo "$cfg"           | sed -n '3p')
+    new_gpus=$(echo "$cfg"            | sed -n '4p')
+    new_key=$(echo "$cfg"             | sed -n '5p')
+    new_gpu_mem_monitor=$(echo "$cfg"  | sed -n '6p')
     [ -n "$new_threshold" ] && MEM_THRESHOLD_MIB="$new_threshold"
     [ -n "$new_interval"  ] && CHECK_INTERVAL="$new_interval"
     [ -n "$new_times"     ] && CONFIRM_TIMES="$new_times"
@@ -321,7 +327,8 @@ _reload_settings() {
     fi
     _sync_gpu_state_arrays
     [ -n "$new_key"       ] && SENDKEY="$new_key"
-    echo "[$(date '+%F %T')] 已重新加载配置: GPUs=${GPUS[*]} 阈值=${MEM_THRESHOLD_MIB} 间隔=${CHECK_INTERVAL} 确认=${CONFIRM_TIMES}"
+    [ "$new_gpu_mem_monitor" = "False" ] && GPU_MEM_MONITOR_ENABLED=0 || GPU_MEM_MONITOR_ENABLED=1
+    echo "[$(date '+%F %T')] 已重新加载配置: GPUs=${GPUS[*]} 阈值=${MEM_THRESHOLD_MIB} 间隔=${CHECK_INTERVAL} 确认=${CONFIRM_TIMES} 显存监控=${GPU_MEM_MONITOR_ENABLED}"
   fi
   # 删除指定 PID
   local remove_file="${REMOVE_QUEUE_FILE}"
@@ -616,8 +623,9 @@ EOF
   done
 
   ######################################
-  # 事件 3/4：GPU 显存跌破 / 恢复阈值
+  # 事件 3/4：GPU 显存跌破 / 恢复阈值（可由 gpu_mem_monitor_enabled 关闭）
   ######################################
+  if [ "${GPU_MEM_MONITOR_ENABLED:-1}" -eq 1 ]; then
   for gpu in "${GPUS[@]}"; do
     used="${gpu_mem_used[$gpu]:-0}"
 
@@ -705,6 +713,7 @@ EOF
       fi
     fi
   done
+  fi  # GPU_MEM_MONITOR_ENABLED
 
   ######################################
   # 事件 5：指定 PID 消失

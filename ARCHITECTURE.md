@@ -50,9 +50,9 @@ webui.log                # WebUI 进程的标准输出日志
 3. 事件检测（按顺序）：
    - 首次发现主 PID → 发通知
    - 主 PID 连续消失 ≥ CONFIRM_TIMES → 发通知
-   - GPU 显存持续低于 MEM_THRESHOLD_MIB → 发通知
-   - GPU 显存恢复高占用 → 发通知 + 重新识别主 PID
-   - WATCH_PIDS 中的指定 PID 消失 → 发通知
+   - GPU 显存持续低于 MEM_THRESHOLD_MIB → 发通知（仅 `GPU_MEM_MONITOR_ENABLED=1` 时）
+   - GPU 显存恢复高占用 → 发通知 + 重新识别主 PID（同上）
+   - WATCH_PIDS 中的指定 PID 消失 → 发通知（不受显存监控开关影响）
 4. `_write_state_json` → 写 `runtime/state.json`（原子替换）
 
 ### 重要信号处理
@@ -75,6 +75,7 @@ webui.log                # WebUI 进程的标准输出日志
 | CHECK_INTERVAL | 5 | 检测间隔（秒）|
 | CONFIRM_TIMES | 2 | 连续 N 次才触发通知 |
 | MEM_THRESHOLD_MIB | 10240 | 显存告警阈值 |
+| GPU_MEM_MONITOR_ENABLED | 1 | 显存阈值监控开关（0=关闭，仅保留 PID 监控）|
 | GPUS | （自动检测）| 监控的 GPU 索引列表 |
 | WATCH_PIDS | （空）| 手动指定监控的 PID |
 
@@ -127,6 +128,7 @@ webui.log                # WebUI 进程的标准输出日志
 | `log_max_size_mb` | int | `10` | 是 | 日志压缩触发大小 |
 | `log_archive_keep` | int | `5` | 是 | 存档保留数量 |
 | `gpus` | int[] | `[]` | 是（设置页） | 监控的 GPU 索引列表，空数组自动检测全部 |
+| `gpu_mem_monitor_enabled` | bool | `true` | 是（设置页） | 显存阈值监控开关；关闭后跳过事件 3/4，不影响 PID 监控 |
 | `watch_pids` | object[] | `[]` | 是（PIDs 页） | 持久化监控 PID 列表 `[{"pid":N,"note":"..."}]` |
 | `webui_host` | string | `"0.0.0.0"` | 否（重启生效） | WebUI 绑定地址 |
 | `webui_port` | int | `6777` | 否（重启生效） | WebUI 监听端口 |

@@ -141,6 +141,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .setting-label { font-size: 12px; color: #64748b; margin-bottom: 6px; }
 .setting-input { width: 100%; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; font-size: 14px; outline: none; }
 .setting-input:focus { border-color: #2563eb; }
+.setting-row-toggle { display: flex; justify-content: space-between; align-items: center; }
+.toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; inset: 0; background: #e2e8f0; border-radius: 24px; cursor: pointer; transition: background .2s; }
+.toggle-slider::before { content: ''; position: absolute; width: 18px; height: 18px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+.toggle-switch input:checked + .toggle-slider { background: #2563eb; }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
 .save-btn { background: #2563eb; color: #fff; border: none; border-radius: 12px; padding: 14px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%; box-shadow: 0 2px 8px rgba(37,99,235,0.3); }
 .save-msg { text-align: center; font-size: 13px; color: #16a34a; margin-top: 8px; display: none; }
 .notice-msg { font-size: 13px; margin-top: 10px; display: none; text-align: center; }
@@ -293,6 +300,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   <div class="pane" id="paneSettings">
     <div class="card">
       <div class="card-header">监控参数</div>
+      <div class="setting-row setting-row-toggle">
+        <div>
+          <div class="setting-label" style="margin-bottom:2px">显存阈值监控</div>
+          <div style="font-size:12px;color:#94a3b8">关闭后停止显存跌破/恢复阈值告警，不影响手动添加的 PID 监控</div>
+        </div>
+        <label class="toggle-switch" style="margin-left:16px">
+          <input type="checkbox" id="cfgMemMonitor" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
       <div class="setting-row">
         <div class="setting-label">显存告警阈值 (MiB)</div>
         <input class="setting-input" id="cfgThreshold" type="number">
@@ -741,6 +758,7 @@ async function loadSettings() {
   $('cfgLogMb').value     = cfg.log_max_size_mb ?? 10;
   $('cfgLogKeep').value   = cfg.log_archive_keep ?? 5;
   $('cfgGpus').value      = (cfg.gpus || []).join(',');
+  $('cfgMemMonitor').checked = cfg.gpu_mem_monitor_enabled !== false;
 }
 
 async function saveSettings() {
@@ -777,13 +795,14 @@ async function saveSettings() {
   let body;
   try {
     body = {
-      mem_threshold_mib: parsePositive('cfgThreshold', '显存告警阈值'),
-      check_interval:    parsePositive('cfgInterval', '检测间隔'),
-      confirm_times:     parsePositive('cfgConfirm', '确认次数'),
-      sendkey:           $('cfgSendkey').value,
-      log_max_size_mb:   parsePositive('cfgLogMb', '日志压缩触发大小'),
-      log_archive_keep:  parsePositive('cfgLogKeep', '历史存档保留数量'),
+      mem_threshold_mib:        parsePositive('cfgThreshold', '显存告警阈值'),
+      check_interval:           parsePositive('cfgInterval', '检测间隔'),
+      confirm_times:            parsePositive('cfgConfirm', '确认次数'),
+      sendkey:                  $('cfgSendkey').value,
+      log_max_size_mb:          parsePositive('cfgLogMb', '日志压缩触发大小'),
+      log_archive_keep:         parsePositive('cfgLogKeep', '历史存档保留数量'),
       gpus,
+      gpu_mem_monitor_enabled:  $('cfgMemMonitor').checked,
     };
   } catch (err) {
     showMessage('saveMsg', err.message || '输入不合法', 'error');

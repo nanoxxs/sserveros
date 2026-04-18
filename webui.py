@@ -400,6 +400,13 @@ def create_app(script_dir: str = None):
             if cfg.get('gpus') != gpus:
                 runtime_reload_needed = True
             cfg['gpus'] = gpus
+        if 'gpu_mem_monitor_enabled' in data:
+            val = data['gpu_mem_monitor_enabled']
+            if not isinstance(val, bool):
+                return jsonify({'error': 'invalid value for gpu_mem_monitor_enabled'}), 400
+            if cfg.get('gpu_mem_monitor_enabled', True) != val:
+                runtime_reload_needed = True
+            cfg['gpu_mem_monitor_enabled'] = val
         if data.get('new_password'):
             if not check_password_hash(cfg.get('password_hash', ''),
                                        data.get('current_password', '')):
