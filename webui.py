@@ -38,6 +38,7 @@ def create_app(script_dir: str = None):
     cfg0, initial_password = ensure_config(
         script_dir, initial_password=os.environ.get('SSERVEROS_PASSWORD') or None
     )
+    notifier.sync_env_to_config(_config_path(script_dir))
     app.config['SECRET_KEY'] = cfg0['secret_key'].encode()
     app.config['SESSION_PERMANENT'] = True
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=10)

@@ -636,6 +636,8 @@ class Monitor:
         if not self.sendkey:
             self.sendkey = cfg_file.get('sendkey', '')
 
+        notifier.sync_env_to_config(self.config_file)
+
         if not notifier.has_any_channel(self._notify_cfg()):
             print('错误：未配置任何推送渠道（SERVERCHAN_KEYS / BARK_CONFIGS / SENDKEY）', file=sys.stderr)
             sys.exit(1)

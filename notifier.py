@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import urllib.error
 import urllib.request
@@ -79,6 +80,50 @@ def _send_bark(url: str, key: str, title: str, content: str) -> dict:
         'send_success': success,
         'http_status': http_status,
     }
+
+
+def sync_env_to_config(config_path: str) -> None:
+    """把 env 变量中的渠道配置合并写入 config.json，使 WebUI 能看到。"""
+    sc_raw = os.environ.get('SERVERCHAN_KEYS', '').strip()
+    bark_raw = os.environ.get('BARK_CONFIGS', '').strip()
+    sendkey = os.environ.get('SENDKEY', '').strip()
+
+    if not sc_raw and not bark_raw and not sendkey:
+        return
+
+    try:
+        with open(config_path) as f:
+            cfg = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+
+    changed = False
+
+    if sc_raw:
+        keys = [k.strip() for k in sc_raw.split(',') if k.strip()]
+        if keys and cfg.get('serverchan_keys') != keys:
+            cfg['serverchan_keys'] = keys
+            changed = True
+
+    if bark_raw:
+        bcs = []
+        for item in bark_raw.split(','):
+            parts = item.strip().split('|', 1)
+            if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+                bcs.append({'url': parts[0].strip(), 'key': parts[1].strip()})
+        if bcs and cfg.get('bark_configs') != bcs:
+            cfg['bark_configs'] = bcs
+            changed = True
+
+    if sendkey and not cfg.get('sendkey'):
+        cfg['sendkey'] = sendkey
+        changed = True
+
+    if changed:
+        tmp = config_path + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, config_path)
 
 
 def send_all(cfg: dict, title: str, content: str,
