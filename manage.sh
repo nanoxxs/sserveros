@@ -248,7 +248,7 @@ print(password or '')
 start_backend() {
   check_backend_requirements
   if service_running "${BACKEND_PID_FILE}"; then
-    echo "sserveros.sh 已在运行。"
+    echo "monitor.py 已在运行。"
     return 0
   fi
 
@@ -259,8 +259,8 @@ start_backend() {
   fi
 
   ensure_runtime_dir
-  nohup bash "${SCRIPT_DIR}/sserveros.sh" > /dev/null 2>&1 &
-  wait_for_service "${BACKEND_PID_FILE}" "sserveros.sh"
+  nohup "${PYTHON_BIN:-python3}" "${SCRIPT_DIR}/monitor.py" > /dev/null 2>&1 &
+  wait_for_service "${BACKEND_PID_FILE}" "monitor.py"
 }
 
 get_webui_port() {
@@ -301,8 +301,8 @@ is_project_webui_process() {
 
 known_service_label() {
   local cmd="$1"
-  if [[ "${cmd}" == *"${SCRIPT_DIR}/sserveros.sh"* ]]; then
-    printf 'sserveros.sh'
+  if [[ "${cmd}" == *"${SCRIPT_DIR}/monitor.py"* ]]; then
+    printf 'monitor.py'
   elif [[ "${cmd}" == *"${SCRIPT_DIR}/webui.py"* ]]; then
     printf 'webui.py'
   elif [[ "${cmd}" == *"${SCRIPT_DIR}/manage.sh"* ]]; then
@@ -614,7 +614,7 @@ update_from_zip() {
   local tmpdir archive extracted_dir item
   local -a update_items=(
     manage.sh
-    sserveros.sh
+    monitor.py
     webui.py
     webui.html
     config_bootstrap.py
@@ -676,7 +676,7 @@ update_from_zip() {
     fi
   done
 
-  chmod +x "${SCRIPT_DIR}/manage.sh" "${SCRIPT_DIR}/sserveros.sh"
+  chmod +x "${SCRIPT_DIR}/manage.sh"
   rm -rf "${tmpdir}"
   echo "已通过 zip 包更新脚本。"
 }
@@ -718,7 +718,7 @@ show_status() {
 
   echo
   echo "当前状态"
-  echo "sserveros.sh: ${backend_state}"
+  echo "monitor.py:   ${backend_state}"
   echo "WebUI:       ${webui_state}"
   echo "端口 ${port}:   $(port_status_summary "${port}")"
   echo
@@ -808,7 +808,7 @@ backend_menu() {
   local choice
   while true; do
     show_status
-    echo "sserveros.sh 管理："
+    echo "monitor.py 管理："
     echo "1. 启动"
     echo "2. 停止"
     echo "0. 返回上一级"
@@ -820,7 +820,7 @@ backend_menu() {
         bootstrap_config
         start_backend
         ;;
-      2) stop_service "sserveros.sh" "${BACKEND_PID_FILE}" "${SCRIPT_DIR}/sserveros.sh" ;;
+      2) stop_service "monitor.py" "${BACKEND_PID_FILE}" "${SCRIPT_DIR}/monitor.py" ;;
       0) return 0 ;;
       *) echo "无效输入，请重试。" ;;
     esac
@@ -860,7 +860,7 @@ menu_loop() {
     show_status
     echo "请选择操作："
     echo "1. 一键初始化并启动"
-    echo "2. 管理 sserveros.sh"
+    echo "2. 管理 monitor.py"
     echo "3. 管理 WebUI"
     echo "4. 查看并停止项目相关进程"
     echo "5. 更新 SENDKEY"

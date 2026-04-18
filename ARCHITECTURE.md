@@ -1,6 +1,6 @@
 # sserveros 架构说明
 
-GPU 监控 + WebUI 项目。核心是一个 Bash 脚本，通过 Server Chan 推送通知；配套一个 Flask WebUI 供局域网（Tailscale）访问查看状态、管理监控任务。
+GPU 监控 + WebUI 项目。核心是一个 Python 脚本，通过 Server Chan 推送通知；配套一个 Flask WebUI 供局域网（Tailscale）访问查看状态、管理监控任务。
 
 ---
 
@@ -9,11 +9,12 @@ GPU 监控 + WebUI 项目。核心是一个 Bash 脚本，通过 Server Chan 推
 ``` 
 sserveros/
 ├── manage.sh            # 一键初始化 / 启动 / 停止 / 改密码
-├── sserveros.sh          # 主监控脚本（Bash）
+├── monitor.py            # 主监控脚本（Python）
 ├── webui.py              # Web 后端（Flask）
 ├── webui.html            # 前端页面（单文件，内嵌 CSS + JS）
 ├── tests/
-│   └── test_webui.py     # webui.py 的全量测试（pytest）
+│   ├── test_webui.py     # webui.py 的全量测试（pytest）
+│   └── test_sserveros.py # monitor.py 的全量测试（pytest）
 ├── docs/
 │   └── superpowers/
 │       ├── specs/        # 设计规格文档
@@ -39,51 +40,48 @@ webui.log                # WebUI 进程的标准输出日志
 
 ---
 
-## sserveros.sh
+## monitor.py
 
 **职责：** 循环轮询 nvidia-smi，检测事件并通过 Server Chan 推送通知，同时写 `runtime/state.json` 供 WebUI 读取。
 
-### 核心流程（每 CHECK_INTERVAL 秒一次）
+### 核心流程（每 check_interval 秒一次）
 
 1. `nvidia-smi --query-gpu` → 获取各卡显存使用 / 总量 / 型号
 2. `nvidia-smi --query-compute-apps` → 获取各卡最大显存占用进程（主 PID）
 3. 事件检测（按顺序）：
    - 首次发现主 PID → 发通知
-   - 主 PID 连续消失 ≥ CONFIRM_TIMES → 发通知
-   - GPU 显存持续低于 MEM_THRESHOLD_MIB → 发通知（仅 `GPU_MEM_MONITOR_ENABLED=1` 时）
+   - 主 PID 连续消失 ≥ confirm_times → 发通知
+   - GPU 显存持续低于 mem_threshold_mib → 发通知（仅 `gpu_mem_monitor_enabled=True` 时）
    - GPU 显存恢复高占用 → 发通知 + 重新识别主 PID（同上）
-   - WATCH_PIDS 中的指定 PID 消失 → 发通知（不受显存监控开关影响）
-4. `_write_state_json` → 写 `runtime/state.json`（原子替换）
+   - watch_pids 中的指定 PID 消失 → 发通知（不受显存监控开关影响）
+4. `write_state_json` → 写 `runtime/state.json`（原子替换）
 
 ### 重要信号处理
 
-| 信号   | 触发函数           | 作用 |
-|--------|--------------------|------|
-| SIGUSR1 | `_reload_pids`    | 读取 `runtime/watch_pids.queue`，动态追加监控 PID |
-| SIGUSR2 | `_reload_settings` | 从 `config.json` 重新加载参数；从 `runtime/remove_pids.queue` 删除 PID |
-| EXIT   | `_on_exit`         | 推送「脚本已中断」通知 |
+| 信号    | 处理方法              | 作用 |
+|---------|-----------------------|------|
+| SIGUSR1 | `_reload_pids`        | 读取 `runtime/watch_pids.queue`，动态追加监控 PID |
+| SIGUSR2 | `_reload_settings`    | 从 `config.json` 重新加载参数；从 `runtime/remove_pids.queue` 删除 PID |
+| SIGTERM/SIGINT | `_handle_term` | 优雅退出，触发 atexit `_on_exit` 推送「脚本已中断」通知 |
 
-### 通知函数 send_sc（行 114–148）
+### 子命令
 
-- 调用 `curl` POST 到 `sctapi.ftqq.com`，捕获 HTTP 状态码
-- 立即用内嵌 Python 将事件追加到 `runtime/log.json`
+```bash
+python monitor.py add <pid>   # 动态追加监控 PID（写队列 + 发 SIGUSR1）
+python monitor.py             # 启动监控守护进程
+```
 
-### 常量位置（行 17–27，可修改）
+### 配置来源（优先级从高到低）
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| CHECK_INTERVAL | 5 | 检测间隔（秒）|
-| CONFIRM_TIMES | 2 | 连续 N 次才触发通知 |
-| MEM_THRESHOLD_MIB | 10240 | 显存告警阈值 |
-| GPU_MEM_MONITOR_ENABLED | 1 | 显存阈值监控开关（0=关闭，仅保留 PID 监控）|
-| GPUS | （自动检测）| 监控的 GPU 索引列表 |
-| WATCH_PIDS | （空）| 手动指定监控的 PID |
+1. 环境变量 `SENDKEY`
+2. `.env` 文件
+3. `config.json` 的 `sendkey` 字段
 
 ---
 
 ## webui.py
 
-**职责：** Flask 应用，提供 REST API；读取 `runtime/state.json` / `runtime/log.json`；通过信号控制 sserveros.sh；后台线程定期压缩日志。
+**职责：** Flask 应用，提供 REST API；读取 `runtime/state.json` / `runtime/log.json`；通过信号控制 monitor.py；后台线程定期压缩日志。
 
 ### 入口
 
@@ -177,13 +175,13 @@ webui.log                # WebUI 进程的标准输出日志
 ```
 manage.sh
   │  首次运行：复制 .env.example → .env，提示输入 SENDKEY
-  │  后台启动 sserveros.sh / webui.py
+  │  后台启动 monitor.py / webui.py
   │  后续运行：检测 PID，提供启动 / 停止 / 改密码菜单
   │
-  ├──────────────► sserveros.sh
+  ├──────────────► monitor.py
   └──────────────► webui.py
 
-sserveros.sh
+monitor.py
   │  每轮写 runtime/state.json（原子替换）
   │  事件写 runtime/log.json（追加）
   │  读 runtime/watch_pids.queue（SIGUSR1）
@@ -211,13 +209,13 @@ webui.html（浏览器）
 bash ./manage.sh
 
 # 或手动启动监控脚本
-nohup bash ./sserveros.sh > /dev/null 2>&1 &
+nohup python monitor.py > /dev/null 2>&1 &
 
 # 可选：再单独启动 WebUI
 nohup python webui.py > /dev/null 2>&1 &
 ```
 
-`sserveros.sh` 是核心服务，`webui.py` 是可选管理界面；`manage.sh` 只是对初始化和启停流程的封装。
+`monitor.py` 是核心服务，`webui.py` 是可选管理界面；`manage.sh` 只是对初始化和启停流程的封装。
 
 ---
 

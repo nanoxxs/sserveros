@@ -3,6 +3,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -42,7 +43,7 @@ def _write_mock_state(path: Path, *, gpu_indices, gpus, apps, alive_pids):
 def _prepare_project(tmp_path: Path):
     project_dir = tmp_path / 'project'
     project_dir.mkdir()
-    shutil.copy2(ROOT_DIR / 'sserveros.sh', project_dir / 'sserveros.sh')
+    shutil.copy2(ROOT_DIR / 'monitor.py', project_dir / 'monitor.py')
     shutil.copy2(ROOT_DIR / 'config_bootstrap.py', project_dir / 'config_bootstrap.py')
     shutil.copy2(ROOT_DIR / 'storage.py', project_dir / 'storage.py')
     (project_dir / 'runtime').mkdir()
@@ -124,7 +125,7 @@ def _start_monitor(project_dir: Path, config: dict = None, extra_env: dict = Non
     if extra_env:
         env.update(extra_env)
     proc = subprocess.Popen(
-        ['bash', 'sserveros.sh'],
+        [sys.executable, 'monitor.py'],
         cwd=project_dir,
         env=env,
         stdout=subprocess.PIPE,
