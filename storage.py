@@ -5,6 +5,8 @@ import os
 
 DEFAULT_CONFIG = {
     'sendkey': '',
+    'serverchan_keys': [],
+    'bark_configs': [],
     'check_interval': 5,
     'mem_threshold_mib': 10240,
     'confirm_times': 2,

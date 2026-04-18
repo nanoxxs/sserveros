@@ -149,6 +149,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .toggle-switch input:checked + .toggle-slider { background: #2563eb; }
 .toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
 .save-btn { background: #2563eb; color: #fff; border: none; border-radius: 12px; padding: 14px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%; box-shadow: 0 2px 8px rgba(37,99,235,0.3); }
+.bark-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.bark-row .bark-url { flex: 2; }
+.bark-row .bark-key { flex: 1; }
+.bark-row .bark-del { background: none; border: none; color: #ef4444; font-size: 18px; cursor: pointer; padding: 4px 6px; line-height: 1; flex-shrink: 0; }
+.add-channel-btn { background: none; border: 1px dashed #cbd5e1; border-radius: 8px; color: #64748b; font-size: 13px; padding: 7px 14px; cursor: pointer; margin-top: 4px; width: 100%; text-align: left; }
+.add-channel-btn:hover { border-color: #2563eb; color: #2563eb; }
 .save-msg { text-align: center; font-size: 13px; color: #16a34a; margin-top: 8px; display: none; }
 .notice-msg { font-size: 13px; margin-top: 10px; display: none; text-align: center; }
 .notice-msg.success { color: #16a34a; }
@@ -323,10 +329,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
         <input class="setting-input" id="cfgConfirm" type="number">
       </div>
       <div class="setting-row">
-        <div class="setting-label">SENDKEY</div>
-        <input class="setting-input" id="cfgSendkey" placeholder="SCTxxxxxxxx">
-      </div>
-      <div class="setting-row">
         <div class="setting-label">日志压缩触发大小 (MB)</div>
         <input class="setting-input" id="cfgLogMb" type="number">
       </div>
@@ -337,6 +339,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <div class="setting-row">
         <div class="setting-label">监控 GPU 索引（逗号分隔，留空自动检测）</div>
         <input class="setting-input" id="cfgGpus" placeholder="例：0,1,2">
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">通知渠道</div>
+      <div class="setting-row">
+        <div class="setting-label">Server Chan 密钥（每行一个，支持多个）</div>
+        <div style="font-size:12px;color:#94a3b8;margin-bottom:6px">获取地址：<a href="https://sct.ftqq.com/" target="_blank" style="color:#2563eb">sct.ftqq.com</a></div>
+        <textarea class="setting-input" id="cfgServerchanKeys" rows="3" placeholder="每行填写一个 SCTxxxxxxxx" style="resize:vertical;font-family:monospace;font-size:13px"></textarea>
+      </div>
+      <div class="setting-row" style="border-bottom:none">
+        <div class="setting-label">Bark 推送地址（支持多个，可自建服务器）</div>
+        <div id="barkList"></div>
+        <button class="add-channel-btn" onclick="addBarkRow()">+ 添加 Bark 地址</button>
       </div>
     </div>
     <button class="save-btn" onclick="saveSettings()">保存设置</button>
@@ -754,11 +769,35 @@ async function loadSettings() {
   $('cfgThreshold').value = cfg.mem_threshold_mib ?? 10240;
   $('cfgInterval').value  = cfg.check_interval ?? 5;
   $('cfgConfirm').value   = cfg.confirm_times ?? 2;
-  $('cfgSendkey').value   = cfg.sendkey ?? '';
   $('cfgLogMb').value     = cfg.log_max_size_mb ?? 10;
   $('cfgLogKeep').value   = cfg.log_archive_keep ?? 5;
   $('cfgGpus').value      = (cfg.gpus || []).join(',');
   $('cfgMemMonitor').checked = cfg.gpu_mem_monitor_enabled !== false;
+
+  // Server Chan keys: merge legacy sendkey + serverchan_keys
+  const scKeys = [...(cfg.serverchan_keys || [])];
+  if (cfg.sendkey && !scKeys.includes(cfg.sendkey)) scKeys.unshift(cfg.sendkey);
+  $('cfgServerchanKeys').value = scKeys.join('\n');
+
+  // Bark configs
+  const barkList = $('barkList');
+  barkList.innerHTML = '';
+  (cfg.bark_configs || []).forEach(b => addBarkRow(b.url, b.key));
+}
+
+function addBarkRow(url = '', key = '') {
+  const barkList = $('barkList');
+  const row = document.createElement('div');
+  row.className = 'bark-row';
+  row.innerHTML = `
+    <input class="setting-input bark-url" placeholder="URL（如 https://api.day.app）" value="${_esc(url)}">
+    <input class="setting-input bark-key" placeholder="设备 Key" value="${_esc(key)}">
+    <button class="bark-del" onclick="this.parentElement.remove()" title="删除">×</button>`;
+  barkList.appendChild(row);
+}
+
+function _esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
 }
 
 async function saveSettings() {
@@ -792,17 +831,32 @@ async function saveSettings() {
     }
   }
 
+  const serverchan_keys = $('cfgServerchanKeys').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+
+  const bark_configs = [];
+  for (const row of $('barkList').querySelectorAll('.bark-row')) {
+    const url = row.querySelector('.bark-url').value.trim();
+    const key = row.querySelector('.bark-key').value.trim();
+    if (url && key) bark_configs.push({ url, key });
+    else if (url || key) {
+      showMessage('saveMsg', 'Bark 配置不完整，URL 和设备 Key 均必填', 'error');
+      return;
+    }
+  }
+
   let body;
   try {
     body = {
       mem_threshold_mib:        parsePositive('cfgThreshold', '显存告警阈值'),
       check_interval:           parsePositive('cfgInterval', '检测间隔'),
       confirm_times:            parsePositive('cfgConfirm', '确认次数'),
-      sendkey:                  $('cfgSendkey').value,
       log_max_size_mb:          parsePositive('cfgLogMb', '日志压缩触发大小'),
       log_archive_keep:         parsePositive('cfgLogKeep', '历史存档保留数量'),
       gpus,
       gpu_mem_monitor_enabled:  $('cfgMemMonitor').checked,
+      serverchan_keys,
+      bark_configs,
     };
   } catch (err) {
     showMessage('saveMsg', err.message || '输入不合法', 'error');
@@ -962,7 +1016,7 @@ function showLogDetail(idx) {
   $('detailTag').textContent = tagLabel;
   $('detailTag').className = 'log-tag ' + tagClass;
   $('detailTime').textContent = e.time;
-  $('detailSendkey').textContent = 'Server Chan · ' + (e.sendkey_hint || '');
+  $('detailSendkey').textContent = e.channel_hint || ('Server Chan · ' + (e.sendkey_hint || ''));
   const statusEl = $('detailStatus');
   if (e.send_success) {
     statusEl.innerHTML = `<span class="meta-ok">✓ 成功（HTTP ${e.http_status}）</span>`;

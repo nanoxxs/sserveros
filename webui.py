@@ -9,6 +9,7 @@ import threading
 from datetime import datetime, timedelta
 from functools import wraps
 
+import notifier
 from config_bootstrap import ensure_config
 from storage import (
     config_path as _config_path,
@@ -350,29 +351,21 @@ def create_app(script_dir: str = None):
     @app.route('/api/notify/test', methods=['POST'])
     @require_auth
     def api_notify_test():
-        import urllib.error
-        import urllib.parse
-        import urllib.request
         cfg = load_config_file(_config_path(script_dir))
-        sendkey = cfg.get('sendkey', '').strip()
-        if not sendkey:
-            return jsonify({'error': 'SENDKEY 未配置，请先在设置页填写'}), 400
-        url = f'https://sctapi.ftqq.com/{sendkey}.send'
-        data = urllib.parse.urlencode({
-            'title': 'sserveros 测试通知',
-            'desp': '这是一条来自 sserveros WebUI 的测试通知。\n\n如果你看到此消息，说明 SENDKEY 配置正确。',
-        }).encode()
-        try:
-            req = urllib.request.Request(url, data=data, method='POST')
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                http_status = resp.status
-            return jsonify({'ok': True, 'http_status': http_status,
-                            'message': f'测试通知已发送（HTTP {http_status}）'})
-        except urllib.error.HTTPError as e:
-            return jsonify({'ok': False, 'http_status': e.code,
-                            'error': f'发送失败（HTTP {e.code}）'}), 502
-        except Exception as e:
-            return jsonify({'error': f'请求失败：{e}'}), 500
+        if not notifier.has_any_channel(cfg):
+            return jsonify({'error': '未配置任何推送渠道，请先在设置页填写'}), 400
+        results = notifier.send_all(
+            cfg,
+            'sserveros 测试通知',
+            '这是一条来自 sserveros WebUI 的测试通知。\n\n如果你看到此消息，说明推送渠道配置正确。',
+        )
+        all_ok = all(r['send_success'] for r in results)
+        failed = [r['channel_hint'] for r in results if not r['send_success']]
+        if all_ok:
+            return jsonify({'ok': True, 'message': f'测试通知已发送（共 {len(results)} 个渠道）'})
+        if failed:
+            return jsonify({'ok': False, 'error': f'部分渠道发送失败：{", ".join(failed)}'}), 502
+        return jsonify({'error': '发送失败'}), 500
 
     @app.route('/api/settings', methods=['POST'])
     @require_auth
@@ -393,6 +386,26 @@ def create_app(script_dir: str = None):
             if cfg.get('sendkey') != data['sendkey']:
                 runtime_reload_needed = True
             cfg['sendkey'] = data['sendkey']
+        if 'serverchan_keys' in data:
+            keys = data['serverchan_keys']
+            if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+                return jsonify({'error': 'invalid serverchan_keys'}), 400
+            keys = [k.strip() for k in keys if k.strip()]
+            if cfg.get('serverchan_keys') != keys:
+                runtime_reload_needed = True
+            cfg['serverchan_keys'] = keys
+        if 'bark_configs' in data:
+            bcs = data['bark_configs']
+            if not isinstance(bcs, list):
+                return jsonify({'error': 'invalid bark_configs'}), 400
+            validated = []
+            for b in bcs:
+                if not isinstance(b, dict) or not b.get('url', '').strip() or not b.get('key', '').strip():
+                    return jsonify({'error': 'invalid bark_configs entry'}), 400
+                validated.append({'url': b['url'].strip(), 'key': b['key'].strip()})
+            if cfg.get('bark_configs') != validated:
+                runtime_reload_needed = True
+            cfg['bark_configs'] = validated
         if 'gpus' in data:
             gpus = data['gpus']
             if not isinstance(gpus, list) or not all(isinstance(g, int) and not isinstance(g, bool) and g >= 0 for g in gpus):

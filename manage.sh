@@ -134,12 +134,82 @@ set_env_value() {
 }
 
 load_env_exports() {
-  if [ -f "${ENV_FILE}" ]; then
-    set -a
-    # shellcheck disable=SC1090
-    source "${ENV_FILE}"
-    set +a
+  [ -f "${ENV_FILE}" ] || return 0
+  local line key value
+  while IFS= read -r line || [ -n "${line}" ]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    [[ -z "${line}" || "${line}" == '#'* ]] && continue
+    [[ "${line}" != *=* ]] && continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    if [[ "${value}" == '"'*'"' ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "${value}" == "'"*"'" ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+    export "${key}=${value}"
+  done < "${ENV_FILE}"
+}
+
+has_notify_channel() {
+  local sc bark sk
+  sc="$(env_value SERVERCHAN_KEYS)"
+  bark="$(env_value BARK_CONFIGS)"
+  sk="$(env_value SENDKEY)"
+  [ -n "${sc}" ] || [ -n "${bark}" ] || ([ -n "${sk}" ] && ! is_placeholder_sendkey "${sk}")
+}
+
+prompt_notify_channel() {
+  ensure_env_file
+  local choice bark_url bark_key value
+
+  if has_notify_channel; then
+    echo "检测到已配置推送渠道："
+    local sc bark sk
+    sc="$(env_value SERVERCHAN_KEYS)"
+    bark="$(env_value BARK_CONFIGS)"
+    sk="$(env_value SENDKEY)"
+    [ -n "${sc}"   ] && echo "  SERVERCHAN_KEYS: ${sc}"
+    [ -n "${bark}" ] && echo "  BARK_CONFIGS:    ${bark}"
+    [ -n "${sk}"   ] && ! is_placeholder_sendkey "${sk}" && echo "  SENDKEY:         $(mask_value "${sk}")"
+    printf '按回车保留，或输入 1/2 重新配置 [回车跳过]: '
+    read -r choice
+    [ -z "${choice}" ] && return 0
+  else
+    echo "请选择推送渠道（选 0 跳过，后续在 WebUI 设置页配置）："
+    echo "1. Server Chan"
+    echo "2. Bark"
+    echo "0. 跳过"
+    printf '输入编号： '
+    read -r choice
   fi
+
+  case "${choice}" in
+    1)
+      printf '请输入 Server Chan 密钥（SCTxxx 格式）： '
+      read -r value
+      if [ -n "${value}" ]; then
+        set_env_value SERVERCHAN_KEYS "${value}"
+        echo "已保存。如需配置多个密钥，请在 WebUI 设置页或直接编辑 .env 中的 SERVERCHAN_KEYS（逗号分隔）。"
+      fi
+      ;;
+    2)
+      printf '请输入 Bark 服务器地址（如 https://api.day.app）： '
+      read -r bark_url
+      printf '请输入 Bark 设备 Key： '
+      read -r bark_key
+      if [ -n "${bark_url}" ] && [ -n "${bark_key}" ]; then
+        set_env_value BARK_CONFIGS "${bark_url}|${bark_key}"
+        echo "已保存。如需配置多个地址，请在 WebUI 设置页或直接编辑 .env 中的 BARK_CONFIGS（逗号分隔）。"
+      fi
+      ;;
+    0|'')
+      echo "已跳过，请在 WebUI 设置页配置推送渠道后再启动监控脚本。"
+      ;;
+    *)
+      echo "无效输入，已跳过。"
+      ;;
+  esac
 }
 
 is_placeholder_sendkey() {
@@ -780,7 +850,7 @@ with open(path, 'w') as f:
 
 quick_start_flow() {
   local webui_port
-  prompt_sendkey
+  prompt_notify_channel
   bootstrap_config
   start_backend
 
@@ -859,7 +929,7 @@ menu_loop() {
     echo "2. 管理 monitor.py"
     echo "3. 管理 WebUI"
     echo "4. 查看并停止项目相关进程"
-    echo "5. 更新 SENDKEY"
+    echo "5. 配置推送渠道"
     echo "6. 拉取最新脚本"
     echo "0. 退出"
     printf '输入编号： '
@@ -870,7 +940,7 @@ menu_loop() {
       2) backend_menu ;;
       3) webui_menu ;;
       4) stop_project_process_from_menu ;;
-      5) prompt_sendkey ;;
+      5) prompt_notify_channel ;;
       6) pull_latest_scripts ;;
       0) exit 0 ;;
       *) echo "无效输入，请重试。" ;;

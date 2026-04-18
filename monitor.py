@@ -11,6 +11,7 @@ import sys
 import time
 from datetime import datetime
 
+import notifier
 from config_bootstrap import ensure_config
 from storage import (
     config_path as _config_path,
@@ -79,6 +80,8 @@ class Monitor:
         self.gpu_mem_monitor_enabled = True
         self.gpus: list[int] = []
         self.sendkey = ''
+        self.serverchan_keys: list = []
+        self.bark_configs: list = []
 
         # GPU 状态
         self.gpu_low_count: dict[int, int] = {}
@@ -143,6 +146,8 @@ class Monitor:
         self.gpus = [int(g) for g in raw_gpus] if raw_gpus else self._detect_all_gpus()
         if not self.sendkey:
             self.sendkey = cfg.get('sendkey', '')
+        self.serverchan_keys = cfg.get('serverchan_keys', [])
+        self.bark_configs = cfg.get('bark_configs', [])
         watch_pids_cfg = cfg.get('watch_pids', [])
         for wp in watch_pids_cfg:
             pid = int(wp['pid'])
@@ -194,6 +199,8 @@ class Monitor:
             raw_gpus = cfg.get('gpus', [])
             self.gpus = [int(g) for g in raw_gpus] if raw_gpus else self._detect_all_gpus()
             self.sendkey = cfg.get('sendkey', self.sendkey)
+            self.serverchan_keys = cfg.get('serverchan_keys', self.serverchan_keys)
+            self.bark_configs = cfg.get('bark_configs', self.bark_configs)
             self._sync_gpu_state_arrays()
             ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             print(
@@ -227,6 +234,13 @@ class Monitor:
         self._running = False
         sys.exit(143 if signum == signal.SIGTERM else 130)
 
+    def _notify_cfg(self) -> dict:
+        return {
+            'sendkey': self.sendkey,
+            'serverchan_keys': self.serverchan_keys,
+            'bark_configs': self.bark_configs,
+        }
+
     def _on_exit(self):
         if self._exit_sent:
             return
@@ -235,39 +249,19 @@ class Monitor:
             os.remove(self.pid_file)
         except OSError:
             pass
-        subprocess.run(
-            ['curl', '-s', '-X', 'POST',
-             f'https://sctapi.ftqq.com/{self.sendkey}.send',
-             '--data-urlencode', f'title=监控脚本已中断 [{HOSTNAME_TAG}]',
-             '--data-urlencode', 'desp=monitor.py 已退出，请检查并重启'],
-            capture_output=True,
+        notifier.send_all(
+            self._notify_cfg(),
+            f'监控脚本已中断 [{HOSTNAME_TAG}]',
+            'monitor.py 已退出，请检查并重启',
         )
 
     # ── 通知 ──────────────────────────────────────────────────────────────────
 
     def send_notification(self, title: str, content: str, event_type: str = 'info'):
-        r = subprocess.run(
-            ['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}',
-             '-X', 'POST', f'https://sctapi.ftqq.com/{self.sendkey}.send',
-             '--data-urlencode', f'title={title}',
-             '--data-urlencode', f'desp={content}'],
-            capture_output=True, text=True,
+        notifier.send_all(
+            self._notify_cfg(), title, content,
+            log_file=self.log_file, event_type=event_type,
         )
-        http_status = r.stdout.strip()
-        send_success = http_status == '200'
-
-        sendkey_hint = 'SCT···' + self.sendkey[-3:] if len(self.sendkey) >= 3 else self.sendkey
-        entry = {
-            'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'type': event_type,
-            'title': title,
-            'content': content,
-            'sendkey_hint': sendkey_hint,
-            'send_success': send_success,
-            'http_status': int(http_status) if http_status.isdigit() else 0,
-        }
-        with open(self.log_file, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + '\n')
 
     # ── GPU 查询 ──────────────────────────────────────────────────────────────
 
@@ -619,14 +613,29 @@ class Monitor:
         ensure_config(self.script_dir, initial_password=initial_password)
         ensure_runtime_dir(self.script_dir)
 
-        # SENDKEY: 优先环境变量，其次 config.json
-        self.sendkey = os.environ.get('SENDKEY', '')
-        self.load_config()
-        if not self.sendkey:
-            self.sendkey = load_config_file(self.config_file).get('sendkey', '')
+        # 从环境变量加载推送配置（优先级高于 config.json）
+        env_sendkey = os.environ.get('SENDKEY', '').strip()
+        env_sc_keys_raw = os.environ.get('SERVERCHAN_KEYS', '').strip()
+        env_bark_raw = os.environ.get('BARK_CONFIGS', '').strip()
 
-        if not self.sendkey or self.sendkey in ('你的SENDKEY',):
-            print('错误：请先填写 SENDKEY（或 export SENDKEY=xxx）', file=sys.stderr)
+        if env_sendkey:
+            self.sendkey = env_sendkey
+        if env_sc_keys_raw:
+            self.serverchan_keys = [k.strip() for k in env_sc_keys_raw.split(',') if k.strip()]
+        if env_bark_raw:
+            for item in env_bark_raw.split(','):
+                parts = item.strip().split('|', 1)
+                if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+                    self.bark_configs.append({'url': parts[0].strip(), 'key': parts[1].strip()})
+
+        self.load_config()
+
+        cfg_file = load_config_file(self.config_file)
+        if not self.sendkey:
+            self.sendkey = cfg_file.get('sendkey', '')
+
+        if not notifier.has_any_channel(self._notify_cfg()):
+            print('错误：未配置任何推送渠道（SERVERCHAN_KEYS / BARK_CONFIGS / SENDKEY）', file=sys.stderr)
             sys.exit(1)
 
         if not self.gpus:
