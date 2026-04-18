@@ -146,8 +146,10 @@ class Monitor:
         self.gpus = [int(g) for g in raw_gpus] if raw_gpus else self._detect_all_gpus()
         if not self.sendkey:
             self.sendkey = cfg.get('sendkey', '')
-        self.serverchan_keys = cfg.get('serverchan_keys', [])
-        self.bark_configs = cfg.get('bark_configs', [])
+        if not self.serverchan_keys:
+            self.serverchan_keys = cfg.get('serverchan_keys', [])
+        if not self.bark_configs:
+            self.bark_configs = cfg.get('bark_configs', [])
         watch_pids_cfg = cfg.get('watch_pids', [])
         for wp in watch_pids_cfg:
             pid = int(wp['pid'])
