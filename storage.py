@@ -43,17 +43,30 @@ def ensure_runtime_dir(script_dir: str):
 
 
 def load_config_file(path: str) -> dict:
-    with open(path) as f:
+    with open(path, encoding='utf-8') as f:
         return json.load(f)
 
 
-def save_config_file(path: str, cfg: dict):
+def ensure_private_file(path: str, mode: int = 0o600):
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        pass
+
+
+def atomic_write_json(path: str, data, *, mode: int = 0o600):
     tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write('\n')
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+    ensure_private_file(path, mode)
+
+
+def save_config_file(path: str, cfg: dict):
     with _config_lock:
-        with open(tmp, 'w') as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
+        atomic_write_json(path, cfg)
 
 
 def default_config() -> dict:

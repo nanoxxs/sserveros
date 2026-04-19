@@ -171,6 +171,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .tag-recover { background: #dcfce7; color: #16a34a; }
 .tag-pid { background: #fef3c7; color: #d97706; }
 .tag-info { background: #f1f5f9; color: #64748b; }
+.tag-admin-stop { background: #fee2e2; color: #b91c1c; }
+.tag-stop { background: #ffedd5; color: #c2410c; }
+.tag-crash { background: #fecaca; color: #991b1b; }
 .log-main { flex: 1; min-width: 0; }
 .log-title-text { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .log-time-text { font-size: 12px; color: #94a3b8; margin-top: 2px; }
@@ -354,6 +357,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
         <button class="add-channel-btn" onclick="addBarkRow()">+ 添加 Bark 地址</button>
       </div>
     </div>
+    <div class="notice-msg warn" id="envChannelMsg" style="display:none"></div>
     <button class="save-btn" onclick="saveSettings()">保存设置</button>
     <div class="save-msg notice-msg" id="saveMsg"></div>
   </div>
@@ -439,8 +443,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 </div>
 
 <script>
-const TAG_LABELS = { warn:'告警', found:'发现', recover:'恢复', pid:'PID消失', info:'信息' };
-const TAG_CLASSES = { warn:'tag-warn', found:'tag-found', recover:'tag-recover', pid:'tag-pid', info:'tag-info' };
+const TAG_LABELS = {
+  warn:'告警', found:'发现', recover:'恢复', pid:'PID消失', info:'信息',
+  admin_stop:'管理员停止', stop:'外部停止', crash:'异常退出'
+};
+const TAG_CLASSES = {
+  warn:'tag-warn', found:'tag-found', recover:'tag-recover', pid:'tag-pid', info:'tag-info',
+  admin_stop:'tag-admin-stop', stop:'tag-stop', crash:'tag-crash'
+};
 
 let _refreshTimer = null;
 let _currentTab = 'gpu';
@@ -766,6 +776,7 @@ async function loadSettings() {
   const r = await api('/api/config');
   if (!r.ok) return;
   const cfg = await r.json();
+  const envSummary = cfg.env_channel_summary || {};
   $('cfgThreshold').value = cfg.mem_threshold_mib ?? 10240;
   $('cfgInterval').value  = cfg.check_interval ?? 5;
   $('cfgConfirm').value   = cfg.confirm_times ?? 2;
@@ -783,6 +794,19 @@ async function loadSettings() {
   const barkList = $('barkList');
   barkList.innerHTML = '';
   (cfg.bark_configs || []).forEach(b => addBarkRow(b.url, b.key));
+
+  if (envSummary.env_active) {
+    const parts = [];
+    if (envSummary.env_serverchan_count) parts.push(`Server Chan ${envSummary.env_serverchan_count} 个`);
+    if (envSummary.env_bark_count) parts.push(`Bark ${envSummary.env_bark_count} 个`);
+    showMessage(
+      'envChannelMsg',
+      `检测到来自环境变量/.env 的通知渠道：${parts.join('，')}。页面不会回显其明文；测试通知会使用有效配置。若环境变量仍存在，运行时仍优先使用环境变量。`,
+      'warn'
+    );
+  } else {
+    showMessage('envChannelMsg', '', 'warn');
+  }
 }
 
 function addBarkRow(url = '', key = '') {

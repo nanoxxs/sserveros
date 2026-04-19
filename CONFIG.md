@@ -32,7 +32,7 @@ echo "SENDKEY=SCTxxx" >> .env
 SENDKEY=SCTxxx python monitor.py
 ```
 
-通过 WebUI 设置页保存的 SENDKEY 会写入 `config.json`，并在 monitor.py 收到 SIGUSR2 时生效。
+通过 WebUI 设置页保存的渠道配置会写入 `config.json`；通过 `.env` / 环境变量提供的渠道配置只在运行时生效，不会自动回写到 `config.json`。
 
 ## 优先级
 
@@ -40,4 +40,11 @@ monitor.py 在启动时按以下顺序确定 SENDKEY（先找到则使用）：
 1. 环境变量 `SENDKEY`（含从 `.env` 加载的）
 2. `config.json` 中的 `sendkey` 字段
 
+`SERVERCHAN_KEYS`、`BARK_CONFIGS` 也遵循同样的优先级：环境变量优先于 `config.json`。
+
 其他监控参数（`check_interval` 等）从 `config.json` 加载，无法通过环境变量覆盖。
+
+## 文件权限
+
+- `config.json`、`.env` 等敏感文件会尽量以 `0600` 权限写入
+- 如果你手动编辑或拷贝这些文件，建议自行确认权限仍然合适

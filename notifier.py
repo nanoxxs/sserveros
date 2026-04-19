@@ -5,6 +5,8 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 
+from storage import ensure_private_file
+
 
 def _serverchan_keys(cfg: dict) -> list:
     keys = list(cfg.get('serverchan_keys', []))
@@ -19,6 +21,61 @@ def _bark_configs(cfg: dict) -> list:
         b for b in cfg.get('bark_configs', [])
         if isinstance(b, dict) and b.get('url', '').strip() and b.get('key', '').strip()
     ]
+
+
+def _serverchan_keys_from_env(environ: dict = None) -> list:
+    environ = os.environ if environ is None else environ
+    keys = [k.strip() for k in environ.get('SERVERCHAN_KEYS', '').split(',') if k.strip()]
+    legacy = environ.get('SENDKEY', '').strip()
+    if legacy and legacy not in keys:
+        keys.insert(0, legacy)
+    return keys
+
+
+def _bark_configs_from_env(environ: dict = None) -> list:
+    environ = os.environ if environ is None else environ
+    configs = []
+    for item in environ.get('BARK_CONFIGS', '').split(','):
+        parts = item.strip().split('|', 1)
+        if len(parts) != 2:
+            continue
+        url, key = parts[0].strip(), parts[1].strip()
+        if url and key:
+            configs.append({'url': url, 'key': key})
+    return configs
+
+
+def effective_channel_config(cfg: dict, *, environ: dict = None) -> dict:
+    """Merge runtime env channels over config.json without persisting secrets to disk."""
+    environ = os.environ if environ is None else environ
+    effective = {
+        'sendkey': cfg.get('sendkey', ''),
+        'serverchan_keys': list(cfg.get('serverchan_keys', [])),
+        'bark_configs': list(cfg.get('bark_configs', [])),
+    }
+    env_serverchan = _serverchan_keys_from_env(environ)
+    env_bark = _bark_configs_from_env(environ)
+
+    if env_serverchan:
+        effective['sendkey'] = ''
+        effective['serverchan_keys'] = env_serverchan
+    if env_bark:
+        effective['bark_configs'] = env_bark
+    return effective
+
+
+def channel_summary(cfg: dict, *, environ: dict = None) -> dict:
+    environ = os.environ if environ is None else environ
+    env_serverchan = _serverchan_keys_from_env(environ)
+    env_bark = _bark_configs_from_env(environ)
+    effective = effective_channel_config(cfg, environ=environ)
+    return {
+        'env_serverchan_count': len(env_serverchan),
+        'env_bark_count': len(env_bark),
+        'env_active': bool(env_serverchan or env_bark),
+        'effective_serverchan_count': len(_serverchan_keys(effective)),
+        'effective_bark_count': len(_bark_configs(effective)),
+    }
 
 
 def has_any_channel(cfg: dict) -> bool:
@@ -84,47 +141,8 @@ def _send_bark(url: str, key: str, title: str, content: str) -> dict:
 
 
 def sync_env_to_config(config_path: str) -> None:
-    """把 env 变量中的渠道配置合并写入 config.json，使 WebUI 能看到。"""
-    sc_raw = os.environ.get('SERVERCHAN_KEYS', '').strip()
-    bark_raw = os.environ.get('BARK_CONFIGS', '').strip()
-    sendkey = os.environ.get('SENDKEY', '').strip()
-
-    if not sc_raw and not bark_raw and not sendkey:
-        return
-
-    try:
-        with open(config_path) as f:
-            cfg = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return
-
-    changed = False
-
-    if sc_raw:
-        keys = [k.strip() for k in sc_raw.split(',') if k.strip()]
-        if keys and cfg.get('serverchan_keys') != keys:
-            cfg['serverchan_keys'] = keys
-            changed = True
-
-    if bark_raw:
-        bcs = []
-        for item in bark_raw.split(','):
-            parts = item.strip().split('|', 1)
-            if len(parts) == 2 and parts[0].strip() and parts[1].strip():
-                bcs.append({'url': parts[0].strip(), 'key': parts[1].strip()})
-        if bcs and cfg.get('bark_configs') != bcs:
-            cfg['bark_configs'] = bcs
-            changed = True
-
-    if sendkey and not cfg.get('sendkey'):
-        cfg['sendkey'] = sendkey
-        changed = True
-
-    if changed:
-        tmp = config_path + '.tmp'
-        with open(tmp, 'w') as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, config_path)
+    """Backward-compatible no-op: env channels are runtime-only and are not persisted."""
+    ensure_private_file(config_path)
 
 
 def send_all(cfg: dict, title: str, content: str,

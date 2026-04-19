@@ -39,7 +39,6 @@ def create_app(script_dir: str = None):
     cfg0, initial_password = ensure_config(
         script_dir, initial_password=os.environ.get('SSERVEROS_PASSWORD') or None
     )
-    notifier.sync_env_to_config(_config_path(script_dir))
     app.config['SECRET_KEY'] = cfg0['secret_key'].encode()
     app.config['SESSION_PERMANENT'] = True
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=60)
@@ -106,8 +105,10 @@ def create_app(script_dir: str = None):
     @require_auth
     def api_config():
         cfg = load_config_file(_config_path(script_dir))
+        summary = notifier.channel_summary(cfg)
         cfg.pop('password_hash', None)
         cfg.pop('secret_key', None)
+        cfg['env_channel_summary'] = summary
         return jsonify(cfg)
 
     @app.route('/api/log')
@@ -401,7 +402,7 @@ def create_app(script_dir: str = None):
     @app.route('/api/notify/test', methods=['POST'])
     @require_auth
     def api_notify_test():
-        cfg = load_config_file(_config_path(script_dir))
+        cfg = _effective_notify_config(script_dir)
         if not notifier.has_any_channel(cfg):
             return jsonify({'error': '未配置任何推送渠道，请先在设置页填写'}), 400
         results = notifier.send_all(
@@ -514,6 +515,11 @@ def _empty_state(cfg: dict) -> dict:
         'watch_pids': _merge_watch_pids([], cfg),
         'hostname': socket.gethostname(),
     }
+
+
+def _effective_notify_config(script_dir: str) -> dict:
+    cfg = load_config_file(_config_path(script_dir))
+    return notifier.effective_channel_config(cfg)
 
 
 def _merge_watch_pids(runtime_watch_pids: list, cfg: dict) -> list:

@@ -8,6 +8,9 @@ ENV_EXAMPLE="${SCRIPT_DIR}/.env.example"
 CONFIG_FILE="${SCRIPT_DIR}/config.json"
 BACKEND_PID_FILE="${RUNTIME_DIR}/sserveros.pid"
 WEBUI_PID_FILE="${RUNTIME_DIR}/webui.pid"
+MONITOR_LOG_FILE="${RUNTIME_DIR}/monitor.log"
+WEBUI_LOG_FILE="${RUNTIME_DIR}/webui.log"
+STOP_CONTEXT_FILE="${RUNTIME_DIR}/stop_context.json"
 PLACEHOLDER_SENDKEY="SCTxxxxxxxxxxxxxxxx"
 REPO_URL="https://github.com/nanoxxs/sserveros"
 REPO_ZIP_URL="${REPO_URL}/archive/refs/heads/main.zip"
@@ -36,6 +39,7 @@ check_manage_requirements() {
   need_cmd nohup "请先安装 coreutils / busybox 中的 nohup。"
   need_cmd grep
   need_cmd cut
+  need_cmd tail
   need_cmd tr
   need_cmd pgrep "请先安装 procps。"
   need_cmd pkill "请先安装 procps。"
@@ -91,6 +95,12 @@ ensure_runtime_dir() {
   mkdir -p "${RUNTIME_DIR}"
 }
 
+set_private_file_mode() {
+  local path="$1"
+  [ -e "${path}" ] || return 0
+  chmod 600 "${path}" 2>/dev/null || true
+}
+
 mask_value() {
   local value="$1"
   local length=${#value}
@@ -131,6 +141,7 @@ set_env_value() {
   fi
 
   mv "${tmp}" "${ENV_FILE}"
+  set_private_file_mode "${ENV_FILE}"
 }
 
 load_env_exports() {
@@ -157,6 +168,31 @@ has_notify_channel() {
   bark="$(env_value BARK_CONFIGS)"
   sk="$(env_value SENDKEY)"
   [ -n "${sc}" ] || [ -n "${bark}" ] || ([ -n "${sk}" ] && ! is_placeholder_sendkey "${sk}")
+}
+
+config_has_notify_channel() {
+  [ -f "${CONFIG_FILE}" ] || return 1
+  find_python_bin
+  "${PYTHON_BIN}" -c "
+import json, sys
+try:
+    with open(sys.argv[1], encoding='utf-8') as f:
+        cfg = json.load(f)
+except Exception:
+    raise SystemExit(1)
+
+sendkey = str(cfg.get('sendkey', '')).strip()
+serverchan_keys = [str(k).strip() for k in cfg.get('serverchan_keys', []) if str(k).strip()]
+bark_configs = [
+    b for b in cfg.get('bark_configs', [])
+    if isinstance(b, dict) and str(b.get('url', '')).strip() and str(b.get('key', '')).strip()
+]
+raise SystemExit(0 if (sendkey or serverchan_keys or bark_configs) else 1)
+" "${CONFIG_FILE}"
+}
+
+any_notify_channel_configured() {
+  has_notify_channel || config_has_notify_channel
 }
 
 prompt_notify_channel() {
@@ -226,6 +262,7 @@ ensure_env_file() {
     exit 1
   fi
   cp "${ENV_EXAMPLE}" "${ENV_FILE}"
+  set_private_file_mode "${ENV_FILE}"
   echo "已创建 ${ENV_FILE}"
 }
 
@@ -275,9 +312,17 @@ service_running() {
   is_pid_running "${pid}"
 }
 
+print_recent_log() {
+  local log_file="$1"
+  [ -f "${log_file}" ] || return 0
+  echo "最近日志（${log_file}）："
+  tail -n 40 "${log_file}" || true
+}
+
 wait_for_service() {
   local pid_file="$1"
   local label="$2"
+  local log_file="$3"
   local attempt=0
 
   while [ "${attempt}" -lt 25 ]; do
@@ -291,7 +336,8 @@ wait_for_service() {
     attempt=$((attempt + 1))
   done
 
-  echo "${label} 启动失败，请改用前台方式排查。"
+  echo "${label} 启动失败，请先查看日志定位问题。"
+  print_recent_log "${log_file}"
   return 1
 }
 
@@ -317,6 +363,11 @@ print(password or '')
 
 start_backend() {
   check_backend_requirements
+  if ! any_notify_channel_configured; then
+    echo "当前未配置任何推送渠道，已跳过 monitor.py 启动。"
+    echo "请先通过 .env 或 WebUI 设置页配置通知渠道，再重新启动 monitor.py。"
+    return 0
+  fi
   if service_running "${BACKEND_PID_FILE}"; then
     echo "monitor.py 已在运行。"
     return 0
@@ -332,8 +383,8 @@ start_backend() {
 
   load_env_exports
   ensure_runtime_dir
-  nohup "${PYTHON_BIN:-python3}" "${SCRIPT_DIR}/monitor.py" > /dev/null 2>&1 &
-  wait_for_service "${BACKEND_PID_FILE}" "monitor.py"
+  nohup "${PYTHON_BIN:-python3}" "${SCRIPT_DIR}/monitor.py" >> "${MONITOR_LOG_FILE}" 2>&1 &
+  wait_for_service "${BACKEND_PID_FILE}" "monitor.py" "${MONITOR_LOG_FILE}"
 }
 
 get_webui_port() {
@@ -567,8 +618,44 @@ start_webui() {
   check_webui_port "${port}" || return 1
 
   ensure_runtime_dir
-  nohup "${PYTHON_BIN}" "${SCRIPT_DIR}/webui.py" > /dev/null 2>&1 &
-  wait_for_service "${WEBUI_PID_FILE}" "WebUI"
+  nohup "${PYTHON_BIN}" "${SCRIPT_DIR}/webui.py" >> "${WEBUI_LOG_FILE}" 2>&1 &
+  wait_for_service "${WEBUI_PID_FILE}" "WebUI" "${WEBUI_LOG_FILE}"
+}
+
+record_monitor_stop_context() {
+  local pid="$1"
+  local source="$2"
+  local operator requester tty_name python_cmd=""
+  if [ -n "${PYTHON_BIN}" ] && command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+    python_cmd="${PYTHON_BIN}"
+  elif command -v python3 >/dev/null 2>&1; then
+    python_cmd="python3"
+  elif command -v python >/dev/null 2>&1; then
+    python_cmd="python"
+  else
+    return 0
+  fi
+  operator="${SUDO_USER:-${USER:-unknown}}"
+  requester="${USER:-unknown}"
+  tty_name="$(tty 2>/dev/null || true)"
+  "${python_cmd}" -c "
+import json, os, sys
+path, pid, operator, requester, source, tty_name = sys.argv[1:]
+data = {
+    'pid': int(pid),
+    'operator': operator,
+    'requester': requester,
+    'source': source,
+    'tty': tty_name,
+    'requested_at': __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+}
+tmp = path + '.tmp'
+with open(tmp, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+    f.write('\\n')
+os.chmod(tmp, 0o600)
+os.replace(tmp, path)
+" "${STOP_CONTEXT_FILE}" "${pid}" "${operator}" "${requester}" "${source}" "${tty_name}"
 }
 
 stop_service() {
@@ -580,6 +667,9 @@ stop_service() {
 
   pid="$(read_pid_file "${pid_file}" 2>/dev/null || true)"
   if is_pid_running "${pid}"; then
+    if [ "${pid_file}" = "${BACKEND_PID_FILE}" ]; then
+      record_monitor_stop_context "${pid}" "manage.sh stop_service:${label}"
+    fi
     stop_pid_gracefully "${pid}" "${label}" || return 1
     rm -f "${pid_file}"
     return 0
@@ -588,6 +678,9 @@ stop_service() {
   mapfile -t matched_pids < <(pgrep -f "${fallback_pattern}" || true)
   if [ "${#matched_pids[@]}" -gt 0 ]; then
     for pid in "${matched_pids[@]}"; do
+      if [ "${pid_file}" = "${BACKEND_PID_FILE}" ]; then
+        record_monitor_stop_context "${pid}" "manage.sh stop_service:${label}"
+      fi
       stop_pid_gracefully "${pid}" "${label} (PID ${pid})" || return 1
     done
     rm -f "${pid_file}"
@@ -680,6 +773,9 @@ stop_project_process_from_menu() {
     return 0
   fi
 
+  if [ "${label}" = "monitor.py" ]; then
+    record_monitor_stop_context "${pid}" "manage.sh menu:${label}"
+  fi
   stop_pid_gracefully "${pid}" "${label} (PID ${pid})"
 }
 
@@ -841,16 +937,14 @@ change_webui_password() {
   done
 
   printf '%s' "${new_password}" | "${PYTHON_BIN}" -c "
-import json, sys
+import sys
 from werkzeug.security import generate_password_hash
+from storage import load_config_file, save_config_file
 path = sys.argv[1]
 password = sys.stdin.read()
-with open(path) as f:
-    cfg = json.load(f)
+cfg = load_config_file(path)
 cfg['password_hash'] = generate_password_hash(password)
-with open(path, 'w') as f:
-    json.dump(cfg, f, indent=2, ensure_ascii=False)
-    f.write('\n')
+save_config_file(path, cfg)
 " "${CONFIG_FILE}"
 
   echo "WebUI 密码已更新。"
@@ -860,14 +954,24 @@ quick_start_flow() {
   local webui_port
   prompt_notify_channel
   bootstrap_config
-  start_backend
 
-  if prompt_yes_no "是否同时启动 WebUI？"; then
+  if prompt_yes_no "是否启动 WebUI？"; then
     start_webui
     webui_port="$(get_webui_port)"
     echo "WebUI 默认地址：http://127.0.0.1:${webui_port}"
   else
     echo "已跳过 WebUI 启动。"
+  fi
+
+  if any_notify_channel_configured; then
+    if prompt_yes_no "是否启动 monitor.py？"; then
+      start_backend
+    else
+      echo "已跳过 monitor.py 启动。"
+    fi
+  else
+    echo "当前尚未配置通知渠道，已跳过 monitor.py 启动。"
+    echo "可以先进入 WebUI → 设置 完成配置，再从菜单启动 monitor.py。"
   fi
 
   if [ -n "${LAST_GENERATED_PASSWORD}" ]; then

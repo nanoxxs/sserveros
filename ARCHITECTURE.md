@@ -100,7 +100,7 @@ runtime/
 |---------|-----------------------|-----------------------------|------|
 | SIGUSR1 | `_reload_pids`        | `_do_reload_pids()`         | 读取 `runtime/watch_pids.queue`，动态追加监控 PID |
 | SIGUSR2 | `_reload_settings`    | `_do_reload_settings()`     | 从 `config.json` 重新加载参数；从 `runtime/remove_pids.queue` 删除 PID |
-| SIGTERM/SIGINT | `_handle_term` | atexit `_on_exit`（线程推送，20s join） | 优雅退出，推送「脚本已中断」通知 |
+| SIGTERM/SIGINT | `_handle_term` | atexit `_on_exit`（线程推送，20s join） | 优雅退出；区分管理员停止 / 外部停止信号 |
 
 ### 子命令
 
@@ -114,6 +114,8 @@ python monitor.py             # 启动监控守护进程
 1. 环境变量：`SERVERCHAN_KEYS`（逗号分隔）、`BARK_CONFIGS`（`url|key` 逗号分隔）、`SENDKEY`（旧版兼容）
 2. `.env` 文件（启动时自动加载）
 3. `config.json` 中的 `serverchan_keys` / `bark_configs` / `sendkey` 字段
+
+环境变量中的通知渠道只在运行时覆盖，不会自动回写到 `config.json`。
 
 启动时如果所有渠道均未配置，直接报错退出。
 
@@ -217,6 +219,8 @@ webui.py (Flask)
 webui.html（浏览器）
   └── 每 5 秒 polling /api/state
 ```
+
+`manage.sh` 在主动停止 `monitor.py` 前会写入 `runtime/stop_context.json`，供 `monitor.py` 退出通知附带操作者、TTY 和来源信息。
 
 ---
 

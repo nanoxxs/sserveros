@@ -13,6 +13,7 @@ bash ./manage.sh
 ```
 
 首次运行时自动初始化配置并启动服务；后续提供交互菜单管理启停和密码。
+如果首次未配置通知渠道，`manage.sh` 会先帮你启动 WebUI，待在设置页配置完成后再启动监控脚本。
 
 ## 前置条件
 
@@ -92,6 +93,11 @@ BARK_CONFIGS=https://api.day.app|YourKey1,https://api.day.app|YourKey2
 
 两种渠道可以同时配置，推送时会同时发送到所有渠道。
 
+说明：
+
+- 通过 `.env` / 环境变量提供的通知渠道只在运行时生效，不会自动回写到 `config.json`
+- WebUI 检测到环境变量渠道时，会提示“已配置但不回显明文”；测试通知仍会按当前有效配置发送
+
 ## 启动
 
 ```bash
@@ -103,6 +109,8 @@ nohup python webui.py >> runtime/webui.log 2>&1 &
 ```
 
 或直接使用 `manage.sh`，它会自动处理初始化和启停。
+
+如果当前尚未配置任何通知渠道，`monitor.py` 不会启动；可以先启动 WebUI 完成设置。
 
 ## WebUI
 
@@ -153,3 +161,10 @@ pytest tests/
 - psutil
 - `nvidia-smi`（NVIDIA 驱动自带）
 - `curl`（Server Chan 推送使用）
+
+## 停机通知
+
+- 通过 `manage.sh` 主动停止 `monitor.py` 时，会发送“管理员停止”通知，并附带操作者和来源信息
+- 直接向进程发送 `SIGTERM` / `SIGINT` 时，会发送“外部停止信号”通知
+- 运行时异常退出会发送“异常退出”通知
+- `SIGKILL`、断电、内核崩溃等无法优雅处理的场景，无法在退出前主动上报

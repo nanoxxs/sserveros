@@ -181,6 +181,15 @@ def test_config_hides_password_hash(auth_client):
     assert 'webui_port' in data
 
 
+def test_config_reports_env_channel_summary(auth_client, monkeypatch):
+    monkeypatch.setenv('SERVERCHAN_KEYS', 'SCTenv1,SCTenv2')
+    monkeypatch.setenv('BARK_CONFIGS', 'https://api.day.app|env-key')
+    data = auth_client.get('/api/config').get_json()
+    assert data['env_channel_summary']['env_active'] is True
+    assert data['env_channel_summary']['env_serverchan_count'] == 2
+    assert data['env_channel_summary']['env_bark_count'] == 1
+
+
 # ── Log ─────────────────────────────────────────────────
 
 def test_log_empty(auth_client):
@@ -563,6 +572,34 @@ def test_notify_test_sends_request(auth_client, monkeypatch):
     data = r.get_json()
     assert data['ok'] is True
     assert 'message' in data
+
+
+def test_notify_test_uses_env_channels_without_persisting(auth_client, tmp_config, monkeypatch):
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    cfg['sendkey'] = ''
+    cfg['serverchan_keys'] = []
+    cfg['bark_configs'] = []
+    (tmp_config / 'config.json').write_text(json.dumps(cfg))
+    monkeypatch.setenv('SERVERCHAN_KEYS', 'SCTenv')
+
+    captured = {}
+
+    def fake_send_all(cfg, title, content, **kw):
+        captured['cfg'] = cfg
+        return [{
+            'channel': 'serverchan',
+            'channel_hint': 'Server Chan · env',
+            'send_success': True,
+            'http_status': 200,
+        }]
+
+    monkeypatch.setattr('notifier.send_all', fake_send_all)
+    r = auth_client.post('/api/notify/test')
+
+    assert r.status_code == 200
+    assert captured['cfg']['serverchan_keys'] == ['SCTenv']
+    stored_cfg = json.loads((tmp_config / 'config.json').read_text())
+    assert stored_cfg['serverchan_keys'] == []
 
 
 def test_gpu_processes_invalid_gpu_returns_404(auth_client, monkeypatch):

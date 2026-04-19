@@ -370,9 +370,88 @@ def test_sserveros_bootstraps_config_when_missing(tmp_path):
         state = _wait_until(lambda: _state_if_matches(project_dir, [0]))
         assert state['gpus'][0]['top_cmd'] == 'python train_zero.py'
         cfg = _read_json(project_dir / 'config.json')
-        assert cfg['sendkey'] == 'SCTtest'  # sync_env_to_config writes SENDKEY to config
+        assert cfg['sendkey'] == ''
         assert cfg['check_interval'] == 5
         assert 'password_hash' in cfg
         assert 'secret_key' in cfg
+        assert oct((project_dir / 'config.json').stat().st_mode & 0o777) == '0o600'
     finally:
         _stop_monitor(proc)
+
+
+def test_sserveros_external_stop_signal_logs_stop_event(tmp_path):
+    project_dir, mock_state_path = _prepare_project(tmp_path)
+    _write_mock_state(
+        mock_state_path,
+        gpu_indices=[0],
+        gpus=[
+            {'index': 0, 'uuid': 'GPU-0', 'mem_used': 4000, 'mem_total': 10000, 'name': 'GPU Zero'},
+        ],
+        apps=[
+            {'gpu_uuid': 'GPU-0', 'pid': 111, 'used_memory': 3500},
+        ],
+        alive_pids={111: 'python train_zero.py'},
+    )
+    log_path = project_dir / 'runtime' / 'log.json'
+    proc = _start_monitor(project_dir, {
+        'check_interval': 1,
+        'confirm_times': 1,
+        'mem_threshold_mib': 3000,
+        'gpus': [0],
+        'watch_pids': [],
+        'sendkey': 'SCTtest',
+    })
+
+    try:
+        _wait_until(lambda: _state_if_matches(project_dir, [0]))
+    finally:
+        _stop_monitor(proc)
+
+    entries = _wait_until(lambda: _read_log_entries(log_path))
+    assert any(e['type'] == 'stop' and '外部停止信号' in e['title'] for e in entries)
+
+
+def test_sserveros_admin_stop_context_logs_admin_stop_event(tmp_path):
+    project_dir, mock_state_path = _prepare_project(tmp_path)
+    _write_mock_state(
+        mock_state_path,
+        gpu_indices=[0],
+        gpus=[
+            {'index': 0, 'uuid': 'GPU-0', 'mem_used': 4000, 'mem_total': 10000, 'name': 'GPU Zero'},
+        ],
+        apps=[
+            {'gpu_uuid': 'GPU-0', 'pid': 111, 'used_memory': 3500},
+        ],
+        alive_pids={111: 'python train_zero.py'},
+    )
+    log_path = project_dir / 'runtime' / 'log.json'
+    proc = _start_monitor(project_dir, {
+        'check_interval': 1,
+        'confirm_times': 1,
+        'mem_threshold_mib': 3000,
+        'gpus': [0],
+        'watch_pids': [],
+        'sendkey': 'SCTtest',
+    })
+
+    try:
+        _wait_until(lambda: _state_if_matches(project_dir, [0]))
+        pid = int((project_dir / 'runtime' / 'sserveros.pid').read_text().strip())
+        (project_dir / 'runtime' / 'stop_context.json').write_text(json.dumps({
+            'pid': pid,
+            'operator': 'alice',
+            'requester': 'alice',
+            'source': 'manage.sh stop_service:monitor.py',
+            'tty': '/dev/pts/1',
+            'requested_at': '2026-04-19 12:00:00',
+        }))
+    finally:
+        _stop_monitor(proc)
+
+    entries = _wait_until(lambda: _read_log_entries(log_path))
+    assert any(
+        e['type'] == 'admin_stop'
+        and '管理员停止' in e['title']
+        and 'alice' in e['content']
+        for e in entries
+    )

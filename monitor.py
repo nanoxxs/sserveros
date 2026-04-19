@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 from datetime import datetime
 
 import notifier
@@ -63,6 +64,7 @@ class Monitor:
         self.log_file = runtime_path(self.script_dir, 'log.json')
         self.watch_queue_file = runtime_path(self.script_dir, 'watch_pids.queue')
         self.remove_queue_file = runtime_path(self.script_dir, 'remove_pids.queue')
+        self.stop_context_file = runtime_path(self.script_dir, 'stop_context.json')
         self.config_file = _config_path(self.script_dir)
 
         # 运行参数（从 config.json 加载）
@@ -105,6 +107,9 @@ class Monitor:
         self._exit_sent = False
         self._pending_reload_pids = False
         self._pending_reload_settings = False
+        self._exit_reason = 'unknown'
+        self._exit_detail = ''
+        self._received_signal = None
 
     # ── 配置加载 ──────────────────────────────────────────────────────────────
 
@@ -256,14 +261,40 @@ class Monitor:
 
     def _handle_term(self, signum, frame):
         self._running = False
+        self._exit_reason = 'signal'
+        self._received_signal = signum
+        self._exit_detail = signal.Signals(signum).name
         sys.exit(143 if signum == signal.SIGTERM else 130)
 
     def _notify_cfg(self) -> dict:
-        return {
+        return notifier.effective_channel_config({
             'sendkey': self.sendkey,
             'serverchan_keys': self.serverchan_keys,
             'bark_configs': self.bark_configs,
-        }
+        })
+
+    def _clear_stop_context(self):
+        try:
+            os.remove(self.stop_context_file)
+        except OSError:
+            pass
+
+    def _load_stop_context(self):
+        try:
+            with open(self.stop_context_file, encoding='utf-8') as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            data = None
+        self._clear_stop_context()
+        if not isinstance(data, dict):
+            return None
+        if data.get('pid') not in (None, os.getpid()):
+            return None
+        return data
+
+    def mark_abnormal_exit(self, detail: str):
+        self._exit_reason = 'abnormal_exit'
+        self._exit_detail = detail.strip()
 
     def _on_exit(self):
         if self._exit_sent:
@@ -273,11 +304,55 @@ class Monitor:
             os.remove(self.pid_file)
         except OSError:
             pass
+        stop_context = self._load_stop_context()
+        title = None
+        content = None
+        event_type = 'info'
+        if stop_context:
+            operator = stop_context.get('operator') or '未知'
+            source = stop_context.get('source') or '未知来源'
+            requested_at = stop_context.get('requested_at') or '未知时间'
+            tty = stop_context.get('tty') or '无 TTY'
+            title = f'监控脚本被管理员停止 [{HOSTNAME_TAG}]'
+            content = (
+                f'## 监控脚本被主动停止 — {HOSTNAME_TAG}\n\n'
+                f'- PID: `{os.getpid()}`\n'
+                f'- 操作者: `{operator}`\n'
+                f'- 来源: `{source}`\n'
+                f'- TTY: `{tty}`\n'
+                f'- 请求时间: `{requested_at}`\n'
+                f'- 信号: `{self._exit_detail or "未知"}`\n'
+            )
+            event_type = 'admin_stop'
+        elif self._exit_reason == 'signal':
+            title = f'监控脚本收到外部停止信号 [{HOSTNAME_TAG}]'
+            content = (
+                f'## 监控脚本收到外部停止信号 — {HOSTNAME_TAG}\n\n'
+                f'- PID: `{os.getpid()}`\n'
+                f'- 信号: `{self._exit_detail or "未知"}`\n'
+                f'- 说明: `未检测到来自 manage.sh 的停机上下文，操作者未知`\n'
+            )
+            event_type = 'stop'
+        elif self._exit_reason == 'abnormal_exit':
+            title = f'监控脚本异常退出 [{HOSTNAME_TAG}]'
+            content = (
+                f'## 监控脚本异常退出 — {HOSTNAME_TAG}\n\n'
+                f'- PID: `{os.getpid()}`\n'
+                f'- 时间: `{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}`\n\n'
+                f'### 错误信息\n```\n{self._exit_detail or "未知异常"}\n```'
+            )
+            event_type = 'crash'
+        else:
+            title = f'监控脚本已退出 [{HOSTNAME_TAG}]'
+            content = (
+                f'## 监控脚本已退出 — {HOSTNAME_TAG}\n\n'
+                f'- PID: `{os.getpid()}`\n'
+                f'- 退出原因: `{self._exit_reason}`\n'
+            )
         t = threading.Thread(
             target=notifier.send_all,
-            args=(self._notify_cfg(),
-                  f'监控脚本已中断 [{HOSTNAME_TAG}]',
-                  'monitor.py 已退出，请检查并重启'),
+            args=(self._notify_cfg(), title, content),
+            kwargs={'log_file': self.log_file, 'event_type': event_type},
             daemon=True,
         )
         t.start()
@@ -640,25 +715,9 @@ class Monitor:
         initial_password = os.environ.get('SSERVEROS_PASSWORD') or None
         ensure_config(self.script_dir, initial_password=initial_password)
         ensure_runtime_dir(self.script_dir)
-
-        # 从环境变量加载推送配置（优先级高于 config.json）
-        env_sendkey = os.environ.get('SENDKEY', '').strip()
-        env_sc_keys_raw = os.environ.get('SERVERCHAN_KEYS', '').strip()
-        env_bark_raw = os.environ.get('BARK_CONFIGS', '').strip()
-
-        if env_sendkey:
-            self.sendkey = env_sendkey
-        if env_sc_keys_raw:
-            self.serverchan_keys = [k.strip() for k in env_sc_keys_raw.split(',') if k.strip()]
-        if env_bark_raw:
-            for item in env_bark_raw.split(','):
-                parts = item.strip().split('|', 1)
-                if len(parts) == 2 and parts[0].strip() and parts[1].strip():
-                    self.bark_configs.append({'url': parts[0].strip(), 'key': parts[1].strip()})
+        self._clear_stop_context()
 
         self.load_config()
-
-        notifier.sync_env_to_config(self.config_file)
 
         if not notifier.has_any_channel(self._notify_cfg()):
             print('错误：未配置任何推送渠道（SERVERCHAN_KEYS / BARK_CONFIGS / SENDKEY）', file=sys.stderr)
@@ -740,4 +799,11 @@ if __name__ == '__main__':
     if len(sys.argv) >= 3 and sys.argv[1] == 'add':
         _cmd_add(sys.argv[2])
     else:
-        Monitor().run()
+        monitor = Monitor()
+        try:
+            monitor.run()
+        except SystemExit:
+            raise
+        except Exception as exc:
+            monitor.mark_abnormal_exit(traceback.format_exc() or repr(exc))
+            raise
