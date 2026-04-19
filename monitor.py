@@ -42,7 +42,11 @@ def _load_dotenv(script_dir: str):
 
 
 def _run(cmd, **kwargs):
-    return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+    kwargs.setdefault('timeout', 15)
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(cmd, returncode=1, stdout='', stderr='')
 
 
 def _get_ps_info(pid):
@@ -664,14 +668,16 @@ class Monitor:
 
         self._init_watch_pids()
 
-        # 防止重复启动：检查 PID 文件中的进程是否仍在运行
+        # 防止重复启动：检查 PID 文件中的进程是否仍在运行且确实是 monitor.py
         if os.path.exists(self.pid_file):
             try:
                 with open(self.pid_file) as f:
                     existing_pid = int(f.read().strip())
                 os.kill(existing_pid, 0)
-                print(f'错误：monitor.py 已在运行（PID {existing_pid}），退出。', file=sys.stderr)
-                sys.exit(1)
+                cmd = _get_cmd(existing_pid)
+                if 'monitor.py' in cmd:
+                    print(f'错误：monitor.py 已在运行（PID {existing_pid}），退出。', file=sys.stderr)
+                    sys.exit(1)
             except (OSError, ValueError):
                 pass
 
