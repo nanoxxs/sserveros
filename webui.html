@@ -155,6 +155,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .bark-row .bark-del { background: none; border: none; color: #ef4444; font-size: 18px; cursor: pointer; padding: 4px 6px; line-height: 1; flex-shrink: 0; }
 .add-channel-btn { background: none; border: 1px dashed #cbd5e1; border-radius: 8px; color: #64748b; font-size: 13px; padding: 7px 14px; cursor: pointer; margin-top: 4px; width: 100%; text-align: left; }
 .add-channel-btn:hover { border-color: #2563eb; color: #2563eb; }
+.env-channel-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.env-channel-item { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; background: #f8fafc; font-size: 13px; color: #334155; }
 .save-msg { text-align: center; font-size: 13px; color: #16a34a; margin-top: 8px; display: none; }
 .notice-msg { font-size: 13px; margin-top: 10px; display: none; text-align: center; }
 .notice-msg.success { color: #16a34a; }
@@ -358,6 +360,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       </div>
     </div>
     <div class="notice-msg warn" id="envChannelMsg" style="display:none"></div>
+    <div class="env-channel-list" id="envChannelList" style="display:none"></div>
     <button class="save-btn" onclick="saveSettings()">保存设置</button>
     <div class="save-msg notice-msg" id="saveMsg"></div>
   </div>
@@ -801,11 +804,13 @@ async function loadSettings() {
     if (envSummary.env_bark_count) parts.push(`Bark ${envSummary.env_bark_count} 个`);
     showMessage(
       'envChannelMsg',
-      `检测到来自环境变量/.env 的通知渠道：${parts.join('，')}。页面不会回显其明文；测试通知会使用有效配置。若环境变量仍存在，运行时仍优先使用环境变量。`,
+      `检测到来自环境变量/.env 的通知渠道：${parts.join('，')}。以下条目为只读展示；测试通知会使用这些有效渠道。若环境变量仍存在，运行时仍优先使用环境变量。`,
       'warn'
     );
+    renderEnvChannelList(envSummary.env_channel_details || []);
   } else {
     showMessage('envChannelMsg', '', 'warn');
+    renderEnvChannelList([]);
   }
 }
 
@@ -822,6 +827,19 @@ function addBarkRow(url = '', key = '') {
 
 function _esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+}
+
+function renderEnvChannelList(details = []) {
+  const el = $('envChannelList');
+  if (!details.length) {
+    el.innerHTML = '';
+    el.style.display = 'none';
+    return;
+  }
+  el.innerHTML = details.map(item =>
+    `<div class="env-channel-item">${escHtml(item.label || '')}</div>`
+  ).join('');
+  el.style.display = 'flex';
 }
 
 async function saveSettings() {

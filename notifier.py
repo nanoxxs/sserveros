@@ -23,6 +23,24 @@ def _bark_configs(cfg: dict) -> list:
     ]
 
 
+def _mask_tail(value: str, *, keep: int = 3) -> str:
+    value = value.strip()
+    if not value:
+        return ''
+    if len(value) <= keep:
+        return '***'
+    return f'***{value[-keep:]}'
+
+
+def _serverchan_hint(key: str) -> str:
+    return 'SCT···' + key[-3:] if len(key) >= 3 else key
+
+
+def _bark_hint(url: str, key: str) -> str:
+    domain = url.rstrip('/').split('//')[-1]
+    return f'{domain} · {_mask_tail(key)}'
+
+
 def _serverchan_keys_from_env(environ: dict = None) -> list:
     environ = os.environ if environ is None else environ
     keys = [k.strip() for k in environ.get('SERVERCHAN_KEYS', '').split(',') if k.strip()]
@@ -75,6 +93,13 @@ def channel_summary(cfg: dict, *, environ: dict = None) -> dict:
         'env_active': bool(env_serverchan or env_bark),
         'effective_serverchan_count': len(_serverchan_keys(effective)),
         'effective_bark_count': len(_bark_configs(effective)),
+        'env_channel_details': [
+            {'channel': 'serverchan', 'label': f'Server Chan · {_serverchan_hint(key)}'}
+            for key in env_serverchan
+        ] + [
+            {'channel': 'bark', 'label': f'Bark · {_bark_hint(item["url"], item["key"])}'}
+            for item in env_bark
+        ],
     }
 
 
@@ -83,7 +108,7 @@ def has_any_channel(cfg: dict) -> bool:
 
 
 def _send_serverchan(key: str, title: str, content: str) -> dict:
-    hint = 'SCT···' + key[-3:] if len(key) >= 3 else key
+    hint = _serverchan_hint(key)
     url = f'https://sctapi.ftqq.com/{key}.send'
     try:
         r = subprocess.run(
@@ -109,8 +134,7 @@ def _send_serverchan(key: str, title: str, content: str) -> dict:
 
 def _send_bark(url: str, key: str, title: str, content: str) -> dict:
     base = url.rstrip('/')
-    domain = base.split('//')[-1][:24]
-    hint = f'Bark · {domain}'
+    hint = f'Bark · {_bark_hint(base, key)}'
     try:
         post_data = json.dumps({
             'device_key': key,

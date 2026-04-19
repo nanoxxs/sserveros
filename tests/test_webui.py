@@ -188,6 +188,11 @@ def test_config_reports_env_channel_summary(auth_client, monkeypatch):
     assert data['env_channel_summary']['env_active'] is True
     assert data['env_channel_summary']['env_serverchan_count'] == 2
     assert data['env_channel_summary']['env_bark_count'] == 1
+    assert data['env_channel_summary']['env_channel_details'] == [
+        {'channel': 'serverchan', 'label': 'Server Chan · SCT···nv1'},
+        {'channel': 'serverchan', 'label': 'Server Chan · SCT···nv2'},
+        {'channel': 'bark', 'label': 'Bark · api.day.app · ***key'},
+    ]
 
 
 # ── Log ─────────────────────────────────────────────────
@@ -560,18 +565,31 @@ def test_notify_test_no_sendkey(auth_client, tmp_config):
 
 
 def test_notify_test_sends_request(auth_client, monkeypatch):
-    monkeypatch.setattr(
-        'notifier.send_all',
-        lambda cfg, title, content, **kw: [
+    captured = {}
+
+    def fake_send_all(cfg, title, content, **kw):
+        captured['cfg'] = cfg
+        captured['title'] = title
+        captured['content'] = content
+        return [
             {'channel': 'serverchan', 'channel_hint': 'Server Chan · est',
              'send_success': True, 'http_status': 200}
-        ],
+        ]
+
+    monkeypatch.setattr(
+        'notifier.send_all',
+        fake_send_all,
     )
     r = auth_client.post('/api/notify/test')
     assert r.status_code == 200
     data = r.get_json()
     assert data['ok'] is True
     assert 'message' in data
+    assert captured['title'] == 'sserveros 测试通知'
+    assert '## 当前监控参数' in captured['content']
+    assert '- 显存告警阈值: 10240 MiB' in captured['content']
+    assert '- 检测间隔: 5 秒' in captured['content']
+    assert '- 确认次数: 2' in captured['content']
 
 
 def test_notify_test_uses_env_channels_without_persisting(auth_client, tmp_config, monkeypatch):
@@ -586,6 +604,7 @@ def test_notify_test_uses_env_channels_without_persisting(auth_client, tmp_confi
 
     def fake_send_all(cfg, title, content, **kw):
         captured['cfg'] = cfg
+        captured['content'] = content
         return [{
             'channel': 'serverchan',
             'channel_hint': 'Server Chan · env',
@@ -598,6 +617,8 @@ def test_notify_test_uses_env_channels_without_persisting(auth_client, tmp_confi
 
     assert r.status_code == 200
     assert captured['cfg']['serverchan_keys'] == ['SCTenv']
+    assert '## 本次测试使用的通知渠道' in captured['content']
+    assert 'Server Chan · SCT···env（env/.env）' in captured['content']
     stored_cfg = json.loads((tmp_config / 'config.json').read_text())
     assert stored_cfg['serverchan_keys'] == []
 

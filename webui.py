@@ -402,13 +402,15 @@ def create_app(script_dir: str = None):
     @app.route('/api/notify/test', methods=['POST'])
     @require_auth
     def api_notify_test():
-        cfg = _effective_notify_config(script_dir)
-        if not notifier.has_any_channel(cfg):
+        cfg = load_config_file(_config_path(script_dir))
+        notify_cfg = notifier.effective_channel_config(cfg)
+        if not notifier.has_any_channel(notify_cfg):
             return jsonify({'error': '未配置任何推送渠道，请先在设置页填写'}), 400
+        summary = notifier.channel_summary(cfg)
         results = notifier.send_all(
-            cfg,
+            notify_cfg,
             'sserveros 测试通知',
-            '这是一条来自 sserveros WebUI 的测试通知。\n\n如果你看到此消息，说明推送渠道配置正确。',
+            _build_test_notify_content(cfg, summary),
         )
         all_ok = all(r['send_success'] for r in results)
         failed = [r['channel_hint'] for r in results if not r['send_success']]
@@ -520,6 +522,40 @@ def _empty_state(cfg: dict) -> dict:
 def _effective_notify_config(script_dir: str) -> dict:
     cfg = load_config_file(_config_path(script_dir))
     return notifier.effective_channel_config(cfg)
+
+
+def _build_test_notify_content(cfg: dict, summary: dict) -> str:
+    selected_gpus = cfg.get('gpus', [])
+    gpu_text = ','.join(str(g) for g in selected_gpus) if selected_gpus else '自动检测全部'
+    channel_lines = []
+    if summary.get('env_active'):
+        for item in summary.get('env_channel_details', []):
+            channel_lines.append(f'- {item["label"]}（env/.env）')
+    else:
+        serverchan_keys = [k.strip() for k in cfg.get('serverchan_keys', []) if str(k).strip()]
+        if cfg.get('sendkey', '').strip() and cfg['sendkey'].strip() not in serverchan_keys:
+            serverchan_keys.insert(0, cfg['sendkey'].strip())
+        for key in serverchan_keys:
+            channel_lines.append(f'- Server Chan · {"SCT···" + key[-3:] if len(key) >= 3 else key}（config.json）')
+        for bark in cfg.get('bark_configs', []):
+            if isinstance(bark, dict) and bark.get('url', '').strip() and bark.get('key', '').strip():
+                domain = bark['url'].rstrip('/').split('//')[-1]
+                channel_lines.append(f'- Bark · {domain}（config.json）')
+    channels_text = '\n'.join(channel_lines) if channel_lines else '- 无'
+    return (
+        '这是一条来自 sserveros WebUI 的测试通知。\n\n'
+        '如果你看到此消息，说明推送渠道配置正确。\n\n'
+        '## 当前监控参数\n'
+        f'- 显存阈值监控: {"开启" if cfg.get("gpu_mem_monitor_enabled", True) else "关闭"}\n'
+        f'- 显存告警阈值: {cfg.get("mem_threshold_mib", 10240)} MiB\n'
+        f'- 检测间隔: {cfg.get("check_interval", 5)} 秒\n'
+        f'- 确认次数: {cfg.get("confirm_times", 2)}\n'
+        f'- 监控 GPU: {gpu_text}\n'
+        f'- 日志压缩触发大小: {cfg.get("log_max_size_mb", 10)} MB\n'
+        f'- 历史存档保留数量: {cfg.get("log_archive_keep", 5)}\n\n'
+        '## 本次测试使用的通知渠道\n'
+        f'{channels_text}'
+    )
 
 
 def _merge_watch_pids(runtime_watch_pids: list, cfg: dict) -> list:
