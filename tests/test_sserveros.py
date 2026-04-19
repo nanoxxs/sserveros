@@ -31,6 +31,12 @@ def _read_json(path: Path):
         return json.load(f)
 
 
+def _read_log_entries(path: Path):
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
 def _write_mock_state(path: Path, *, gpu_indices, gpus, apps, alive_pids):
     path.write_text(json.dumps({
         'gpu_indices': gpu_indices,
@@ -290,6 +296,51 @@ def test_sserveros_usr2_reloads_gpu_selection(tmp_path):
         state = _wait_until(lambda: _state_if_matches(project_dir, [1]))
         assert state['gpus'][0]['mem_used'] == 9000
         assert state['gpus'][0]['top_pid'] == 222
+    finally:
+        _stop_monitor(proc)
+
+
+def test_sserveros_usr2_resets_gpu_alert_state_after_threshold_change(tmp_path):
+    project_dir, mock_state_path = _prepare_project(tmp_path)
+    _write_mock_state(
+        mock_state_path,
+        gpu_indices=[0],
+        gpus=[
+            {'index': 0, 'uuid': 'GPU-0', 'mem_used': 7000, 'mem_total': 10000, 'name': 'GPU Zero'},
+        ],
+        apps=[
+            {'gpu_uuid': 'GPU-0', 'pid': 111, 'used_memory': 6800},
+        ],
+        alive_pids={
+            111: 'python train_zero.py',
+        },
+    )
+    config_path = project_dir / 'config.json'
+    log_path = project_dir / 'runtime' / 'log.json'
+    proc = _start_monitor(project_dir, {
+        'check_interval': 1,
+        'confirm_times': 1,
+        'mem_threshold_mib': 10240,
+        'gpus': [0],
+        'watch_pids': [],
+        'sendkey': 'SCTtest',
+    })
+
+    try:
+        warn_entries = _wait_until(
+            lambda: [e for e in _read_log_entries(log_path) if e['type'] == 'warn']
+        )
+        assert any('阈值: `10240 MiB`' in e['content'] for e in warn_entries)
+
+        config = _read_json(config_path)
+        config['mem_threshold_mib'] = 512
+        config_path.write_text(json.dumps(config))
+        pid = int((project_dir / 'runtime' / 'sserveros.pid').read_text().strip())
+        os.kill(pid, signal.SIGUSR2)
+
+        time.sleep(2.5)
+        entries = _read_log_entries(log_path)
+        assert not any(e['type'] == 'recover' for e in entries)
     finally:
         _stop_monitor(proc)
 

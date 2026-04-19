@@ -855,6 +855,7 @@ async function saveSettings() {
       log_archive_keep:         parsePositive('cfgLogKeep', '历史存档保留数量'),
       gpus,
       gpu_mem_monitor_enabled:  $('cfgMemMonitor').checked,
+      sendkey:                  '',
       serverchan_keys,
       bark_configs,
     };
@@ -949,15 +950,19 @@ async function clearDeadPids() {
   const dead = _pidData.filter(p => !p.alive);
   if (!dead.length) return;
   if (!confirm(`确认移除全部 ${dead.length} 个已消失的 PID？`)) return;
-  for (const p of dead) {
-    await api('/api/pids/remove', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pid: p.pid })
-    });
+  const r = await api('/api/pids/clear-dead', { method: 'POST' });
+  const payload = await r.json().catch(() => ({}));
+  if (r.ok) {
+    const count = payload.removed_count ?? dead.length;
+    showMessage(
+      'pidMsg',
+      payload.warning || payload.message || `已移除 ${count} 个已消失的 PID`,
+      payload.warning ? 'warn' : 'success'
+    );
+    loadPids();
+    return;
   }
-  showMessage('pidMsg', `已移除 ${dead.length} 个已消失的 PID`, 'success');
-  loadPids();
+  showMessage('pidMsg', payload.error || '批量移除失败', 'error');
 }
 
 // ── Log ──────────────────────────────────────────────────

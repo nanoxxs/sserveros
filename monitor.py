@@ -128,6 +128,13 @@ class Monitor:
                           self.gpu_need_rearm_notify, self.gpu_mem_total, self.gpu_name):
                     d.pop(gpu, None)
 
+    def _reset_gpu_mem_alert_state(self):
+        for gpu in self.gpus:
+            self.gpu_low_count[gpu] = 0
+            self.gpu_high_count[gpu] = 0
+            self.gpu_low_alerted[gpu] = False
+            self.gpu_need_rearm_notify[gpu] = False
+
     def load_config(self):
         if not os.path.exists(self.config_file):
             return
@@ -196,23 +203,29 @@ class Monitor:
         cfg = None
         if os.path.exists(self.config_file):
             cfg = load_config_file(self.config_file)
+            prev_mem_threshold = self.mem_threshold_mib
+            prev_check_interval = self.check_interval
+            prev_confirm_times = self.confirm_times
+            prev_enabled = self.gpu_mem_monitor_enabled
+            prev_gpus = list(self.gpus)
             self.mem_threshold_mib = cfg.get('mem_threshold_mib', self.mem_threshold_mib)
             self.check_interval = cfg.get('check_interval', self.check_interval)
             self.confirm_times = cfg.get('confirm_times', self.confirm_times)
-            prev_enabled = self.gpu_mem_monitor_enabled
             self.gpu_mem_monitor_enabled = cfg.get('gpu_mem_monitor_enabled', True)
-            if prev_enabled and not self.gpu_mem_monitor_enabled:
-                for gpu in self.gpus:
-                    self.gpu_low_count[gpu] = 0
-                    self.gpu_high_count[gpu] = 0
-                    self.gpu_low_alerted[gpu] = False
-                    self.gpu_need_rearm_notify[gpu] = False
             raw_gpus = cfg.get('gpus', [])
             self.gpus = [int(g) for g in raw_gpus] if raw_gpus else self._detect_all_gpus()
             self.sendkey = cfg.get('sendkey', self.sendkey)
             self.serverchan_keys = cfg.get('serverchan_keys', self.serverchan_keys)
             self.bark_configs = cfg.get('bark_configs', self.bark_configs)
             self._sync_gpu_state_arrays()
+            if (
+                prev_enabled != self.gpu_mem_monitor_enabled
+                or prev_mem_threshold != self.mem_threshold_mib
+                or prev_confirm_times != self.confirm_times
+                or prev_check_interval != self.check_interval
+                or prev_gpus != self.gpus
+            ):
+                self._reset_gpu_mem_alert_state()
             ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             print(
                 f'[{ts}] 已重新加载配置: GPUs={self.gpus} 阈值={self.mem_threshold_mib} '

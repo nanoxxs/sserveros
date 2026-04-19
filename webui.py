@@ -24,8 +24,8 @@ from storage import (
 from flask import Flask, jsonify, request, send_file, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-_NUMERIC_SETTINGS = ('mem_threshold_mib', 'check_interval', 'confirm_times',
-                     'log_max_size_mb', 'log_archive_keep')
+_MONITOR_NUMERIC_SETTINGS = ('mem_threshold_mib', 'check_interval', 'confirm_times')
+_WEBUI_NUMERIC_SETTINGS = ('log_max_size_mb', 'log_archive_keep')
 
 
 def create_app(script_dir: str = None):
@@ -197,6 +197,43 @@ def create_app(script_dir: str = None):
         )
         return jsonify(payload), status
 
+    @app.route('/api/pids/clear-dead', methods=['POST'])
+    @require_auth
+    def api_pids_clear_dead():
+        cfg = load_config_file(_config_path(script_dir))
+        runtime_watch_pids = []
+        state_path = _runtime_path(script_dir, 'state.json')
+        if os.path.exists(state_path):
+            try:
+                with open(state_path) as f:
+                    runtime_watch_pids = json.load(f).get('watch_pids', [])
+            except (json.JSONDecodeError, OSError, AttributeError):
+                runtime_watch_pids = []
+
+        merged_watch_pids = _merge_watch_pids(runtime_watch_pids, cfg)
+        dead_pids = [wp['pid'] for wp in merged_watch_pids if not wp.get('alive', False)]
+        if not dead_pids:
+            return jsonify({
+                'ok': True,
+                'runtime_applied': True,
+                'removed_count': 0,
+                'message': '没有可移除的已消失 PID',
+            })
+
+        with open(_runtime_path(script_dir, 'remove_pids.queue'), 'a') as f:
+            for pid in dead_pids:
+                f.write(f'{pid}\n')
+        cfg['watch_pids'] = [wp for wp in cfg.get('watch_pids', []) if wp.get('pid') not in dead_pids]
+        save_config_file(_config_path(script_dir), cfg)
+        signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
+        payload, status = _runtime_feedback(
+            signal_result,
+            applied_message=f'已移除 {len(dead_pids)} 个已消失的 PID',
+            pending_message=f'已从配置中移除 {len(dead_pids)} 个已消失的 PID，但监控脚本未运行；脚本下次启动时会使用新配置',
+        )
+        payload['removed_count'] = len(dead_pids)
+        return jsonify(payload), status
+
     @app.route('/api/sysinfo')
     @require_auth
     def api_sysinfo():
@@ -277,6 +314,15 @@ def create_app(script_dir: str = None):
             return jsonify({'error': 'nvidia-smi not found'}), 503
         except subprocess.TimeoutExpired:
             return jsonify({'error': 'nvidia-smi timeout'}), 503
+
+        if xml_result.returncode != 0:
+            err_text = (xml_result.stderr or xml_result.stdout or '').strip()
+            err_lower = err_text.lower()
+            if 'invalid gpu' in err_lower or 'not found' in err_lower:
+                return jsonify({'error': f'GPU {gpu_index} not found'}), 404
+            if 'nvidia-smi' in err_lower and 'not found' in err_lower:
+                return jsonify({'error': 'nvidia-smi not found'}), 503
+            return jsonify({'error': err_text or 'nvidia-smi failed'}), 503
 
         try:
             root = ET.fromstring(xml_result.stdout)
@@ -378,13 +424,19 @@ def create_app(script_dir: str = None):
         cfg = load_config_file(_config_path(script_dir))
         runtime_reload_needed = False
         password_changed = False
-        for key in _NUMERIC_SETTINGS:
+        for key in _MONITOR_NUMERIC_SETTINGS:
             if key in data:
                 val = data[key]
                 if isinstance(val, bool) or not isinstance(val, (int, float)) or val <= 0:
                     return jsonify({'error': f'invalid value for {key}'}), 400
                 if cfg.get(key) != val:
                     runtime_reload_needed = True
+                cfg[key] = val
+        for key in _WEBUI_NUMERIC_SETTINGS:
+            if key in data:
+                val = data[key]
+                if isinstance(val, bool) or not isinstance(val, (int, float)) or val <= 0:
+                    return jsonify({'error': f'invalid value for {key}'}), 400
                 cfg[key] = val
         if 'sendkey' in data:
             if cfg.get('sendkey') != data['sendkey']:
@@ -398,6 +450,9 @@ def create_app(script_dir: str = None):
             if cfg.get('serverchan_keys') != keys:
                 runtime_reload_needed = True
             cfg['serverchan_keys'] = keys
+            if 'sendkey' not in data and cfg.get('sendkey'):
+                runtime_reload_needed = True
+                cfg['sendkey'] = ''
         if 'bark_configs' in data:
             bcs = data['bark_configs']
             if not isinstance(bcs, list):
@@ -462,51 +517,72 @@ def _empty_state(cfg: dict) -> dict:
 
 
 def _merge_watch_pids(runtime_watch_pids: list, cfg: dict) -> list:
-    note_map = {}
-    for wp in cfg.get('watch_pids', []):
-        pid = wp.get('pid')
-        if isinstance(pid, int) and pid > 0:
-            note_map[pid] = wp.get('note', '')
-
-    merged = []
-    seen = set()
+    runtime_map = {}
     for wp in runtime_watch_pids or []:
         pid = wp.get('pid')
-        if not isinstance(pid, int):
+        if not isinstance(pid, int) or pid <= 0:
             continue
-        merged.append({
+        runtime_map[pid] = {
             'pid': pid,
             'alive': bool(wp.get('alive', False)),
             'cmd': wp.get('cmd', ''),
-            'note': wp.get('note', '') or note_map.get(pid, ''),
-        })
-        seen.add(pid)
+            'note': wp.get('note', ''),
+        }
 
-    for pid, note in note_map.items():
-        if pid in seen:
+    merged = []
+    for wp in cfg.get('watch_pids', []):
+        pid = wp.get('pid')
+        if not isinstance(pid, int) or pid <= 0:
             continue
-        merged.append({'pid': pid, 'alive': False, 'cmd': '', 'note': note})
+        runtime = runtime_map.get(pid, {})
+        merged.append({
+            'pid': pid,
+            'alive': runtime.get('alive', False),
+            'cmd': runtime.get('cmd', ''),
+            'note': wp.get('note', '') or runtime.get('note', ''),
+        })
     return merged
 
 
+def _process_cmdline(pid: int) -> str:
+    try:
+        result = subprocess.run(
+            ['ps', '-p', str(pid), '-o', 'args='],
+            capture_output=True, text=True, check=False,
+        )
+    except Exception:
+        return ''
+    return result.stdout.strip()
+
+
+def _is_project_monitor_process(script_dir: str, pid: int) -> bool:
+    monitor_path = os.path.join(script_dir, 'monitor.py')
+    return monitor_path in _process_cmdline(pid)
+
+
 def _signal_sserveros(script_dir: str, sig) -> dict:
+    monitor_path = os.path.join(script_dir, 'monitor.py')
     pid_path = _runtime_path(script_dir, 'sserveros.pid')
     try:
         if os.path.exists(pid_path):
             try:
                 with open(pid_path) as f:
                     pid = int(f.read().strip())
-                os.kill(pid, sig)
-                return {'sent': True, 'method': 'pid_file', 'pids': [pid]}
+                os.kill(pid, 0)
+                if _is_project_monitor_process(script_dir, pid):
+                    os.kill(pid, sig)
+                    return {'sent': True, 'method': 'pid_file', 'pids': [pid]}
             except (OSError, ValueError):
                 pass
 
-        result = subprocess.run(['pgrep', '-f', 'monitor.py'],
+        result = subprocess.run(['pgrep', '-f', monitor_path],
                                 capture_output=True, text=True)
         sent_pids = []
         for line in result.stdout.strip().splitlines():
             try:
                 pid = int(line.strip())
+                if not _is_project_monitor_process(script_dir, pid):
+                    continue
                 os.kill(pid, sig)
                 sent_pids.append(pid)
             except (ProcessLookupError, ValueError):

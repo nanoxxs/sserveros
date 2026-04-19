@@ -2,6 +2,8 @@ import gzip
 import json
 import os
 import shutil
+import signal
+import subprocess
 import sys
 from datetime import datetime
 import pytest
@@ -128,6 +130,49 @@ def test_state_with_recent_file(auth_client, tmp_config):
     assert data['gpus'][0]['mem_used'] == 8000
 
 
+def test_state_prefers_config_watch_pids_over_stale_runtime(auth_client, tmp_config):
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    cfg['watch_pids'] = [{'pid': 12345, 'note': 'train job'}]
+    (tmp_config / 'config.json').write_text(json.dumps(cfg))
+    state = {
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'running': True,
+        'gpus': [],
+        'watch_pids': [
+            {'pid': 12345, 'alive': True, 'cmd': 'python train.py', 'note': ''},
+            {'pid': 99999, 'alive': True, 'cmd': 'python stale.py', 'note': 'stale job'},
+        ],
+    }
+    (tmp_config / 'runtime' / 'state.json').write_text(json.dumps(state))
+    data = auth_client.get('/api/state').get_json()
+    assert data['watch_pids'] == [{
+        'pid': 12345,
+        'alive': True,
+        'cmd': 'python train.py',
+        'note': 'train job',
+    }]
+
+
+def test_state_includes_new_configured_watch_pid_before_runtime_updates(auth_client, tmp_config):
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    cfg['watch_pids'] = [{'pid': 12345, 'note': 'new job'}]
+    (tmp_config / 'config.json').write_text(json.dumps(cfg))
+    state = {
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'running': True,
+        'gpus': [],
+        'watch_pids': [],
+    }
+    (tmp_config / 'runtime' / 'state.json').write_text(json.dumps(state))
+    data = auth_client.get('/api/state').get_json()
+    assert data['watch_pids'] == [{
+        'pid': 12345,
+        'alive': False,
+        'cmd': '',
+        'note': 'new job',
+    }]
+
+
 def test_config_hides_password_hash(auth_client):
     data = auth_client.get('/api/config').get_json()
     assert 'password_hash' not in data
@@ -223,6 +268,59 @@ def test_remove_pid_persists_to_config(auth_client, tmp_config, monkeypatch):
     assert not any(wp['pid'] == 99999 for wp in cfg2['watch_pids'])
 
 
+def test_clear_dead_pids_removes_only_dead_entries(auth_client, tmp_config, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    cfg['watch_pids'] = [{'pid': 111, 'note': 'alive'}, {'pid': 222, 'note': 'dead'}]
+    (tmp_config / 'config.json').write_text(json.dumps(cfg))
+    state = {
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'running': True,
+        'gpus': [],
+        'watch_pids': [
+            {'pid': 111, 'alive': True, 'cmd': 'python alive.py', 'note': ''},
+            {'pid': 222, 'alive': False, 'cmd': 'python dead.py', 'note': ''},
+        ],
+    }
+    (tmp_config / 'runtime' / 'state.json').write_text(json.dumps(state))
+
+    r = auth_client.post('/api/pids/clear-dead')
+    data = r.get_json()
+    cfg2 = json.loads((tmp_config / 'config.json').read_text())
+
+    assert r.status_code == 200
+    assert data['removed_count'] == 1
+    assert [wp['pid'] for wp in cfg2['watch_pids']] == [111]
+    assert (tmp_config / 'runtime' / 'remove_pids.queue').read_text() == '222\n'
+
+
+def test_clear_dead_pids_noop_when_no_dead_entries(auth_client, tmp_config, monkeypatch):
+    signal_called = {'value': False}
+
+    def fake_signal(*_args):
+        signal_called['value'] = True
+        return SIGNAL_SENT
+
+    monkeypatch.setattr('webui._signal_sserveros', fake_signal)
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    cfg['watch_pids'] = [{'pid': 111, 'note': 'alive'}]
+    (tmp_config / 'config.json').write_text(json.dumps(cfg))
+    state = {
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'running': True,
+        'gpus': [],
+        'watch_pids': [{'pid': 111, 'alive': True, 'cmd': 'python alive.py', 'note': ''}],
+    }
+    (tmp_config / 'runtime' / 'state.json').write_text(json.dumps(state))
+
+    r = auth_client.post('/api/pids/clear-dead')
+    data = r.get_json()
+
+    assert r.status_code == 200
+    assert data['removed_count'] == 0
+    assert signal_called['value'] is False
+
+
 # ── Settings ────────────────────────────────────────────
 
 def test_save_settings_updates_config(auth_client, tmp_config, monkeypatch):
@@ -242,6 +340,35 @@ def test_save_settings_updates_gpus(auth_client, tmp_config, monkeypatch):
                      content_type='application/json')
     cfg = json.loads((tmp_config / 'config.json').read_text())
     assert cfg['gpus'] == [0, 1]
+
+
+def test_save_settings_log_only_does_not_signal_monitor(auth_client, tmp_config, monkeypatch):
+    signal_called = {'value': False}
+
+    def fake_signal(*_args):
+        signal_called['value'] = True
+        return SIGNAL_SENT
+
+    monkeypatch.setattr('webui._signal_sserveros', fake_signal)
+    r = auth_client.post('/api/settings', json={'log_max_size_mb': 5, 'log_archive_keep': 2},
+                         content_type='application/json')
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+
+    assert r.status_code == 200
+    assert cfg['log_max_size_mb'] == 5
+    assert cfg['log_archive_keep'] == 2
+    assert signal_called['value'] is False
+
+
+def test_save_settings_serverchan_keys_clear_legacy_sendkey(auth_client, tmp_config, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+    r = auth_client.post('/api/settings', json={'serverchan_keys': ['SCTnew']},
+                         content_type='application/json')
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+
+    assert r.status_code == 200
+    assert cfg['serverchan_keys'] == ['SCTnew']
+    assert cfg['sendkey'] == ''
 
 
 def test_save_settings_rejects_invalid_gpus(auth_client, monkeypatch):
@@ -290,6 +417,57 @@ def test_change_password_success(auth_client, tmp_config, monkeypatch):
     cfg = json.loads((tmp_config / 'config.json').read_text())
     assert check_password_hash(cfg['password_hash'], 'hunter2')
     assert signal_called['value'] is False
+
+
+def test_signal_sserveros_uses_pid_file_only_for_current_project_monitor(tmp_config, monkeypatch):
+    from webui import _signal_sserveros
+
+    pid_file = tmp_config / 'runtime' / 'sserveros.pid'
+    pid_file.write_text('4321\n')
+
+    killed = []
+
+    def fake_kill(pid, sig):
+        killed.append((pid, sig))
+
+    monkeypatch.setattr('webui.os.kill', fake_kill)
+    monkeypatch.setattr('webui._process_cmdline',
+                        lambda pid: f'python {tmp_config / "monitor.py"}')
+
+    result = _signal_sserveros(str(tmp_config), signal.SIGUSR2)
+
+    assert result == {'sent': True, 'method': 'pid_file', 'pids': [4321]}
+    assert killed == [(4321, 0), (4321, signal.SIGUSR2)]
+
+
+def test_signal_sserveros_does_not_signal_other_project_monitors(tmp_config, monkeypatch):
+    from webui import _signal_sserveros
+
+    pid_file = tmp_config / 'runtime' / 'sserveros.pid'
+    pid_file.write_text('4321\n')
+
+    killed = []
+
+    def fake_kill(pid, sig):
+        killed.append((pid, sig))
+
+    class DummyCompletedProcess:
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def fake_run(cmd, capture_output=None, text=None):
+        assert cmd == ['pgrep', '-f', str(tmp_config / 'monitor.py')]
+        return DummyCompletedProcess('5678\n')
+
+    monkeypatch.setattr('webui.os.kill', fake_kill)
+    monkeypatch.setattr('webui._process_cmdline',
+                        lambda pid: 'python /tmp/other-project/monitor.py')
+    monkeypatch.setattr('webui.subprocess.run', fake_run)
+
+    result = _signal_sserveros(str(tmp_config), signal.SIGUSR2)
+
+    assert result == {'sent': False, 'reason': 'not_running'}
+    assert killed == [(4321, 0)]
 
 
 # ── Log compression ─────────────────────────────────────
@@ -385,6 +563,30 @@ def test_notify_test_sends_request(auth_client, monkeypatch):
     data = r.get_json()
     assert data['ok'] is True
     assert 'message' in data
+
+
+def test_gpu_processes_invalid_gpu_returns_404(auth_client, monkeypatch):
+    monkeypatch.setattr(
+        'webui.subprocess.run',
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], returncode=1, stdout='', stderr='Invalid GPU 9 specified',
+        ),
+    )
+    r = auth_client.get('/api/gpu/9/processes')
+    assert r.status_code == 404
+    assert 'GPU 9 not found' in r.get_json()['error']
+
+
+def test_gpu_processes_command_failure_returns_503(auth_client, monkeypatch):
+    monkeypatch.setattr(
+        'webui.subprocess.run',
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], returncode=1, stdout='', stderr='driver communication failed',
+        ),
+    )
+    r = auth_client.get('/api/gpu/0/processes')
+    assert r.status_code == 503
+    assert 'driver communication failed' in r.get_json()['error']
 
 
 def test_create_app_bootstraps_config_from_dotenv(tmp_path, capsys):
