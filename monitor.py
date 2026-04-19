@@ -210,7 +210,14 @@ class Monitor:
             self.mem_threshold_mib = cfg.get('mem_threshold_mib', self.mem_threshold_mib)
             self.check_interval = cfg.get('check_interval', self.check_interval)
             self.confirm_times = cfg.get('confirm_times', self.confirm_times)
+            prev_enabled = self.gpu_mem_monitor_enabled
             self.gpu_mem_monitor_enabled = cfg.get('gpu_mem_monitor_enabled', True)
+            if prev_enabled and not self.gpu_mem_monitor_enabled:
+                for gpu in self.gpus:
+                    self.gpu_low_count[gpu] = 0
+                    self.gpu_high_count[gpu] = 0
+                    self.gpu_low_alerted[gpu] = False
+                    self.gpu_need_rearm_notify[gpu] = False
             raw_gpus = cfg.get('gpus', [])
             self.gpus = [int(g) for g in raw_gpus] if raw_gpus else self._detect_all_gpus()
             self.sendkey = cfg.get('sendkey', self.sendkey)
