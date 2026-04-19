@@ -94,11 +94,13 @@ runtime/
 
 ### 重要信号处理
 
-| 信号    | 处理方法              | 作用 |
-|---------|-----------------------|------|
-| SIGUSR1 | `_reload_pids`        | 读取 `runtime/watch_pids.queue`，动态追加监控 PID |
-| SIGUSR2 | `_reload_settings`    | 从 `config.json` 重新加载参数；从 `runtime/remove_pids.queue` 删除 PID |
-| SIGTERM/SIGINT | `_handle_term` | 优雅退出，触发 atexit `_on_exit` 推送「脚本已中断」通知 |
+信号 handler 只设置 flag（`_pending_reload_pids` / `_pending_reload_settings`），主循环在下一轮迭代开始时消费，避免在 handler 中执行 I/O 导致重入或死锁。
+
+| 信号    | Handler（仅设 flag）  | 主循环实际执行              | 作用 |
+|---------|-----------------------|-----------------------------|------|
+| SIGUSR1 | `_reload_pids`        | `_do_reload_pids()`         | 读取 `runtime/watch_pids.queue`，动态追加监控 PID |
+| SIGUSR2 | `_reload_settings`    | `_do_reload_settings()`     | 从 `config.json` 重新加载参数；从 `runtime/remove_pids.queue` 删除 PID |
+| SIGTERM/SIGINT | `_handle_term` | atexit `_on_exit`（线程推送，20s join） | 优雅退出，推送「脚本已中断」通知 |
 
 ### 子命令
 

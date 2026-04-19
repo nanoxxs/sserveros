@@ -1,7 +1,7 @@
 import copy
 import json
 import os
-
+import threading
 
 DEFAULT_CONFIG = {
     'sendkey': '',
@@ -12,11 +12,14 @@ DEFAULT_CONFIG = {
     'confirm_times': 2,
     'log_max_size_mb': 10,
     'log_archive_keep': 5,
+    'gpu_mem_monitor_enabled': True,
     'gpus': [],
     'watch_pids': [],
     'webui_host': '0.0.0.0',
     'webui_port': 6777,
 }
+
+_config_lock = threading.Lock()
 
 
 def config_path(script_dir: str) -> str:
@@ -46,9 +49,11 @@ def load_config_file(path: str) -> dict:
 
 def save_config_file(path: str, cfg: dict):
     tmp = path + '.tmp'
-    with open(tmp, 'w') as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, path)
+    with _config_lock:
+        with open(tmp, 'w') as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
 
 
 def default_config() -> dict:

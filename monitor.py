@@ -8,6 +8,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 
@@ -111,6 +112,8 @@ class Monitor:
 
         self._running = True
         self._exit_sent = False
+        self._pending_reload_pids = False
+        self._pending_reload_settings = False
 
     # ── 配置加载 ──────────────────────────────────────────────────────────────
 
@@ -172,6 +175,12 @@ class Monitor:
     # ── 信号处理 ──────────────────────────────────────────────────────────────
 
     def _reload_pids(self, signum, frame):
+        self._pending_reload_pids = True
+
+    def _reload_settings(self, signum, frame):
+        self._pending_reload_settings = True
+
+    def _do_reload_pids(self):
         if not os.path.exists(self.watch_queue_file):
             return
         with open(self.watch_queue_file) as f:
@@ -191,7 +200,7 @@ class Monitor:
             print(f'[{ts}] 动态加入 WATCH_PID: {pid}', flush=True)
         self._load_pid_notes_from_config()
 
-    def _reload_settings(self, signum, frame):
+    def _do_reload_settings(self):
         if os.path.exists(self.config_file):
             cfg = load_config_file(self.config_file)
             self.mem_threshold_mib = cfg.get('mem_threshold_mib', self.mem_threshold_mib)
@@ -251,11 +260,15 @@ class Monitor:
             os.remove(self.pid_file)
         except OSError:
             pass
-        notifier.send_all(
-            self._notify_cfg(),
-            f'监控脚本已中断 [{HOSTNAME_TAG}]',
-            'monitor.py 已退出，请检查并重启',
+        t = threading.Thread(
+            target=notifier.send_all,
+            args=(self._notify_cfg(),
+                  f'监控脚本已中断 [{HOSTNAME_TAG}]',
+                  'monitor.py 已退出，请检查并重启'),
+            daemon=True,
         )
+        t.start()
+        t.join(timeout=20)
 
     # ── 通知 ──────────────────────────────────────────────────────────────────
 
@@ -670,6 +683,12 @@ class Monitor:
         )
 
         while self._running:
+            if self._pending_reload_pids:
+                self._pending_reload_pids = False
+                self._do_reload_pids()
+            if self._pending_reload_settings:
+                self._pending_reload_settings = False
+                self._do_reload_settings()
             self.check_once()
             time.sleep(self.check_interval)
 

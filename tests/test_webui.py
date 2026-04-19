@@ -364,28 +364,27 @@ def test_notify_test_requires_auth(client):
 def test_notify_test_no_sendkey(auth_client, tmp_config):
     cfg = json.loads((tmp_config / 'config.json').read_text())
     cfg['sendkey'] = ''
+    cfg['serverchan_keys'] = []
+    cfg['bark_configs'] = []
     (tmp_config / 'config.json').write_text(json.dumps(cfg))
     r = auth_client.post('/api/notify/test')
     assert r.status_code == 400
-    assert 'SENDKEY' in r.get_json()['error']
+    assert '推送渠道' in r.get_json()['error']
 
 
 def test_notify_test_sends_request(auth_client, monkeypatch):
-    import urllib.request
-    from http.client import HTTPResponse
-    from io import BytesIO
-
-    class FakeResp:
-        status = 200
-        def __enter__(self): return self
-        def __exit__(self, *a): pass
-
-    monkeypatch.setattr(urllib.request, 'urlopen', lambda req, timeout: FakeResp())
+    monkeypatch.setattr(
+        'notifier.send_all',
+        lambda cfg, title, content, **kw: [
+            {'channel': 'serverchan', 'channel_hint': 'Server Chan · est',
+             'send_success': True, 'http_status': 200}
+        ],
+    )
     r = auth_client.post('/api/notify/test')
     assert r.status_code == 200
     data = r.get_json()
     assert data['ok'] is True
-    assert data['http_status'] == 200
+    assert 'message' in data
 
 
 def test_create_app_bootstraps_config_from_dotenv(tmp_path, capsys):

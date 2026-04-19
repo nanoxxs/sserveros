@@ -704,7 +704,7 @@ update_from_zip() {
       return 1
     fi
   elif command -v curl >/dev/null 2>&1; then
-    if ! curl -L -o "${archive}" "${REPO_ZIP_URL}"; then
+    if ! curl -fL -o "${archive}" "${REPO_ZIP_URL}"; then
       echo "错误：下载最新脚本失败。"
       rm -rf "${tmpdir}"
       return 1

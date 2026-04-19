@@ -41,7 +41,9 @@ def create_app(script_dir: str = None):
     notifier.sync_env_to_config(_config_path(script_dir))
     app.config['SECRET_KEY'] = cfg0['secret_key'].encode()
     app.config['SESSION_PERMANENT'] = True
-    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=10)
+    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=60)
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     if initial_password:
         print('[sserveros webui] 已自动生成 config.json', flush=True)
         print(f'[sserveros webui] 初始密码: {initial_password}', flush=True)
@@ -512,7 +514,7 @@ def _signal_sserveros(script_dir: str, sig) -> dict:
             except (OSError, ValueError):
                 pass
 
-        result = subprocess.run(['pgrep', '-f', 'sserveros.sh'],
+        result = subprocess.run(['pgrep', '-f', 'monitor.py'],
                                 capture_output=True, text=True)
         sent_pids = []
         for line in result.stdout.strip().splitlines():

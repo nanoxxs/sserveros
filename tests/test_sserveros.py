@@ -44,6 +44,7 @@ def _prepare_project(tmp_path: Path):
     project_dir = tmp_path / 'project'
     project_dir.mkdir()
     shutil.copy2(ROOT_DIR / 'monitor.py', project_dir / 'monitor.py')
+    shutil.copy2(ROOT_DIR / 'notifier.py', project_dir / 'notifier.py')
     shutil.copy2(ROOT_DIR / 'config_bootstrap.py', project_dir / 'config_bootstrap.py')
     shutil.copy2(ROOT_DIR / 'storage.py', project_dir / 'storage.py')
     (project_dir / 'runtime').mkdir()
@@ -318,7 +319,7 @@ def test_sserveros_bootstraps_config_when_missing(tmp_path):
         state = _wait_until(lambda: _state_if_matches(project_dir, [0]))
         assert state['gpus'][0]['top_cmd'] == 'python train_zero.py'
         cfg = _read_json(project_dir / 'config.json')
-        assert cfg['sendkey'] == ''
+        assert cfg['sendkey'] == 'SCTtest'  # sync_env_to_config writes SENDKEY to config
         assert cfg['check_interval'] == 5
         assert 'password_hash' in cfg
         assert 'secret_key' in cfg

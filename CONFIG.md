@@ -2,7 +2,7 @@
 
 配置文件：`config.json`（运行时生成，不提交到 Git）
 
-首次启动 `python webui.py` 或 `./sserveros.sh` 时会自动生成初始配置。启动后可在 WebUI → 设置页修改大部分参数。
+首次运行 `python webui.py` 或通过 `manage.sh` 启动时会自动生成初始配置。启动后可在 WebUI → 设置页修改大部分参数。
 
 ## 配置项
 
@@ -25,18 +25,18 @@
 `SENDKEY` 是敏感信息，推荐通过以下方式注入，不要直接写入 `config.json`（虽然 `config.json` 已在 `.gitignore` 中）：
 
 ```bash
-# 方式 A（推荐）：写入 .env，自动被 sserveros.sh 加载
+# 方式 A（推荐）：写入 .env，自动被 monitor.py / webui.py 加载
 echo "SENDKEY=SCTxxx" >> .env
 
 # 方式 B：直接传环境变量
-SENDKEY=SCTxxx ./sserveros.sh
+SENDKEY=SCTxxx python monitor.py
 ```
 
-通过 WebUI 设置页保存的 SENDKEY 会写入 `config.json`，并在 sserveros.sh 收到 SIGUSR2 时生效。
+通过 WebUI 设置页保存的 SENDKEY 会写入 `config.json`，并在 monitor.py 收到 SIGUSR2 时生效。
 
 ## 优先级
 
-sserveros.sh 在启动时按以下顺序确定 SENDKEY（先找到则使用）：
+monitor.py 在启动时按以下顺序确定 SENDKEY（先找到则使用）：
 1. 环境变量 `SENDKEY`（含从 `.env` 加载的）
 2. `config.json` 中的 `sendkey` 字段
 

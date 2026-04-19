@@ -31,6 +31,7 @@ def _send_serverchan(key: str, title: str, content: str) -> dict:
     try:
         r = subprocess.run(
             ['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}',
+             '--max-time', '15',
              '-X', 'POST', url,
              '--data-urlencode', f'title={title}',
              '--data-urlencode', f'desp={content}'],
