@@ -664,6 +664,17 @@ class Monitor:
 
         self._init_watch_pids()
 
+        # 防止重复启动：检查 PID 文件中的进程是否仍在运行
+        if os.path.exists(self.pid_file):
+            try:
+                with open(self.pid_file) as f:
+                    existing_pid = int(f.read().strip())
+                os.kill(existing_pid, 0)
+                print(f'错误：monitor.py 已在运行（PID {existing_pid}），退出。', file=sys.stderr)
+                sys.exit(1)
+            except (OSError, ValueError):
+                pass
+
         # 写 PID 文件
         with open(self.pid_file, 'w') as f:
             f.write(str(os.getpid()))

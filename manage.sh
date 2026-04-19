@@ -322,6 +322,14 @@ start_backend() {
     return 0
   fi
 
+  local -a existing_pids=()
+  mapfile -t existing_pids < <(pgrep -f "${SCRIPT_DIR}/monitor.py" || true)
+  if [ "${#existing_pids[@]}" -gt 0 ]; then
+    echo "检测到已有 monitor.py 进程在运行（PID: ${existing_pids[*]}），跳过启动。"
+    printf '%s\n' "${existing_pids[0]}" > "${BACKEND_PID_FILE}"
+    return 0
+  fi
+
   load_env_exports
   ensure_runtime_dir
   nohup "${PYTHON_BIN:-python3}" "${SCRIPT_DIR}/monitor.py" > /dev/null 2>&1 &
