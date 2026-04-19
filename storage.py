@@ -58,3 +58,18 @@ def save_config_file(path: str, cfg: dict):
 
 def default_config() -> dict:
     return copy.deepcopy(DEFAULT_CONFIG)
+
+
+def load_dotenv(script_dir: str):
+    path = os.path.join(script_dir, '.env')
+    if not os.path.exists(path):
+        return
+    with open(path) as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            key, value = line.split('=', 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            os.environ.setdefault(key, value)

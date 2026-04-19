@@ -18,6 +18,7 @@ from storage import (
     config_path as _config_path,
     ensure_runtime_dir,
     load_config_file,
+    load_dotenv as _load_dotenv,
     runtime_path,
 )
 
@@ -25,20 +26,6 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TITLE_PREFIX = 'GPU监控提醒'
 HOSTNAME_TAG = socket.gethostname()
 
-
-def _load_dotenv(script_dir: str):
-    path = os.path.join(script_dir, '.env')
-    if not os.path.exists(path):
-        return
-    with open(path) as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line or line.startswith('#') or '=' not in line:
-                continue
-            key, value = line.split('=', 1)
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            os.environ.setdefault(key, value)
 
 
 def _run(cmd, **kwargs):
@@ -164,13 +151,14 @@ class Monitor:
                 self.watch_pids.append(pid)
                 self.watch_pid_miss_count[pid] = 0
                 self.watch_pid_notified[pid] = False
-        self._load_pid_notes_from_config()
+        self._load_pid_notes_from_config(cfg)
         self._sync_gpu_state_arrays()
 
-    def _load_pid_notes_from_config(self):
-        if not os.path.exists(self.config_file):
-            return
-        cfg = load_config_file(self.config_file)
+    def _load_pid_notes_from_config(self, cfg: dict = None):
+        if cfg is None:
+            if not os.path.exists(self.config_file):
+                return
+            cfg = load_config_file(self.config_file)
         self.watch_pid_note = {
             int(wp['pid']): wp.get('note', '')
             for wp in cfg.get('watch_pids', [])
@@ -205,6 +193,7 @@ class Monitor:
         self._load_pid_notes_from_config()
 
     def _do_reload_settings(self):
+        cfg = None
         if os.path.exists(self.config_file):
             cfg = load_config_file(self.config_file)
             self.mem_threshold_mib = cfg.get('mem_threshold_mib', self.mem_threshold_mib)
@@ -250,7 +239,7 @@ class Monitor:
                 ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 print(f'[{ts}] 已移除 WATCH_PID: {pid}', flush=True)
 
-        self._load_pid_notes_from_config()
+        self._load_pid_notes_from_config(cfg)
 
     def _handle_term(self, signum, frame):
         self._running = False
@@ -395,7 +384,7 @@ class Monitor:
     def purge_stale_pids(self):
         stale_threshold = self.confirm_times * 10
         for pid in list(self.pid_miss_count):
-            if self.pid_miss_count.get(pid, 0) >= stale_threshold:
+            if self.pid_miss_count[pid] >= stale_threshold:
                 for d in (self.pid_seen_notified, self.pid_disappear_notified,
                           self.pid_miss_count, self.pid_last_psfp,
                           self.pid_last_cmd, self.pid_last_gpus, self.pid_last_maxmem):
@@ -656,10 +645,6 @@ class Monitor:
 
         self.load_config()
 
-        cfg_file = load_config_file(self.config_file)
-        if not self.sendkey:
-            self.sendkey = cfg_file.get('sendkey', '')
-
         notifier.sync_env_to_config(self.config_file)
 
         if not notifier.has_any_channel(self._notify_cfg()):
@@ -671,7 +656,6 @@ class Monitor:
         if not self.gpus:
             print('错误：未检测到任何 GPU', file=sys.stderr)
             sys.exit(1)
-        self._sync_gpu_state_arrays()
 
         self._init_watch_pids()
 

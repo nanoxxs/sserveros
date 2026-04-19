@@ -15,6 +15,7 @@ from storage import (
     config_path as _config_path,
     ensure_runtime_dir as _ensure_runtime_dir,
     load_config_file,
+    load_dotenv as _load_dotenv,
     runtime_dir as _runtime_dir,
     runtime_glob as _runtime_glob,
     runtime_path as _runtime_path,
@@ -450,20 +451,6 @@ def create_app(script_dir: str = None):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-
-def _load_dotenv(script_dir: str):
-    path = os.path.join(script_dir, '.env')
-    if not os.path.exists(path):
-        return
-    with open(path) as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line or line.startswith('#') or '=' not in line:
-                continue
-            key, value = line.split('=', 1)
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            os.environ.setdefault(key, value)
 
 def _empty_state(cfg: dict) -> dict:
     return {
