@@ -1,6 +1,6 @@
 # sserveros 架构说明
 
-GPU 监控 + WebUI 项目。核心是一个 Python 守护进程，通过 Server Chan 或 Bark 推送通知；配套一个 Flask WebUI 供局域网（Tailscale）访问查看状态、管理监控任务。
+GPU 监控 + WebUI + LLM Agent 项目。核心是一个 Python 守护进程，通过 Server Chan 或 Bark 推送通知；配套一个 Flask WebUI 供局域网（Tailscale）访问查看状态、管理监控任务；另有 LLM Agent 模块支持自然语言查询系统状态、智能添加 PID 监控。
 
 ---
 
@@ -15,9 +15,19 @@ sserveros/
 ├── webui.html           # 前端页面（单文件，内嵌 CSS + JS）
 ├── config_bootstrap.py  # 首启自动生成配置
 ├── storage.py           # 配置读写 / 路径管理
+├── agent/
+│   ├── __init__.py
+│   ├── _shell.py        # 安全子进程封装（run_safe，禁 shell=True，8KB 截断）
+│   ├── runner.py        # LLM tool-use 循环 + SessionStore
+│   ├── schema.py        # OpenAI 兼容 tool schema + system prompt
+│   └── tools/
+│       ├── __init__.py  # TOOL_REGISTRY（读写工具分类）
+│       ├── monitor.py   # search_processes / *_watch_pid / gpu_state
+│       └── system.py    # service_status / service_logs / port_listen / disk_usage / system_info
 ├── tests/
 │   ├── test_webui.py    # webui.py 的全量测试（pytest）
-│   └── test_sserveros.py # monitor.py 的全量测试（pytest）
+│   ├── test_sserveros.py # monitor.py 的全量测试（pytest）
+│   └── test_agent_tools.py # agent 工具层单测（46 个用例）
 ├── .env.example         # 敏感变量示例
 ├── .gitignore
 └── ARCHITECTURE.md      # 本文件
@@ -26,7 +36,7 @@ sserveros/
 运行时生成（均在 .gitignore 中）：
 
 ```
-config.json              # 配置文件（密码哈希 + 监控参数）
+config.json              # 配置文件（密码哈希 + 监控参数 + LLM 配置）
 runtime/
   state.json             # monitor.py 每轮写入的快照，WebUI 读取
   log.json               # JSON Lines 格式的事件日志（当前）
@@ -35,6 +45,7 @@ runtime/
   webui.pid              # WebUI 进程 PID 文件
   watch_pids.queue       # 动态添加 PID 的队列文件（SIGUSR1 触发读取）
   remove_pids.queue      # 动态删除 PID 的队列文件（SIGUSR2 触发读取）
+  agent_sessions.json    # Agent 对话 session 持久化（30 分钟 TTL）
 ```
 
 ---
@@ -144,10 +155,16 @@ python monitor.py             # 启动监控守护进程
 | GET  | `/api/log/archives/<filename>` | 下载存档（路径穿越防护）|
 | POST | `/api/pids/add` | 追加 PID + 备注 → SIGUSR1 |
 | POST | `/api/pids/remove` | 删除 PID → SIGUSR2 |
+| POST | `/api/pids/clear-dead` | 清理已消失的 watch_pids → SIGUSR2 |
 | GET  | `/api/sysinfo` | 返回 CPU / 内存 / 磁盘信息 |
 | GET  | `/api/gpu/<index>/processes` | 返回指定 GPU 详细进程信息 |
 | POST | `/api/notify/test` | 向所有已配置渠道发测试推送 |
 | POST | `/api/settings` | 保存设置 → SIGUSR2 |
+| GET  | `/api/agent/config` | 返回 Agent/LLM 配置（API Key 掩码） |
+| POST | `/api/agent/config` | 保存 Agent/LLM 配置 |
+| POST | `/api/agent/chat` | Agent 对话入口，执行 tool-use 循环 |
+| POST | `/api/agent/confirm` | 确认/拒绝 Agent 暂存的写操作 |
+| DELETE | `/api/agent/session/<session_id>` | 删除 Agent 会话 |
 
 ### 配置字段（config.json）
 
@@ -167,6 +184,13 @@ python monitor.py             # 启动监控守护进程
 | `watch_pids` | object[] | `[]` | 是（PIDs 页） | `[{"pid":N,"note":"..."}]` |
 | `webui_host` | string | `"0.0.0.0"` | 否（重启生效） | WebUI 绑定地址 |
 | `webui_port` | int | `6777` | 否（重启生效） | WebUI 监听端口 |
+| `agent_enabled` | bool | `false` | 是（设置页 Agent） | 是否启用 Agent 标签页对话 |
+| `llm_base_url` | string | `"https://api.deepseek.com/v1"` | 是 | OpenAI 兼容 API Base URL |
+| `llm_api_key` | string | `""` | 是 | LLM API Key，读取接口只返回掩码 |
+| `llm_model` | string | `"deepseek-chat"` | 是 | LLM 模型名 |
+| `llm_max_iterations` | int | `8` | 是 | 单轮对话最大工具调用轮次（1-20） |
+| `llm_request_timeout` | int | `30` | 是 | LLM 请求超时秒数（5-120） |
+| `llm_temperature` | float | `0.2` | 是 | LLM temperature（0-2） |
 
 ---
 
@@ -182,11 +206,12 @@ python monitor.py             # 启动监控守护进程
     ├── 离线横幅（.offline-banner）
     ├── 顶部栏（.header）— 含测试通知 / 修改密码 / 退出
     ├── Tab 导航（.tabs）
-    └── 内容区（.pane × 4）
+    └── 内容区（.pane × 5）
         ├── 概览   – CPU/内存/磁盘 + GPU 显存进度条 + 主 PID，每 5 秒自动刷新
         ├── PIDs   – 监控列表（存活状态 + 删除）+ 添加表单（支持备注）
-        ├── 设置   – 监控参数 + 通知渠道（Server Chan 多 key / Bark 多地址）+ 修改密码
-        └── 日志   – 事件列表 + 点击查看详情 + 存档下载
+        ├── 设置   – 监控参数 + 通知渠道（Server Chan 多 key / Bark 多地址）+ Agent LLM 配置
+        ├── 日志   – 事件列表 + 点击查看详情 + 存档下载
+        └── Agent  – 对话消息区 + 待确认操作卡片 + 右上角上拖式可调高度输入框
 ```
 
 ---
@@ -212,12 +237,32 @@ webui.py (Flask)
   │  GET /api/log    → 读 runtime/log.json
   │  POST /api/pids/add    → 更新 config.json → 写 queue → kill -USR1
   │  POST /api/pids/remove → 更新 config.json → 写 queue → kill -USR2
+  │  POST /api/pids/clear-dead → 更新 config.json → 写 remove queue → kill -USR2
   │  POST /api/settings    → 写 config.json → kill -USR2
   │  POST /api/notify/test → notifier.send_all()
+  │  /api/agent/*          → AgentRunner / SessionStore → agent/tools/*
   │
   ▼
 webui.html（浏览器）
   └── 每 5 秒 polling /api/state
+```
+
+Agent 数据流：
+
+```
+webui.html Agent Tab
+  │  POST /api/agent/chat
+  ▼
+webui.py
+  │  AgentRunner 调用 OpenAI 兼容 LLM
+  │  只读工具立即执行：GPU/PID/进程/服务/端口/磁盘/系统信息
+  │  写工具暂存：add_watch_pid / remove_watch_pid
+  ▼
+runtime/agent_sessions.json
+  │  保存会话历史和待确认操作（30 分钟 TTL）
+  ▼
+POST /api/agent/confirm
+  └── 写 config.json + queue，并向 monitor.py 发送 SIGUSR1/SIGUSR2
 ```
 
 `manage.sh` 在主动停止 `monitor.py` 前会写入 `runtime/stop_context.json`，供 `monitor.py` 退出通知附带操作者、TTY 和来源信息。
@@ -230,9 +275,10 @@ webui.html（浏览器）
 # 推荐：直接使用一键脚本
 bash ./manage.sh
 
-# 或手动启动
-nohup python monitor.py >> runtime/monitor.log 2>&1 &
-nohup python webui.py   >> runtime/webui.log   2>&1 &
+# 或手动启动（在项目目录中执行；从其他目录启动时请使用绝对路径）
+cd /path/to/sserveros
+nohup python "$(pwd)/monitor.py" >> "$(pwd)/runtime/monitor.log" 2>&1 &
+nohup python "$(pwd)/webui.py"   >> "$(pwd)/runtime/webui.log"   2>&1 &
 ```
 
 ---
@@ -243,4 +289,4 @@ nohup python webui.py   >> runtime/webui.log   2>&1 &
 pytest tests/
 ```
 
-`tests/test_webui.py` 覆盖所有 API 端点、认证逻辑和日志压缩，使用 `tmp_path` fixture 隔离文件系统。
+`tests/test_webui.py` 覆盖 WebUI/API 端点、认证逻辑和日志压缩，使用 `tmp_path` fixture 隔离文件系统；`tests/test_agent_tools.py` 覆盖 Agent 工具层的安全执行、GPU/PID、服务、端口、磁盘和系统信息查询。

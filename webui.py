@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 import notifier
+from agent.runner import AgentRunner, SessionStore
 from config_bootstrap import ensure_config
 from storage import (
     config_path as _config_path,
@@ -503,6 +504,115 @@ def create_app(script_dir: str = None):
         )
         return jsonify(payload), status
 
+    # ── Agent ─────────────────────────────────────────────────────────────────
+
+    _session_store = SessionStore(script_dir)
+
+    def _agent_runner() -> AgentRunner:
+        cfg = load_config_file(_config_path(script_dir))
+        return AgentRunner(cfg, script_dir, _session_store)
+
+    def _exec_pending_action(action: dict) -> dict:
+        atype = action.get('action')
+        pid = action.get('pid')
+        note = action.get('note', '')
+        if atype == 'add_watch_pid':
+            cfg = load_config_file(_config_path(script_dir))
+            watch = cfg.setdefault('watch_pids', [])
+            existing = next((wp for wp in watch if wp['pid'] == pid), None)
+            if existing:
+                existing['note'] = note
+            else:
+                watch.append({'pid': pid, 'note': note})
+                with open(_runtime_path(script_dir, 'watch_pids.queue'), 'a') as f:
+                    f.write(f'{pid}\n')
+            save_config_file(_config_path(script_dir), cfg)
+            _signal_sserveros(script_dir, signal.SIGUSR1)
+            return {'ok': True, 'message': f'PID {pid} 已加入监控'}
+        if atype == 'remove_watch_pid':
+            cfg = load_config_file(_config_path(script_dir))
+            cfg['watch_pids'] = [wp for wp in cfg.get('watch_pids', []) if wp['pid'] != pid]
+            with open(_runtime_path(script_dir, 'remove_pids.queue'), 'a') as f:
+                f.write(f'{pid}\n')
+            save_config_file(_config_path(script_dir), cfg)
+            _signal_sserveros(script_dir, signal.SIGUSR2)
+            return {'ok': True, 'message': f'PID {pid} 已移除监控'}
+        return {'ok': False, 'message': f'未知动作类型: {atype}'}
+
+    @app.route('/api/agent/config', methods=['GET'])
+    @require_auth
+    def api_agent_config_get():
+        cfg = load_config_file(_config_path(script_dir))
+        return jsonify({
+            'agent_enabled': cfg.get('agent_enabled', False),
+            'llm_base_url': cfg.get('llm_base_url', 'https://api.deepseek.com/v1'),
+            'llm_api_key': _mask_key(cfg.get('llm_api_key', '')),
+            'llm_model': cfg.get('llm_model', 'deepseek-chat'),
+            'llm_max_iterations': cfg.get('llm_max_iterations', 8),
+            'llm_request_timeout': cfg.get('llm_request_timeout', 30),
+            'llm_temperature': cfg.get('llm_temperature', 0.2),
+        })
+
+    @app.route('/api/agent/config', methods=['POST'])
+    @require_auth
+    def api_agent_config_post():
+        data = request.get_json() or {}
+        cfg = load_config_file(_config_path(script_dir))
+        if 'agent_enabled' in data:
+            cfg['agent_enabled'] = bool(data['agent_enabled'])
+        if 'llm_base_url' in data:
+            cfg['llm_base_url'] = str(data['llm_base_url']).strip()
+        if 'llm_api_key' in data:
+            val = str(data['llm_api_key']).strip()
+            if val and '****' not in val:
+                cfg['llm_api_key'] = val
+        if 'llm_model' in data:
+            cfg['llm_model'] = str(data['llm_model']).strip()
+        if 'llm_max_iterations' in data:
+            cfg['llm_max_iterations'] = max(1, min(int(data['llm_max_iterations']), 20))
+        if 'llm_request_timeout' in data:
+            cfg['llm_request_timeout'] = max(5, min(int(data['llm_request_timeout']), 120))
+        if 'llm_temperature' in data:
+            cfg['llm_temperature'] = max(0.0, min(float(data['llm_temperature']), 2.0))
+        save_config_file(_config_path(script_dir), cfg)
+        return jsonify({'ok': True})
+
+    @app.route('/api/agent/chat', methods=['POST'])
+    @require_auth
+    def api_agent_chat():
+        data = request.get_json() or {}
+        session_id = str(data.get('session_id', '')).strip()
+        message = str(data.get('message', '')).strip()
+        if not session_id:
+            return jsonify({'error': 'session_id required'}), 400
+        if not message:
+            return jsonify({'error': 'message required'}), 400
+        cfg = load_config_file(_config_path(script_dir))
+        if not cfg.get('agent_enabled'):
+            return jsonify({'error': 'agent 未启用，请在「设置 → Agent」中开启并填写 LLM 配置'}), 403
+        if not cfg.get('llm_api_key', '').strip():
+            return jsonify({'error': '未配置 LLM API Key，请在「设置 → Agent」中填写'}), 403
+        result = _agent_runner().chat(session_id, message)
+        return jsonify(result), 200 if result.get('ok') else 500
+
+    @app.route('/api/agent/confirm', methods=['POST'])
+    @require_auth
+    def api_agent_confirm():
+        data = request.get_json() or {}
+        session_id = str(data.get('session_id', '')).strip()
+        approved = data.get('approved', [])
+        rejected = data.get('rejected', [])
+        if not session_id:
+            return jsonify({'error': 'session_id required'}), 400
+        result = _agent_runner().confirm(session_id, approved, rejected, _exec_pending_action)
+        return jsonify(result)
+
+    @app.route('/api/agent/session/<session_id>', methods=['DELETE'])
+    @require_auth
+    def api_agent_session_delete(session_id):
+        _session_store.clear(session_id)
+        return jsonify({'ok': True})
+
     _start_log_compressor(script_dir)
     return app
 
@@ -584,6 +694,14 @@ def _merge_watch_pids(runtime_watch_pids: list, cfg: dict) -> list:
             'note': wp.get('note', '') or runtime.get('note', ''),
         })
     return merged
+
+
+def _mask_key(key: str) -> str:
+    if not key:
+        return ''
+    if len(key) <= 8:
+        return '****'
+    return key[:4] + '****' + key[-4:]
 
 
 def _process_cmdline(pid: int) -> str:

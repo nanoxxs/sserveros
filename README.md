@@ -1,6 +1,6 @@
 # sserveros
 
-GPU 服务器监控工具。支持通过 [Server Chan](https://sct.ftqq.com/) 或 [Bark](https://github.com/finb/bark) 推送通知（两者均支持多账号同时推送），配套 Web 界面可在局域网（Tailscale）查看 GPU 状态、管理监控任务、查看事件日志。
+GPU 服务器监控工具。支持通过 [Server Chan](https://sct.ftqq.com/) 或 [Bark](https://github.com/finb/bark) 推送通知（两者均支持多账号同时推送），配套 Web 界面可在局域网（Tailscale）查看 GPU 状态、管理监控任务、查看事件日志，并可启用 LLM Agent 用自然语言查询系统状态和管理 PID 监控。
 
 ## 一键脚本
 
@@ -18,7 +18,7 @@ bash ./manage.sh
 ## 前置条件
 
 - Linux 系统
-- Python 3.8+，需安装依赖：`pip install flask psutil`
+- Python 3.8+，需安装依赖：`pip install flask psutil "httpx[socks]" "httpcore[socks]"`
 - `nvidia-smi`（NVIDIA 驱动已正确安装）
 - `curl`（Server Chan 推送依赖）
 
@@ -29,6 +29,7 @@ bash ./manage.sh
 - **指定 PID 监控**：手动添加要跟踪的进程，支持备注
 - **多渠道推送**：Server Chan / Bark，每种渠道支持配置多个账号，同时推送
 - **WebUI**：查看 GPU 实时状态 / CPU 内存磁盘 / 管理监控 PID / 调整参数 / 浏览事件日志
+- **LLM Agent**：自然语言查询 GPU、进程、systemd 服务、端口、磁盘和系统信息；添加/移除 PID 监控前需要用户确认
 - **日志归档**：超过大小阈值自动压缩为 `.json.gz`
 
 ## 目录结构
@@ -42,9 +43,15 @@ sserveros/
 ├── webui.html           # 前端页面（单文件）
 ├── config_bootstrap.py  # 首启自动生成配置
 ├── storage.py           # 配置读写 / 路径管理
+├── agent/
+│   ├── _shell.py        # 安全子进程封装
+│   ├── runner.py        # LLM tool-use 循环 + SessionStore
+│   ├── schema.py        # OpenAI 兼容工具 schema + system prompt
+│   └── tools/           # GPU/进程/服务/端口/磁盘/系统信息工具
 ├── tests/
 │   ├── test_webui.py    # WebUI / API 测试
-│   └── test_sserveros.py # 监控脚本测试
+│   ├── test_sserveros.py # 监控脚本测试
+│   └── test_agent_tools.py # Agent 工具层测试
 ├── .env.example         # 敏感变量示例
 ├── ARCHITECTURE.md      # 架构说明
 ├── CONFIG.md            # 配置项说明
@@ -54,7 +61,7 @@ sserveros/
 运行时生成（均在 `.gitignore`，不提交）：
 
 ```
-config.json             # 配置文件（密码哈希 + 监控参数）
+config.json             # 配置文件（密码哈希 + 监控参数 + LLM 配置）
 runtime/
   state.json            # 当前 GPU/PID 快照
   log.json              # 事件日志（JSON Lines）
@@ -63,6 +70,7 @@ runtime/
   webui.pid             # WebUI 进程 PID
   watch_pids.queue      # 动态添加 PID 队列
   remove_pids.queue     # 动态删除 PID 队列
+  agent_sessions.json   # Agent 会话持久化
 .env                    # 本地敏感变量（不提交）
 ```
 
@@ -101,11 +109,14 @@ BARK_CONFIGS=https://api.day.app|YourKey1,https://api.day.app|YourKey2
 ## 启动
 
 ```bash
+# 在项目目录中执行；从其他目录启动时请使用绝对路径
+cd /path/to/sserveros
+
 # 启动监控脚本
-nohup python monitor.py >> runtime/monitor.log 2>&1 &
+nohup python "$(pwd)/monitor.py" >> "$(pwd)/runtime/monitor.log" 2>&1 &
 
 # 启动 WebUI（可选）
-nohup python webui.py >> runtime/webui.log 2>&1 &
+nohup python "$(pwd)/webui.py" >> "$(pwd)/runtime/webui.log" 2>&1 &
 ```
 
 或直接使用 `manage.sh`，它会自动处理初始化和启停。
@@ -117,6 +128,7 @@ nohup python webui.py >> runtime/webui.log 2>&1 &
 - 默认端口：`6777`（可在 `config.json` 的 `webui_port` 修改）
 - 初始密码：首次启动时自动生成并打印到终端
 - 修改密码：WebUI → 右上角菜单 → 修改密码
+- Agent：WebUI → 设置 → Agent 中开启并填写 OpenAI 兼容 API Base URL、API Key 和模型名；随后在 Agent 标签页对话
 
 ### 忘记密码
 
@@ -144,6 +156,10 @@ python monitor.py add <pid>
 # 或通过 WebUI → PIDs 标签页添加
 ```
 
+## Agent
+
+Agent 默认关闭。开启后，它可以调用只读工具查询当前 GPU 快照、监控 PID、进程、systemd 服务、端口、磁盘和系统信息；涉及写操作的 `add_watch_pid` / `remove_watch_pid` 会先进入待确认状态，需要在 WebUI 中确认后才会真正写入配置并通知 `monitor.py`。
+
 ## 测试
 
 ```bash
@@ -159,6 +175,7 @@ pytest tests/
 - Python 3.8+
 - Flask（含 Werkzeug）
 - psutil
+- httpx\[socks\] + httpcore\[socks\]（Agent LLM 调用，支持系统 SOCKS 代理）
 - `nvidia-smi`（NVIDIA 驱动自带）
 - `curl`（Server Chan 推送使用）
 

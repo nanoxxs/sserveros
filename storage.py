@@ -17,6 +17,13 @@ DEFAULT_CONFIG = {
     'watch_pids': [],
     'webui_host': '0.0.0.0',
     'webui_port': 6777,
+    'agent_enabled': False,
+    'llm_base_url': 'https://api.deepseek.com/v1',
+    'llm_api_key': '',
+    'llm_model': 'deepseek-chat',
+    'llm_max_iterations': 8,
+    'llm_request_timeout': 30,
+    'llm_temperature': 0.2,
 }
 
 _config_lock = threading.Lock()

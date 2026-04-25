@@ -20,6 +20,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 /* App shell */
 .app { display: none; }
+.app.agent-active .app-footer { display: none; }
 .offline-banner { background: #fee2e2; color: #b91c1c; padding: 10px 16px; font-size: 13px; font-weight: 500; text-align: center; display: none; }
 .header { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; }
 .header-title { font-weight: 700; font-size: 17px; }
@@ -202,6 +203,64 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .detail-body-label { font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
 .detail-body-content { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 13px; color: #334155; line-height: 1.6; white-space: pre; font-family: monospace; max-height: 50vh; overflow-x: auto; overflow-y: auto; }
 
+/* Agent */
+#paneAgent { padding: 0 !important; gap: 0 !important; height: var(--agent-pane-height, calc(100dvh - 94px)); overflow: hidden; }
+@supports not (height: 100dvh) { #paneAgent { height: var(--agent-pane-height, calc(100vh - 94px)); } }
+#paneAgent.active { display: flex; flex-direction: column; }
+.agent-layout { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #fff; min-height: 0; }
+@media (min-width: 640px) {
+  #paneAgent { padding: 12px !important; max-width: 900px; margin: 0 auto; width: 100%; }
+  .agent-layout { border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+}
+.agent-messages { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; -webkit-overflow-scrolling: touch; min-height: 0; }
+.msg-user { align-self: flex-end; background: #2563eb; color: #fff; border-radius: 14px 14px 4px 14px; padding: 10px 14px; max-width: 82%; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.msg-assistant { align-self: flex-start; background: #f1f5f9; color: #1e293b; border-radius: 4px 14px 14px 14px; padding: 10px 14px; max-width: 92%; font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.msg-error { align-self: flex-start; background: #fee2e2; color: #b91c1c; border-radius: 4px 14px 14px 14px; padding: 10px 14px; max-width: 92%; font-size: 13px; }
+.msg-thinking { align-self: flex-start; color: #94a3b8; font-size: 13px; padding: 4px 2px; display: flex; align-items: center; gap: 8px; }
+.thinking-dots { display: flex; gap: 4px; }
+.thinking-dots span { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #cbd5e1; animation: tdot 1.2s infinite; }
+.thinking-dots span:nth-child(2) { animation-delay: .2s; }
+.thinking-dots span:nth-child(3) { animation-delay: .4s; }
+@keyframes tdot { 0%,80%,100%{transform:scale(.7);opacity:.4} 40%{transform:scale(1);opacity:1} }
+.tool-trace { margin-top: 8px; border-top: 1px solid #e2e8f0; padding-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.tool-trace-toggle { font-size: 11px; color: #94a3b8; cursor: pointer; user-select: none; }
+.tool-trace-toggle:hover { color: #2563eb; }
+.tool-step { font-size: 12px; color: #64748b; padding: 3px 0 3px 10px; border-left: 2px solid #e2e8f0; font-family: monospace; word-break: break-all; }
+.tool-step.ok { border-left-color: #86efac; }
+.tool-step.fail { border-left-color: #fca5a5; color: #ef4444; }
+.pending-card { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 12px 14px; font-size: 13px; margin-top: 8px; }
+.pending-card-title { font-weight: 600; color: #92400e; margin-bottom: 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+.pending-action-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid #fef3c7; }
+.pending-action-item:last-child { border-bottom: none; }
+.pending-action-label { flex: 1; font-size: 13px; color: #1e293b; }
+.pending-action-label code { background: #f1f5f9; border-radius: 4px; padding: 1px 5px; font-size: 12px; font-family: monospace; }
+.pending-action-badge { font-size: 11px; padding: 2px 7px; border-radius: 8px; background: #dbeafe; color: #2563eb; font-weight: 500; white-space: nowrap; }
+.pending-actions-bar { display: flex; gap: 8px; margin-top: 10px; }
+.confirm-btn { flex: 1; background: #16a34a; color: #fff; border: none; border-radius: 8px; padding: 9px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.reject-btn { background: none; color: #ef4444; border: 1px solid #fecaca; border-radius: 8px; padding: 9px 14px; font-size: 13px; cursor: pointer; }
+.agent-bottom { border-top: 1px solid #e2e8f0; background: #fff; flex-shrink: 0; }
+.agent-toolbar { display: flex; align-items: center; gap: 6px; padding: 7px 12px 0; }
+.agent-tool-btn { background: none; border: 1px solid #e2e8f0; border-radius: 7px; color: #64748b; font-size: 12px; padding: 4px 10px; cursor: pointer; white-space: nowrap; line-height: 1.6; }
+.agent-tool-btn:hover { border-color: #2563eb; color: #2563eb; }
+.agent-input-row { display: flex; gap: 8px; padding: 8px 12px 10px; align-items: flex-end; }
+.agent-input-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
+.agent-input { width: 100%; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 32px 10px 14px; font-size: 14px; outline: none; resize: none; min-height: 42px; max-height: 45vh; overflow-y: auto; font-family: inherit; line-height: 1.5; }
+.agent-input:focus { border-color: #2563eb; }
+.agent-input-resize { position: absolute; top: 3px; right: 3px; width: 24px; height: 22px; border: none; border-radius: 8px; background: transparent; cursor: ns-resize; touch-action: none; }
+.agent-input-resize::before { content: ''; position: absolute; top: 5px; right: 5px; width: 12px; height: 12px; background: repeating-linear-gradient(45deg, transparent 0 3px, #94a3b8 3px 4px); opacity: .9; }
+.agent-input-resize:hover { background: #f1f5f9; color: #2563eb; }
+.agent-input-resize:hover::before { background: repeating-linear-gradient(45deg, transparent 0 3px, #2563eb 3px 4px); }
+.agent-send-btn { background: #2563eb; color: #fff; border: none; border-radius: 10px; padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; height: 42px; }
+.agent-interrupt-btn { background: #ef4444; color: #fff; border: none; border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; height: 42px; }
+@media (max-width: 480px) {
+  .agent-toolbar { padding: 6px 8px 0; }
+  .agent-input-row { padding: 6px 8px 8px; gap: 6px; }
+  .agent-send-btn, .agent-interrupt-btn { padding: 10px 12px; font-size: 13px; }
+  .msg-user, .msg-assistant, .msg-error { max-width: 95%; }
+}
+.agent-disabled-notice { text-align: center; padding: 60px 20px; color: #94a3b8; font-size: 14px; }
+.agent-disabled-notice a { color: #2563eb; cursor: pointer; text-decoration: underline; }
+
 /* Archive */
 .archive-row { padding: 12px 16px; border-bottom: 1px solid #f8fafc; display: flex; justify-content: space-between; align-items: center; }
 .archive-row:last-child { border-bottom: none; }
@@ -249,6 +308,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     <div class="tab" onclick="switchTab('pids')">PIDs</div>
     <div class="tab" onclick="switchTab('settings')">设置</div>
     <div class="tab" onclick="switchTab('log')">日志</div>
+    <div class="tab" onclick="switchTab('agent')">Agent</div>
   </div>
 
   <!-- GPU -->
@@ -363,6 +423,47 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     <div class="env-channel-list" id="envChannelList" style="display:none"></div>
     <button class="save-btn" onclick="saveSettings()">保存设置</button>
     <div class="save-msg notice-msg" id="saveMsg"></div>
+
+    <!-- Agent LLM config -->
+    <div class="card">
+      <div class="card-header">Agent · LLM 配置</div>
+      <div class="setting-row setting-row-toggle">
+        <div>
+          <div class="setting-label" style="margin-bottom:2px">启用 Agent</div>
+          <div style="font-size:12px;color:#94a3b8">开启后「Agent」Tab 可用</div>
+        </div>
+        <label class="toggle-switch" style="margin-left:16px">
+          <input type="checkbox" id="cfgAgentEnabled">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">API Base URL（OpenAI 兼容）</div>
+        <input class="setting-input" id="cfgLlmBaseUrl" placeholder="https://api.deepseek.com/v1">
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">API Key</div>
+        <input class="setting-input" id="cfgLlmApiKey" type="password" placeholder="sk-...（已保存的 key 显示为掩码）" autocomplete="new-password">
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">模型名称</div>
+        <input class="setting-input" id="cfgLlmModel" placeholder="deepseek-chat">
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">最大工具调用轮次（1-20）</div>
+        <input class="setting-input" id="cfgLlmMaxIter" type="number" min="1" max="20">
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">请求超时（秒，5-120）</div>
+        <input class="setting-input" id="cfgLlmTimeout" type="number" min="5" max="120">
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">Temperature（0-2，建议 0.2）</div>
+        <input class="setting-input" id="cfgLlmTemp" type="number" min="0" max="2" step="0.1">
+      </div>
+    </div>
+    <button class="save-btn" onclick="saveAgentConfig()" style="margin-top:0">保存 Agent 配置</button>
+    <div class="save-msg notice-msg" id="agentSaveMsg"></div>
   </div>
 
   <!-- Log -->
@@ -407,6 +508,31 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
         <div class="detail-body">
           <div class="detail-body-label">通知内容</div>
           <div class="detail-body-content" id="detailContent"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agent -->
+  <div class="pane" id="paneAgent">
+    <div id="agentDisabled" class="agent-disabled-notice" style="display:none">
+      Agent 未启用，请前往 <a onclick="switchTab('settings')">设置页</a> 开启并填写 LLM 配置。
+    </div>
+    <div id="agentMain" class="agent-layout" style="display:none">
+      <div class="agent-messages" id="agentMessages"></div>
+      <div class="agent-bottom">
+        <div class="agent-toolbar">
+          <button class="agent-tool-btn" onclick="agentExport()" title="导出为 Markdown 文件">导出 MD</button>
+          <button class="agent-tool-btn" onclick="agentClear()">清空对话</button>
+        </div>
+        <div class="agent-input-row">
+          <div class="agent-input-wrap">
+            <textarea class="agent-input" id="agentInput" placeholder="欢迎顶刊一作来找我提问呀~" rows="1"
+              onkeydown="agentInputKeydown(event)"></textarea>
+            <button class="agent-input-resize" type="button" title="向上拖动调整输入框高度" aria-label="向上拖动调整输入框高度"></button>
+          </div>
+          <button class="agent-send-btn" id="agentSendBtn" onclick="agentSend()">发送</button>
+          <button class="agent-interrupt-btn" id="agentInterruptBtn" onclick="agentInterrupt()" style="display:none">停止</button>
         </div>
       </div>
     </div>
@@ -558,7 +684,8 @@ function startApp() {
 
 function switchTab(name) {
   _currentTab = name;
-  const TABS = ['gpu', 'pids', 'settings', 'log'];
+  $('app').classList.toggle('agent-active', name === 'agent');
+  const TABS = ['gpu', 'pids', 'settings', 'log', 'agent'];
   document.querySelectorAll('.tab').forEach((el, i) => {
     el.classList.toggle('active', TABS[i] === name);
   });
@@ -568,9 +695,24 @@ function switchTab(name) {
   });
   if (name === 'gpu' || name === 'pids') fetchState();
   if (name === 'pids') loadPids();
-  if (name === 'settings') loadSettings();
+  if (name === 'settings') { loadSettings(); loadAgentConfig(); }
   if (name === 'log') { loadLog(); loadArchives(); }
+  if (name === 'agent') {
+    window.scrollTo({top: 0, left: 0, behavior: 'auto'});
+    updateAgentPaneHeight();
+    requestAnimationFrame(updateAgentPaneHeight);
+    loadAgentConfig();
+  }
 }
+
+function updateAgentPaneHeight() {
+  if (_currentTab !== 'agent') return;
+  const pane = $('paneAgent');
+  const top = pane.getBoundingClientRect().top;
+  pane.style.setProperty('--agent-pane-height', Math.max(320, window.innerHeight - top) + 'px');
+}
+
+window.addEventListener('resize', updateAgentPaneHeight);
 
 // ── State ────────────────────────────────────────────────
 
@@ -603,6 +745,7 @@ function updateStatusBanner(data) {
   const badge = $('statusBadge');
   badge.textContent = running ? '● 运行中' : '● 未运行';
   badge.className = 'status-badge' + (running ? '' : ' offline');
+  updateAgentPaneHeight();
 }
 
 function renderGpu(data) {
@@ -1186,6 +1329,298 @@ function memBadgeStyle(pct) {
   if (pct >= 60) return 'background:#fef3c7;color:#d97706';
   return 'background:#dcfce7;color:#16a34a';
 }
+
+// ── Agent ─────────────────────────────────────────────────
+
+let _agentSessionId = null;
+let _agentBusy = false;
+let _agentAbortCtrl = null;
+let _agentHistory = []; // [{role, content, tool_trace?}] for export
+
+function _agentEnsureSession() {
+  if (!_agentSessionId) {
+    _agentSessionId = 'sess_' + Math.random().toString(36).slice(2) + Date.now();
+  }
+  return _agentSessionId;
+}
+
+async function loadAgentConfig() {
+  try {
+    const r = await api('/api/agent/config');
+    if (!r.ok) return;
+    const cfg = await r.json();
+    $('cfgAgentEnabled').checked = !!cfg.agent_enabled;
+    $('cfgLlmBaseUrl').value = cfg.llm_base_url || '';
+    $('cfgLlmApiKey').value = cfg.llm_api_key || '';
+    $('cfgLlmModel').value = cfg.llm_model || '';
+    $('cfgLlmMaxIter').value = cfg.llm_max_iterations ?? 8;
+    $('cfgLlmTimeout').value = cfg.llm_request_timeout ?? 30;
+    $('cfgLlmTemp').value = cfg.llm_temperature ?? 0.2;
+
+    $('agentDisabled').style.display = cfg.agent_enabled ? 'none' : '';
+    $('agentMain').style.display = cfg.agent_enabled ? '' : 'none';
+  } catch(e) {}
+}
+
+async function saveAgentConfig() {
+  const body = {
+    agent_enabled: $('cfgAgentEnabled').checked,
+    llm_base_url: $('cfgLlmBaseUrl').value.trim(),
+    llm_api_key: $('cfgLlmApiKey').value.trim(),
+    llm_model: $('cfgLlmModel').value.trim(),
+    llm_max_iterations: parseInt($('cfgLlmMaxIter').value) || 8,
+    llm_request_timeout: parseInt($('cfgLlmTimeout').value) || 30,
+    llm_temperature: parseFloat($('cfgLlmTemp').value) || 0.2,
+  };
+  try {
+    const r = await api('/api/agent/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    showMessage('agentSaveMsg', d.ok ? 'Agent 配置已保存' : (d.error || '保存失败'), d.ok ? 'success' : 'error');
+    setTimeout(() => showMessage('agentSaveMsg', ''), 3000);
+    await loadAgentConfig();
+  } catch(e) {
+    showMessage('agentSaveMsg', '保存失败：' + e.message, 'error');
+  }
+}
+
+function _agentAppendMsg(role, content, toolTrace, pendingActions) {
+  // record for export
+  if (role === 'user' || role === 'assistant') {
+    _agentHistory.push({role, content, tool_trace: toolTrace || []});
+  }
+  const wrap = $('agentMessages');
+  const div = document.createElement('div');
+  if (role === 'user') {
+    div.className = 'msg-user';
+    div.textContent = content;
+  } else if (role === 'error') {
+    div.className = 'msg-error';
+    div.textContent = '⚠ ' + content;
+  } else {
+    div.className = 'msg-assistant';
+    div.textContent = content;
+    if (toolTrace && toolTrace.length) {
+      const traceWrap = document.createElement('div');
+      traceWrap.className = 'tool-trace';
+      const toggle = document.createElement('div');
+      toggle.className = 'tool-trace-toggle';
+      toggle.textContent = `▸ 调用了 ${toolTrace.length} 个工具`;
+      const steps = document.createElement('div');
+      steps.style.display = 'none';
+      toolTrace.forEach(t => {
+        const s = document.createElement('div');
+        s.className = 'tool-step ' + (t.ok ? 'ok' : 'fail');
+        s.textContent = `${t.name}(${JSON.stringify(t.args)}) → ${t.summary}`;
+        steps.appendChild(s);
+      });
+      toggle.onclick = () => {
+        const open = steps.style.display !== 'none';
+        steps.style.display = open ? 'none' : '';
+        toggle.textContent = (open ? '▸' : '▾') + ` 调用了 ${toolTrace.length} 个工具`;
+      };
+      traceWrap.appendChild(toggle);
+      traceWrap.appendChild(steps);
+      div.appendChild(traceWrap);
+    }
+    if (pendingActions && pendingActions.length) {
+      const card = document.createElement('div');
+      card.className = 'pending-card';
+      card.id = 'pending_' + _agentSessionId;
+      card.innerHTML = `<div class="pending-card-title">⏳ 待确认操作（${pendingActions.length} 项）</div>`;
+      pendingActions.forEach(a => {
+        const row = document.createElement('div');
+        row.className = 'pending-action-item';
+        const label = a.action === 'add_watch_pid'
+          ? `添加监控 <code>PID ${a.pid}</code>${a.note ? ' · ' + escHtml(a.note) : ''}`
+          : `移除监控 <code>PID ${a.pid}</code>`;
+        row.innerHTML = `<span class="pending-action-label">${label}</span><span class="pending-action-badge">${a.action}</span>`;
+        card.appendChild(row);
+      });
+      const bar = document.createElement('div');
+      bar.className = 'pending-actions-bar';
+      const confirmBtn = document.createElement('button');
+      confirmBtn.className = 'confirm-btn';
+      confirmBtn.textContent = '全部确认执行';
+      confirmBtn.onclick = () => agentConfirm(pendingActions.map(a => a.id), [], card);
+      const rejectBtn = document.createElement('button');
+      rejectBtn.className = 'reject-btn';
+      rejectBtn.textContent = '全部忽略';
+      rejectBtn.onclick = () => agentConfirm([], pendingActions.map(a => a.id), card);
+      bar.appendChild(confirmBtn);
+      bar.appendChild(rejectBtn);
+      card.appendChild(bar);
+      div.appendChild(card);
+    }
+  }
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function _agentShowThinking() {
+  const wrap = $('agentMessages');
+  const div = document.createElement('div');
+  div.className = 'msg-thinking';
+  div.id = 'agentThinking';
+  div.innerHTML = '思考中 <div class="thinking-dots"><span></span><span></span><span></span></div>';
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+  $('agentSendBtn').style.display = 'none';
+  $('agentInterruptBtn').style.display = '';
+}
+
+function _agentRemoveThinking() {
+  const el = $('agentThinking');
+  if (el) el.remove();
+  $('agentSendBtn').style.display = '';
+  $('agentInterruptBtn').style.display = 'none';
+}
+
+async function agentSend() {
+  if (_agentBusy) return;
+  const input = $('agentInput');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  input.style.height = '';
+  _agentEnsureSession();
+  _agentAppendMsg('user', msg);
+  _agentBusy = true;
+  $('agentSendBtn').disabled = true;
+  _agentAbortCtrl = new AbortController();
+  _agentShowThinking();
+  try {
+    const r = await api('/api/agent/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session_id: _agentSessionId, message: msg}),
+      signal: _agentAbortCtrl.signal,
+    });
+    _agentRemoveThinking();
+    const d = await r.json();
+    if (d.ok) {
+      _agentAppendMsg('assistant', d.reply, d.tool_trace, d.pending_actions);
+    } else {
+      _agentAppendMsg('error', d.error || '请求失败');
+    }
+  } catch(e) {
+    _agentRemoveThinking();
+    if (e.name === 'AbortError') {
+      _agentAppendMsg('error', '已中断');
+    } else {
+      _agentAppendMsg('error', '网络错误：' + e.message);
+    }
+  } finally {
+    _agentBusy = false;
+    _agentAbortCtrl = null;
+    $('agentSendBtn').disabled = false;
+    $('agentInput').focus();
+  }
+}
+
+function agentInterrupt() {
+  if (_agentAbortCtrl) {
+    _agentAbortCtrl.abort();
+  }
+}
+
+async function agentConfirm(approved, rejected, cardEl) {
+  try {
+    const r = await api('/api/agent/confirm', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session_id: _agentSessionId, approved, rejected}),
+    });
+    const d = await r.json();
+    if (cardEl) {
+      const succeeded = d.executed?.filter(e => e.ok).length || 0;
+      cardEl.innerHTML = `<div style="color:#16a34a;font-size:13px">✓ 已执行 ${succeeded} 项操作${rejected.length ? '，' + rejected.length + ' 项已忽略' : ''}</div>`;
+    }
+    if (d.executed?.some(e => e.ok)) fetchState();
+  } catch(e) {
+    showToast('确认失败：' + e.message, false);
+  }
+}
+
+async function agentClear() {
+  if (_agentSessionId) {
+    await api(`/api/agent/session/${_agentSessionId}`, {method: 'DELETE'});
+  }
+  _agentSessionId = null;
+  _agentHistory = [];
+  $('agentMessages').innerHTML = '';
+}
+
+function agentExport() {
+  if (!_agentHistory.length) { showToast('暂无对话内容', false); return; }
+  const lines = [`# Agent 对话记录`, ``, `> 导出时间：${new Date().toLocaleString('zh-CN')}`, ``];
+  _agentHistory.forEach(m => {
+    if (m.role === 'user') {
+      lines.push(`**用户**\n\n${m.content}`, ``);
+    } else {
+      lines.push(`**助手**\n\n${m.content}`);
+      if (m.tool_trace && m.tool_trace.length) {
+        lines.push(``, `<details><summary>工具调用（${m.tool_trace.length} 步）</summary>`, ``);
+        m.tool_trace.forEach(t => {
+          lines.push(`- \`${t.name}(${JSON.stringify(t.args)})\` → ${t.summary}`);
+        });
+        lines.push(``, `</details>`);
+      }
+      lines.push(``);
+    }
+  });
+  const blob = new Blob([lines.join('\n')], {type: 'text/markdown;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `agent-chat-${new Date().toISOString().slice(0,10)}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function agentInputKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    agentSend();
+  }
+}
+
+function initAgentInputResize() {
+  const handle = document.querySelector('.agent-input-resize');
+  const input = $('agentInput');
+  if (!handle || !input || handle.dataset.bound) return;
+  handle.dataset.bound = '1';
+
+  handle.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    const startY = e.clientY;
+    const startHeight = input.offsetHeight;
+
+    const onMove = ev => {
+      const minHeight = 42;
+      const maxHeight = Math.max(180, Math.floor(window.innerHeight * 0.45));
+      const nextHeight = Math.max(minHeight, Math.min(maxHeight, startHeight + startY - ev.clientY));
+      input.style.height = nextHeight + 'px';
+    };
+    const onUp = ev => {
+      handle.releasePointerCapture(ev.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onUp);
+    };
+
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onUp);
+  });
+}
+
+initAgentInputResize();
+
 </script>
 </body>
 </html>

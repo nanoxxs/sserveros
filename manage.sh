@@ -65,6 +65,7 @@ find_python_bin() {
     missing=""
     "${candidate}" -c "import werkzeug.security" >/dev/null 2>&1 || missing="${missing} flask"
     "${candidate}" -c "import psutil"            >/dev/null 2>&1 || missing="${missing} psutil"
+    "${candidate}" -c "import httpx"             >/dev/null 2>&1 || missing="${missing} 'httpx[socks]' 'httpcore[socks]'"
     if [ -z "${missing}" ]; then
       PYTHON_BIN="${candidate}"
       return 0
@@ -789,6 +790,7 @@ update_from_zip() {
     webui.html
     config_bootstrap.py
     storage.py
+    agent
     README.md
     CONFIG.md
     ARCHITECTURE.md
