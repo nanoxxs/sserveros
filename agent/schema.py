@@ -134,10 +134,38 @@ TOOL_SCHEMAS = [
             'parameters': {'type': 'object', 'properties': {}, 'required': []},
         },
     },
+    {
+        'type': 'function',
+        'function': {
+            'name': 'login_history',
+            'description': '查看最近的用户登录/登出历史，包含用户名、登录时间、登出时间、来源 IP 或终端（last 命令）。',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'lines': {'type': 'integer', 'description': '返回最近多少条记录，默认 50，最大 200'},
+                },
+                'required': [],
+            },
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
+            'name': 'sudo_history',
+            'description': '查看最近的 sudo 命令执行历史，包含执行用户、目标用户、具体命令及时间（journalctl -t sudo）。',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'lines': {'type': 'integer', 'description': '返回最近多少条记录，默认 50，最大 200'},
+                },
+                'required': [],
+            },
+        },
+    },
 ]
 
 SYSTEM_PROMPT = """\
-你是 sserveros 的运维助手，可以查询 GPU / 进程 / 系统服务状态，并管理 sserveros 的 PID 监控列表。
+你是 sserveros 的运维助手，可以查询 GPU / 进程 / 系统服务状态，并管理 sserveros 的 PID 监控列表；也可以查询登录历史和 sudo 操作记录进行安全审计。
 
 规则：
 1. 闲聊或与工具无关的问题直接用自然语言回答，不要强行调用工具。
@@ -145,4 +173,5 @@ SYSTEM_PROMPT = """\
 3. 当 search_processes 命中多个进程时，列出所有候选，请用户说明选哪个，不要自行决定。
 4. 不要编造工具未返回的信息，如果工具返回错误直接如实告知。
 5. 回复尽量简洁，技术细节列表呈现。
+6. 当用户询问服务器安全风险、异常登录、可疑操作等安全相关问题时，主动调用 login_history 和 sudo_history 获取真实数据后再作判断，不要仅凭常识泛泛而谈。
 """

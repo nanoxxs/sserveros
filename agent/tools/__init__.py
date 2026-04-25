@@ -12,6 +12,8 @@ from agent.tools.system import (
     port_listen,
     disk_usage,
     system_info,
+    login_history,
+    sudo_history,
 )
 
 # read_only: execute immediately in the agent loop
@@ -26,6 +28,8 @@ READ_ONLY_TOOLS = {
     'port_listen': port_listen,
     'disk_usage': disk_usage,
     'system_info': system_info,
+    'login_history': login_history,
+    'sudo_history': sudo_history,
 }
 
 WRITE_TOOLS = {

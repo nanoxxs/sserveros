@@ -106,3 +106,28 @@ def system_info() -> dict:
         }
     except Exception as e:
         return {'ok': False, 'error': str(e)}
+
+
+_LOGIN_HISTORY_MAX_LINES = 200
+_SUDO_HISTORY_MAX_LINES = 200
+
+
+def login_history(lines: int = 50) -> dict:
+    """Fetch recent login/logout history via `last -n <lines> -F`."""
+    if not isinstance(lines, int) or lines < 1:
+        lines = 50
+    lines = min(lines, _LOGIN_HISTORY_MAX_LINES)
+    result = run_safe(['last', '-n', str(lines), '-F'])
+    return {**result, 'lines': lines}
+
+
+def sudo_history(lines: int = 50) -> dict:
+    """Fetch recent sudo command history via journalctl -t sudo."""
+    if not isinstance(lines, int) or lines < 1:
+        lines = 50
+    lines = min(lines, _SUDO_HISTORY_MAX_LINES)
+    result = run_safe(
+        ['journalctl', '-t', 'sudo', '--no-pager', '-n', str(lines), '--output=short-precise'],
+        timeout=15,
+    )
+    return {**result, 'lines': lines}
