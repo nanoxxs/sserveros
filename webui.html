@@ -4,9 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>sserveros</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; font-size: 15px; }
+[v-cloak] { display: none !important; }
 
 /* Login */
 .login-wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
@@ -16,12 +20,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .login-input { width: 100%; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 14px; font-size: 15px; outline: none; margin-bottom: 12px; }
 .login-input:focus { border-color: #2563eb; }
 .login-btn { width: 100%; background: #2563eb; color: #fff; border: none; border-radius: 10px; padding: 13px; font-size: 15px; font-weight: 600; cursor: pointer; }
-.login-error { color: #ef4444; font-size: 13px; margin-top: 10px; display: none; }
+.login-error { color: #ef4444; font-size: 13px; margin-top: 10px; }
 
 /* App shell */
-.app { display: none; }
-.app.agent-active .app-footer { display: none; }
-.offline-banner { background: #fee2e2; color: #b91c1c; padding: 10px 16px; font-size: 13px; font-weight: 500; text-align: center; display: none; }
+.offline-banner { background: #fee2e2; color: #b91c1c; padding: 10px 16px; font-size: 13px; font-weight: 500; text-align: center; }
 .header { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; }
 .header-title { font-weight: 700; font-size: 17px; }
 .header-host { font-size: 12px; color: #94a3b8; margin-top: 1px; }
@@ -50,7 +52,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .modal-actions { display: flex; gap: 8px; margin-top: 4px; }
 .modal-submit { flex: 1; background: #2563eb; color: #fff; border: none; border-radius: 10px; padding: 11px; font-size: 14px; font-weight: 600; cursor: pointer; }
 .modal-cancel { background: none; color: #64748b; border: 1px solid #e2e8f0; border-radius: 10px; padding: 11px 16px; font-size: 14px; cursor: pointer; }
-.modal-msg { font-size: 13px; margin-top: 8px; display: none; }
+.modal-msg { font-size: 13px; margin-top: 8px; }
 
 /* Tabs */
 .tabs { background: #fff; border-bottom: 1px solid #e2e8f0; display: flex; overflow-x: auto; }
@@ -158,8 +160,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .add-channel-btn:hover { border-color: #2563eb; color: #2563eb; }
 .env-channel-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .env-channel-item { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; background: #f8fafc; font-size: 13px; color: #334155; }
-.save-msg { text-align: center; font-size: 13px; color: #16a34a; margin-top: 8px; display: none; }
-.notice-msg { font-size: 13px; margin-top: 10px; display: none; text-align: center; }
+.notice-msg { font-size: 13px; margin-top: 10px; text-align: center; }
 .notice-msg.success { color: #16a34a; }
 .notice-msg.warn { color: #d97706; }
 .notice-msg.error { color: #ef4444; }
@@ -204,19 +205,18 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .detail-body-content { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 13px; color: #334155; line-height: 1.6; white-space: pre; font-family: monospace; max-height: 50vh; overflow-x: auto; overflow-y: auto; }
 
 /* Agent */
-#paneAgent { padding: 0 !important; gap: 0 !important; height: var(--agent-pane-height, calc(100dvh - 94px)); overflow: hidden; }
-@supports not (height: 100dvh) { #paneAgent { height: var(--agent-pane-height, calc(100vh - 94px)); } }
+#paneAgent { padding: 0 !important; gap: 0 !important; overflow: hidden; }
 #paneAgent.active { display: flex; flex-direction: column; }
-.agent-layout { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #fff; min-height: 0; }
 @media (min-width: 640px) {
   #paneAgent { padding: 12px !important; max-width: 900px; margin: 0 auto; width: 100%; }
   .agent-layout { border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
 }
+.agent-layout { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #fff; min-height: 0; }
 .agent-messages { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; -webkit-overflow-scrolling: touch; min-height: 0; }
 .msg-user { align-self: flex-end; background: #2563eb; color: #fff; border-radius: 14px 14px 4px 14px; padding: 10px 14px; max-width: 82%; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-.msg-assistant { align-self: flex-start; background: #f1f5f9; color: #1e293b; border-radius: 4px 14px 14px 14px; padding: 10px 14px; max-width: 92%; font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.msg-assistant { align-self: flex-start; background: #f1f5f9; color: #1e293b; border-radius: 4px 14px 14px 14px; padding: 10px 14px; max-width: 92%; font-size: 14px; line-height: 1.6; word-break: break-word; }
 .msg-error { align-self: flex-start; background: #fee2e2; color: #b91c1c; border-radius: 4px 14px 14px 14px; padding: 10px 14px; max-width: 92%; font-size: 13px; }
-.msg-thinking { align-self: flex-start; color: #94a3b8; font-size: 13px; padding: 4px 2px; display: flex; align-items: center; gap: 8px; }
+.msg-thinking { display: flex; align-items: center; gap: 8px; color: #94a3b8; font-size: 13px; }
 .thinking-dots { display: flex; gap: 4px; }
 .thinking-dots span { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #cbd5e1; animation: tdot 1.2s infinite; }
 .thinking-dots span:nth-child(2) { animation-delay: .2s; }
@@ -248,7 +248,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .agent-input:focus { border-color: #2563eb; }
 .agent-input-resize { position: absolute; top: 3px; right: 3px; width: 24px; height: 22px; border: none; border-radius: 8px; background: transparent; cursor: ns-resize; touch-action: none; }
 .agent-input-resize::before { content: ''; position: absolute; top: 5px; right: 5px; width: 12px; height: 12px; background: repeating-linear-gradient(45deg, transparent 0 3px, #94a3b8 3px 4px); opacity: .9; }
-.agent-input-resize:hover { background: #f1f5f9; color: #2563eb; }
+.agent-input-resize:hover { background: #f1f5f9; }
 .agent-input-resize:hover::before { background: repeating-linear-gradient(45deg, transparent 0 3px, #2563eb 3px 4px); }
 .agent-send-btn { background: #2563eb; color: #fff; border: none; border-radius: 10px; padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; height: 42px; }
 .agent-interrupt-btn { background: #ef4444; color: #fff; border: none; border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; height: 42px; }
@@ -260,115 +260,254 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 }
 .agent-disabled-notice { text-align: center; padding: 60px 20px; color: #94a3b8; font-size: 14px; }
 .agent-disabled-notice a { color: #2563eb; cursor: pointer; text-decoration: underline; }
+.streaming-cursor { display: inline-block; width: 2px; height: 14px; background: #2563eb; margin-left: 2px; vertical-align: text-bottom; animation: blink-cursor 1s step-end infinite; }
+@keyframes blink-cursor { 0%,100%{opacity:1} 50%{opacity:0} }
 
 /* Archive */
 .archive-row { padding: 12px 16px; border-bottom: 1px solid #f8fafc; display: flex; justify-content: space-between; align-items: center; }
 .archive-row:last-child { border-bottom: none; }
 .dl-btn { font-size: 12px; color: #2563eb; background: none; border: 1px solid #dbeafe; border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+
+/* Markdown inside agent messages */
+.md-body { white-space: normal; }
+.md-body > *:first-child { margin-top: 0; }
+.md-body > *:last-child { margin-bottom: 0; }
+.md-body h1,.md-body h2,.md-body h3,.md-body h4 { font-weight: 600; margin: 10px 0 4px; line-height: 1.3; }
+.md-body h1 { font-size: 16px; }
+.md-body h2 { font-size: 15px; }
+.md-body h3,.md-body h4 { font-size: 14px; }
+.md-body p { margin: 4px 0; }
+.md-body ul,.md-body ol { padding-left: 18px; margin: 4px 0; }
+.md-body li { margin: 2px 0; }
+.md-body code { background: rgba(0,0,0,0.07); border-radius: 4px; padding: 1px 5px; font-family: monospace; font-size: 12px; }
+.md-body pre { background: rgba(0,0,0,0.06); border-radius: 8px; padding: 10px 12px; overflow-x: auto; margin: 6px 0; }
+.md-body pre code { background: none; padding: 0; }
+.md-body blockquote { border-left: 3px solid #2563eb; padding-left: 10px; margin: 4px 0; color: #64748b; font-style: italic; }
+.md-body table { border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 13px; }
+.md-body th,.md-body td { border: 1px solid #e2e8f0; padding: 6px 10px; text-align: left; }
+.md-body th { background: #f8fafc; font-weight: 600; }
+.md-body a { color: #2563eb; text-decoration: underline; }
+.md-body strong { font-weight: 600; }
+.md-body em { font-style: italic; }
+.md-body hr { border: none; border-top: 1px solid #e2e8f0; margin: 8px 0; }
 </style>
 </head>
 <body>
+<div id="app">
 
-<!-- ── Login ─────────────────────────────────────────── -->
-<div class="login-wrap" id="loginWrap" style="display:none">
+<!-- ── Login ─────────────────────────────────────── -->
+<div class="login-wrap" v-if="!isLoggedIn">
   <div class="login-card">
     <div class="login-title">sserveros</div>
     <div class="login-sub">请输入访问密码</div>
-    <input class="login-input" type="password" id="loginPwd" placeholder="密码"
-           onkeydown="if(event.key==='Enter')doLogin()">
-    <button class="login-btn" onclick="doLogin()">登录</button>
-    <div class="login-error" id="loginErr">密码错误，请重试</div>
+    <input class="login-input" type="password" v-model="loginPwd" placeholder="密码"
+           @keydown.enter="doLogin">
+    <button class="login-btn" @click="doLogin">登录</button>
+    <div class="login-error" v-if="loginError" v-cloak>密码错误，请重试</div>
   </div>
 </div>
 
-<!-- ── App ───────────────────────────────────────────── -->
-<div class="app" id="app">
-  <div class="offline-banner" id="offlineBanner">⚠ 监控脚本未运行</div>
+<!-- ── App ───────────────────────────────────────── -->
+<template v-else>
+  <div class="offline-banner" v-if="!monitorRunning">⚠ 监控脚本未运行</div>
 
   <div class="header">
     <div>
       <div class="header-title">sserveros</div>
-      <div class="header-host" id="headerHost"></div>
+      <div class="header-host">机器: {{ hostname }}</div>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
-      <span class="status-badge" id="statusBadge">● 运行中</span>
-      <div class="dropdown" id="headerDropdown">
-        <button class="menu-btn" onclick="toggleDropdown()" title="操作菜单">⚙</button>
-        <div class="dropdown-menu" id="headerMenu">
-          <button class="dropdown-item" onclick="closeDropdown();openPwdModal()">🔑 修改密码</button>
-          <button class="dropdown-item" onclick="closeDropdown();sendTestNotify()" id="testNotifyBtn">🔔 测试通知</button>
-          <button class="dropdown-item danger" onclick="closeDropdown();doLogout()">退出登录</button>
+      <span class="status-badge" :class="{offline: !monitorRunning}">
+        {{ monitorRunning ? '● 运行中' : '● 未运行' }}
+      </span>
+      <div class="dropdown" ref="headerDropdown">
+        <button class="menu-btn" @click="dropdownOpen = !dropdownOpen" title="操作菜单">⚙</button>
+        <div class="dropdown-menu" :class="{open: dropdownOpen}">
+          <button class="dropdown-item" @click="dropdownOpen=false; pwdModalOpen=true">🔑 修改密码</button>
+          <button class="dropdown-item" @click="dropdownOpen=false; sendTestNotify()">🔔 测试通知</button>
+          <button class="dropdown-item danger" @click="dropdownOpen=false; doLogout()">退出登录</button>
         </div>
       </div>
     </div>
   </div>
 
   <div class="tabs">
-    <div class="tab active" onclick="switchTab('gpu')">概览</div>
-    <div class="tab" onclick="switchTab('pids')">PIDs</div>
-    <div class="tab" onclick="switchTab('settings')">设置</div>
-    <div class="tab" onclick="switchTab('log')">日志</div>
-    <div class="tab" onclick="switchTab('agent')">Agent</div>
+    <div v-for="t in tabs" :key="t.id" class="tab" :class="{active: currentTab === t.id}"
+         @click="switchTab(t.id)">{{ t.label }}</div>
   </div>
 
-  <!-- GPU -->
-  <div class="pane active" id="paneGpu">
-    <div id="gpuListView">
-      <div class="sysinfo-grid" id="sysinfoGrid">
-        <div class="sysinfo-card"><div class="sysinfo-label">CPU</div><div class="sysinfo-value" id="siCpuVal">—</div><div class="bar-bg"><div class="bar-fill" id="siCpuBar" style="width:0%"></div></div></div>
-        <div class="sysinfo-card"><div class="sysinfo-label">内存</div><div class="sysinfo-value" id="siRamVal">—</div><div class="bar-bg"><div class="bar-fill" id="siRamBar" style="width:0%"></div></div><div class="sysinfo-sub" id="siRamSub"></div></div>
-        <div class="sysinfo-card sysinfo-card-link" onclick="showDiskDetail()"><div class="sysinfo-label">磁盘</div><div class="sysinfo-value" id="siDiskVal">—</div><div class="bar-bg"><div class="bar-fill" id="siDiskBar" style="width:0%"></div></div><div class="sysinfo-sub" id="siDiskSub"></div><div style="font-size:11px;color:#94a3b8;margin-top:6px">点击查看各分区 ›</div></div>
+  <!-- ── GPU pane ── -->
+  <div class="pane" :class="{active: currentTab === 'gpu'}" id="paneGpu">
+    <!-- GPU list -->
+    <template v-if="gpuView === 'list'">
+      <div class="sysinfo-grid">
+        <div class="sysinfo-card">
+          <div class="sysinfo-label">CPU</div>
+          <div class="sysinfo-value">{{ cpuPct != null ? cpuPct.toFixed(1) + '%' : '—' }}</div>
+          <div class="bar-bg"><div class="bar-fill" :style="{width: (cpuPct||0)+'%', background: barColor(cpuPct||0)}"></div></div>
+        </div>
+        <div class="sysinfo-card">
+          <div class="sysinfo-label">内存</div>
+          <div class="sysinfo-value">{{ ramDisplay }}</div>
+          <div class="bar-bg"><div class="bar-fill" :style="{width: ramPct+'%', background: barColor(ramPct)}"></div></div>
+          <div class="sysinfo-sub">{{ ramTotalMib ? ramPct + '%' : '' }}</div>
+        </div>
+        <div class="sysinfo-card sysinfo-card-link" @click="showDiskDetail()">
+          <div class="sysinfo-label">磁盘</div>
+          <div class="sysinfo-value">{{ diskDisplay }}</div>
+          <div class="bar-bg"><div class="bar-fill" :style="{width: (diskPct||0)+'%', background: barColor(diskPct||0)}"></div></div>
+          <div class="sysinfo-sub">{{ diskTotalGb ? (diskPct||0).toFixed(1) + '%' : '' }}</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:6px">点击查看各分区 ›</div>
+        </div>
       </div>
       <div class="sysinfo-section-title">GPU</div>
-      <div class="gpu-grid" id="gpuGrid"></div>
-      <div class="refresh-hint">每 5 秒自动刷新 · 点击卡片查看进程详情</div>
-    </div>
-    <div id="gpuDetailView" style="display:none">
-      <div class="card">
-        <div class="detail-header">
-          <button class="back-btn" onclick="showGpuList()">← 返回</button>
-          <span class="detail-title-text" id="gpuDetailTitle"></span>
-          <button class="back-btn" onclick="refreshGpuDetail()" style="margin-left:auto">刷新</button>
+      <div class="gpu-grid" v-if="gpus.length">
+        <div v-for="gpu in gpus" :key="gpu.index" class="gpu-card" @click="showGpuDetail(gpu.index)">
+          <div class="gpu-top">
+            <div>
+              <span class="gpu-name">GPU {{ gpu.index }}</span>
+              <span class="gpu-model">{{ gpu.name }}</span>
+            </div>
+            <span class="gpu-pct" :style="gpuBadgeStyle(gpuMemPct(gpu))">{{ gpuMemPct(gpu) }}%</span>
+          </div>
+          <div class="bar-bg"><div class="bar-fill" :style="{width: gpuMemPct(gpu)+'%', background: barColor(gpuMemPct(gpu))}"></div></div>
+          <div class="gpu-meta">
+            <span>{{ gpu.mem_used }} / {{ gpu.mem_total }} MiB</span>
+            <span>主PID: <b>{{ gpu.top_pid || '—' }}</b></span>
+          </div>
+          <div class="gpu-cmd" :title="gpu.top_cmd || ''">{{ gpu.top_cmd || '' }}</div>
         </div>
-        <div class="gpu-stat-row" id="gpuDetailStats"></div>
-        <div id="gpuDetailProcs"></div>
       </div>
-    </div>
-    <div id="diskDetailView" style="display:none">
+      <p v-else style="color:#94a3b8;padding:16px;font-size:14px">暂无 GPU 数据</p>
+      <div class="refresh-hint">每 5 秒自动刷新 · 点击卡片查看进程详情</div>
+    </template>
+
+    <!-- GPU detail -->
+    <template v-else-if="gpuView === 'detail'">
       <div class="card">
         <div class="detail-header">
-          <button class="back-btn" onclick="showDiskList()">← 返回</button>
+          <button class="back-btn" @click="gpuView='list'">← 返回</button>
+          <span class="detail-title-text" id="gpuDetailTitle">
+            GPU {{ currentGpuIndex }}{{ gpuDetail && gpuDetail.gpu_name ? ' — ' + gpuDetail.gpu_name : '' }}
+          </span>
+          <button class="back-btn" @click="loadGpuDetail(currentGpuIndex)" style="margin-left:auto">刷新</button>
+        </div>
+        <div v-if="gpuDetailLoading" class="gpu-stat-row">
+          <span style="color:#94a3b8;font-size:13px">加载中…</span>
+        </div>
+        <div v-else-if="gpuDetailError" class="gpu-stat-row">
+          <span style="color:#ef4444;font-size:13px">{{ gpuDetailError }}</span>
+        </div>
+        <template v-else-if="gpuDetail">
+          <div class="gpu-stat-row">
+            <div v-for="s in gpuDetailStats" :key="s.label" class="gpu-stat">
+              <div class="gpu-stat-label">{{ s.label }}</div>
+              <div class="gpu-stat-value">{{ s.value }}</div>
+            </div>
+          </div>
+          <div v-if="!gpuDetail.processes || !gpuDetail.processes.length"
+               style="padding:16px;color:#94a3b8;font-size:14px">当前无 Compute 进程</div>
+          <div v-else class="proc-table-wrap">
+            <table class="proc-table">
+              <thead><tr>
+                <th>PID</th><th>显存 (MiB)</th><th>用户</th><th>启动时间</th><th>命令</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="p in gpuDetailProcessesSorted" :key="p.pid">
+                  <td data-label="PID" class="proc-pid-cell">
+                    {{ p.pid }}
+                    <span :style="p.type==='C' ? 'background:#dbeafe;color:#2563eb' : 'background:#f1f5f9;color:#64748b'"
+                          style="font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;margin-left:5px;vertical-align:middle;">
+                      {{ p.type || '?' }}
+                    </span>
+                  </td>
+                  <td data-label="显存" class="proc-mem-cell">{{ p.mem_mib }} MiB</td>
+                  <td data-label="用户" style="white-space:nowrap;color:#475569">{{ p.user || '—' }}</td>
+                  <td data-label="启动" style="white-space:nowrap;color:#64748b;font-size:12px">{{ fmtStartTime(p.start_time) }}</td>
+                  <td data-label="命令" class="proc-cmd-cell">{{ p.cmd || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <!-- Disk detail -->
+    <template v-else-if="gpuView === 'disk'">
+      <div class="card">
+        <div class="detail-header">
+          <button class="back-btn" @click="gpuView='list'">← 返回</button>
           <span class="detail-title-text">磁盘分区详情</span>
         </div>
-        <div id="diskDetailBody"></div>
+        <div v-if="!diskData.length" style="padding:16px;color:#94a3b8;font-size:14px">无磁盘数据</div>
+        <template v-else>
+          <div v-for="d in diskData" :key="d.mountpoint"
+               style="padding:14px 16px;border-bottom:1px solid #f8fafc">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <div>
+                <span style="font-weight:600;font-size:15px">{{ d.mountpoint }}</span>
+                <span :style="diskTypeStyle(d.disk_type)"
+                      style="font-size:11px;padding:2px 7px;border-radius:8px;font-weight:600;margin-left:8px;">
+                  {{ d.disk_type }}
+                </span>
+              </div>
+              <span style="font-size:13px;color:#64748b">{{ (d.pct||0).toFixed(1) }}%</span>
+            </div>
+            <div class="bar-bg" style="margin-bottom:6px">
+              <div class="bar-fill" :style="{width: (d.pct||0)+'%', background: barColor(d.pct||0)}"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:#94a3b8">
+              <span>{{ d.device }} · {{ d.fstype }}</span>
+              <span>{{ d.used_gb }} / {{ d.total_gb }} GB</span>
+            </div>
+          </div>
+        </template>
       </div>
-    </div>
+    </template>
   </div>
 
-  <!-- PIDs -->
-  <div class="pane" id="panePids">
+  <!-- ── PIDs pane ── -->
+  <div class="pane" :class="{active: currentTab === 'pids'}" id="panePids">
     <div class="card">
       <div class="card-header">
         <span>监控 PID 列表</span>
         <div style="display:flex;align-items:center;gap:10px">
-          <span style="font-size:13px;color:#94a3b8;font-weight:400" id="pidCount"></span>
-          <button class="back-btn" onclick="clearDeadPids()" id="clearDeadBtn" style="display:none;color:#ef4444;border-color:#fecaca">清除已死</button>
+          <span style="font-size:13px;color:#94a3b8;font-weight:400">{{ pidData.length }} 个</span>
+          <button v-if="deadPidCount > 0" class="back-btn"
+                  style="color:#ef4444;border-color:#fecaca"
+                  @click="clearDeadPids()">清除已死 ({{ deadPidCount }})</button>
         </div>
       </div>
-      <div id="pidList"></div>
-      <div class="add-row">
-        <input class="add-input" id="addPidInput" placeholder="PID 号" type="number" style="max-width:110px"
-               onkeydown="if(event.key==='Enter')addPid()">
-        <input class="add-input" id="addNoteInput" placeholder="备注（可选）"
-               onkeydown="if(event.key==='Enter')addPid()">
-        <button class="add-btn" onclick="addPid()">添加</button>
+      <div v-if="!pidData.length" style="padding:16px;color:#94a3b8;font-size:14px">暂无监控 PID</div>
+      <div v-for="p in pidData" :key="p.pid" class="pid-row">
+        <div>
+          <div class="pid-num">
+            {{ p.pid }}
+            <span v-if="p.note" style="font-size:12px;font-weight:400;color:#64748b;margin-left:8px">{{ p.note }}</span>
+          </div>
+          <div class="pid-cmd" :title="p.cmd || ''">{{ p.cmd || '' }}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span :class="p.alive ? 'badge-alive' : 'badge-dead'">{{ p.alive ? '存活' : '已消失' }}</span>
+          <button class="del-btn" @click="removePid(p.pid)">×</button>
+        </div>
       </div>
-      <div class="notice-msg" id="pidMsg"></div>
+      <div class="add-row">
+        <input class="add-input" v-model="addPidInput" placeholder="PID 号" type="number"
+               style="max-width:110px" @keydown.enter="addPid()">
+        <input class="add-input" v-model="addNoteInput" placeholder="备注（可选）"
+               @keydown.enter="addPid()">
+        <button class="add-btn" @click="addPid()">添加</button>
+      </div>
+      <div v-if="pidMsg.text" class="notice-msg" :class="pidMsg.kind" style="margin:0 16px 14px">
+        {{ pidMsg.text }}
+      </div>
     </div>
   </div>
 
-  <!-- Settings -->
-  <div class="pane" id="paneSettings">
+  <!-- ── Settings pane ── -->
+  <div class="pane" :class="{active: currentTab === 'settings'}" id="paneSettings">
     <div class="card">
       <div class="card-header">监控参数</div>
       <div class="setting-row setting-row-toggle">
@@ -377,54 +516,61 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
           <div style="font-size:12px;color:#94a3b8">关闭后停止显存跌破/恢复阈值告警，不影响手动添加的 PID 监控</div>
         </div>
         <label class="toggle-switch" style="margin-left:16px">
-          <input type="checkbox" id="cfgMemMonitor" checked>
+          <input type="checkbox" v-model="cfgMemMonitor">
           <span class="toggle-slider"></span>
         </label>
       </div>
       <div class="setting-row">
         <div class="setting-label">显存告警阈值 (MiB)</div>
-        <input class="setting-input" id="cfgThreshold" type="number">
+        <input class="setting-input" v-model.number="cfgThreshold" type="number">
       </div>
       <div class="setting-row">
         <div class="setting-label">检测间隔 (秒)</div>
-        <input class="setting-input" id="cfgInterval" type="number">
+        <input class="setting-input" v-model.number="cfgInterval" type="number">
       </div>
       <div class="setting-row">
         <div class="setting-label">确认次数</div>
-        <input class="setting-input" id="cfgConfirm" type="number">
+        <input class="setting-input" v-model.number="cfgConfirm" type="number">
       </div>
       <div class="setting-row">
         <div class="setting-label">日志压缩触发大小 (MB)</div>
-        <input class="setting-input" id="cfgLogMb" type="number">
+        <input class="setting-input" v-model.number="cfgLogMb" type="number">
       </div>
       <div class="setting-row">
         <div class="setting-label">历史存档保留数量</div>
-        <input class="setting-input" id="cfgLogKeep" type="number">
+        <input class="setting-input" v-model.number="cfgLogKeep" type="number">
       </div>
       <div class="setting-row">
         <div class="setting-label">监控 GPU 索引（逗号分隔，留空自动检测）</div>
-        <input class="setting-input" id="cfgGpus" placeholder="例：0,1,2">
+        <input class="setting-input" v-model="cfgGpus" placeholder="例：0,1,2">
       </div>
     </div>
     <div class="card">
       <div class="card-header">通知渠道</div>
       <div class="setting-row">
         <div class="setting-label">Server Chan 密钥（每行一个，支持多个）</div>
-        <div style="font-size:12px;color:#94a3b8;margin-bottom:6px">获取地址：<a href="https://sct.ftqq.com/" target="_blank" style="color:#2563eb">sct.ftqq.com</a></div>
-        <textarea class="setting-input" id="cfgServerchanKeys" rows="3" placeholder="每行填写一个 SCTxxxxxxxx" style="resize:vertical;font-family:monospace;font-size:13px"></textarea>
+        <div style="font-size:12px;color:#94a3b8;margin-bottom:6px">
+          获取地址：<a href="https://sct.ftqq.com/" target="_blank" style="color:#2563eb">sct.ftqq.com</a>
+        </div>
+        <textarea class="setting-input" v-model="cfgServerchanKeys" rows="3"
+                  placeholder="每行填写一个 SCTxxxxxxxx"
+                  style="resize:vertical;font-family:monospace;font-size:13px"></textarea>
       </div>
       <div class="setting-row" style="border-bottom:none">
         <div class="setting-label">Bark 推送地址（支持多个，可自建服务器）</div>
-        <div id="barkList"></div>
-        <button class="add-channel-btn" onclick="addBarkRow()">+ 添加 Bark 地址</button>
+        <div v-for="(b, i) in barkConfigs" :key="i" class="bark-row">
+          <input class="setting-input bark-url" v-model="b.url" placeholder="URL（如 https://api.day.app）">
+          <input class="setting-input bark-key" v-model="b.key" placeholder="设备 Key">
+          <button class="bark-del" @click="barkConfigs.splice(i,1)" title="删除">×</button>
+        </div>
+        <button class="add-channel-btn" @click="barkConfigs.push({url:'',key:''})">+ 添加 Bark 地址</button>
       </div>
     </div>
-    <div class="notice-msg warn" id="envChannelMsg" style="display:none"></div>
-    <div class="env-channel-list" id="envChannelList" style="display:none"></div>
-    <button class="save-btn" onclick="saveSettings()">保存设置</button>
-    <div class="save-msg notice-msg" id="saveMsg"></div>
+    <div v-if="envChannelMsg.text" class="notice-msg" :class="envChannelMsg.kind" style="display:block">{{ envChannelMsg.text }}</div>
+    <button class="save-btn" @click="saveSettings()">保存设置</button>
+    <div v-if="saveMsg.text" class="notice-msg" :class="saveMsg.kind" style="display:block">{{ saveMsg.text }}</div>
 
-    <!-- Agent LLM config -->
+    <!-- Agent config -->
     <div class="card">
       <div class="card-header">Agent · LLM 配置</div>
       <div class="setting-row setting-row-toggle">
@@ -433,143 +579,229 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
           <div style="font-size:12px;color:#94a3b8">开启后「Agent」Tab 可用</div>
         </div>
         <label class="toggle-switch" style="margin-left:16px">
-          <input type="checkbox" id="cfgAgentEnabled">
+          <input type="checkbox" v-model="cfgAgentEnabled">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="setting-row setting-row-toggle">
+        <div>
+          <div class="setting-label" style="margin-bottom:2px">流式输出</div>
+          <div style="font-size:12px;color:#94a3b8">开启后回复逐字实时显示；关闭则等待完整回复后一次性显示</div>
+        </div>
+        <label class="toggle-switch" style="margin-left:16px">
+          <input type="checkbox" v-model="cfgAgentStream">
           <span class="toggle-slider"></span>
         </label>
       </div>
       <div class="setting-row">
         <div class="setting-label">API Base URL（OpenAI 兼容）</div>
-        <input class="setting-input" id="cfgLlmBaseUrl" placeholder="https://api.deepseek.com/v1">
+        <input class="setting-input" v-model="cfgLlmBaseUrl" placeholder="https://api.deepseek.com/v1">
       </div>
       <div class="setting-row">
         <div class="setting-label">API Key</div>
-        <input class="setting-input" id="cfgLlmApiKey" type="password" placeholder="sk-...（已保存的 key 显示为掩码）" autocomplete="new-password">
+        <input class="setting-input" v-model="cfgLlmApiKey" type="password"
+               placeholder="sk-...（已保存的 key 显示为掩码）" autocomplete="new-password">
       </div>
       <div class="setting-row">
         <div class="setting-label">模型名称</div>
-        <input class="setting-input" id="cfgLlmModel" placeholder="deepseek-chat">
+        <input class="setting-input" v-model="cfgLlmModel" placeholder="deepseek-chat">
       </div>
       <div class="setting-row">
         <div class="setting-label">最大工具调用轮次（1-20）</div>
-        <input class="setting-input" id="cfgLlmMaxIter" type="number" min="1" max="20">
+        <input class="setting-input" v-model.number="cfgLlmMaxIter" type="number" min="1" max="20">
       </div>
       <div class="setting-row">
         <div class="setting-label">请求超时（秒，5-120）</div>
-        <input class="setting-input" id="cfgLlmTimeout" type="number" min="5" max="120">
+        <input class="setting-input" v-model.number="cfgLlmTimeout" type="number" min="5" max="120">
       </div>
       <div class="setting-row">
         <div class="setting-label">Temperature（0-2，建议 0.2）</div>
-        <input class="setting-input" id="cfgLlmTemp" type="number" min="0" max="2" step="0.1">
+        <input class="setting-input" v-model.number="cfgLlmTemp" type="number" min="0" max="2" step="0.1">
       </div>
     </div>
-    <button class="save-btn" onclick="saveAgentConfig()" style="margin-top:0">保存 Agent 配置</button>
-    <div class="save-msg notice-msg" id="agentSaveMsg"></div>
+    <button class="save-btn" @click="saveAgentConfig()" style="margin-top:0">保存 Agent 配置</button>
+    <div v-if="agentSaveMsg.text" class="notice-msg" :class="agentSaveMsg.kind" style="display:block">{{ agentSaveMsg.text }}</div>
   </div>
 
-  <!-- Log -->
-  <div class="pane" id="paneLog">
-    <div id="logListView">
+  <!-- ── Log pane ── -->
+  <div class="pane" :class="{active: currentTab === 'log'}" id="paneLog">
+    <template v-if="logView === 'list'">
       <div class="card">
         <div class="card-header">
           <span>事件日志</span>
           <span style="font-size:13px;color:#94a3b8;font-weight:400">最近 200 条</span>
         </div>
-        <div id="logList"></div>
+        <div v-if="!logEntries.length" style="padding:16px;color:#94a3b8;font-size:14px">暂无日志</div>
+        <div v-for="(e, i) in logEntries" :key="i" class="log-row" @click="logDetailIdx=i; logView='detail'">
+          <span class="log-tag" :class="tagClass(e.type)">{{ tagLabel(e.type) }}</span>
+          <div class="log-main">
+            <div class="log-title-text">{{ e.title }}</div>
+            <div class="log-time-text">{{ e.time }}</div>
+          </div>
+          <div class="log-right">
+            <span :class="e.send_success ? 'send-ok' : 'send-fail'">
+              {{ e.send_success ? '✓ 已发送' : '✗ 失败' }}
+            </span>
+            <span class="chevron">›</span>
+          </div>
+        </div>
       </div>
       <div class="card" id="archiveCard">
         <div class="card-header">
           <span>历史存档</span>
-          <span style="font-size:13px;color:#94a3b8;font-weight:400" id="archiveCount"></span>
+          <span style="font-size:13px;color:#94a3b8;font-weight:400">{{ archives.length }} 个</span>
         </div>
-        <div id="archiveList"></div>
+        <div v-if="!archives.length" style="padding:16px;color:#94a3b8;font-size:14px">暂无存档</div>
+        <div v-for="a in archives" :key="a.filename" class="archive-row">
+          <div>
+            <div style="font-size:14px">{{ a.filename }}</div>
+            <div style="font-size:12px;color:#94a3b8">{{ (a.size_bytes/1024).toFixed(1) }} KB</div>
+          </div>
+          <a :href="'/api/log/archives/' + encodeURIComponent(a.filename)" download>
+            <button class="dl-btn">下载</button>
+          </a>
+        </div>
       </div>
-    </div>
-    <div id="logDetailView" style="display:none">
+    </template>
+
+    <template v-else-if="logView === 'detail' && logDetail">
       <div class="card">
         <div class="detail-header">
-          <button class="back-btn" onclick="showLogList()">← 返回</button>
-          <span class="detail-title-text" id="detailTitle"></span>
-          <span class="log-tag" id="detailTag"></span>
+          <button class="back-btn" @click="logView='list'">← 返回</button>
+          <span class="detail-title-text">{{ logDetail.title }}</span>
+          <span class="log-tag" :class="tagClass(logDetail.type)">{{ tagLabel(logDetail.type) }}</span>
         </div>
         <div class="detail-meta">
           <div class="meta-row">
             <span class="meta-label">时间</span>
-            <span class="meta-value" id="detailTime"></span>
+            <span class="meta-value">{{ logDetail.time }}</span>
           </div>
           <div class="meta-row">
             <span class="meta-label">发送至</span>
-            <span class="meta-value" id="detailSendkey"></span>
+            <span class="meta-value">{{ logDetail.channel_hint || ('Server Chan · ' + (logDetail.sendkey_hint || '')) }}</span>
           </div>
           <div class="meta-row">
             <span class="meta-label">发送状态</span>
-            <span id="detailStatus"></span>
+            <span v-if="logDetail.send_success" class="meta-ok">✓ 成功（HTTP {{ logDetail.http_status }}）</span>
+            <span v-else class="meta-fail">✗ 失败（HTTP {{ logDetail.http_status }}）</span>
           </div>
         </div>
         <div class="detail-body">
           <div class="detail-body-label">通知内容</div>
-          <div class="detail-body-content" id="detailContent"></div>
+          <div class="detail-body-content">{{ logDetail.content }}</div>
         </div>
       </div>
-    </div>
+    </template>
   </div>
 
-  <!-- Agent -->
-  <div class="pane" id="paneAgent">
-    <div id="agentDisabled" class="agent-disabled-notice" style="display:none">
-      Agent 未启用，请前往 <a onclick="switchTab('settings')">设置页</a> 开启并填写 LLM 配置。
+  <!-- ── Agent pane ── -->
+  <div class="pane" :class="{active: currentTab === 'agent'}" id="paneAgent"
+       :style="currentTab === 'agent' ? {height: agentPaneHeight + 'px'} : {}">
+    <div v-if="!agentEnabled" class="agent-disabled-notice">
+      Agent 未启用，请前往 <a @click="switchTab('settings')">设置页</a> 开启并填写 LLM 配置。
     </div>
-    <div id="agentMain" class="agent-layout" style="display:none">
-      <div class="agent-messages" id="agentMessages"></div>
+    <div v-else class="agent-layout">
+      <div class="agent-messages" ref="agentMessages">
+        <template v-for="(msg, i) in agentMessages" :key="i">
+          <div v-if="msg.role === 'user'" class="msg-user">{{ msg.content }}</div>
+          <div v-else-if="msg.role === 'error'" class="msg-error">⚠ {{ msg.content }}</div>
+          <div v-else class="msg-assistant">
+            <!-- thinking dots -->
+            <div v-if="msg.streaming && !msg.content && !msg.toolTrace.length" class="msg-thinking">
+              思考中 <div class="thinking-dots"><span></span><span></span><span></span></div>
+            </div>
+            <!-- tool trace -->
+            <div v-if="msg.toolTrace && msg.toolTrace.length" class="tool-trace">
+              <div class="tool-trace-toggle" @click="msg.traceOpen = !msg.traceOpen">
+                {{ msg.traceOpen ? '▾' : '▸' }} 调用了 {{ msg.toolTrace.length }} 个工具
+              </div>
+              <div v-show="msg.traceOpen">
+                <div v-for="(t, ti) in msg.toolTrace" :key="ti"
+                     class="tool-step" :class="{ok: t.ok, fail: !t.ok}">
+                  {{ t.name }}({{ JSON.stringify(t.args) }}) → {{ t.summary }}
+                </div>
+              </div>
+            </div>
+            <!-- markdown content -->
+            <div v-if="msg.content" v-html="renderMd(msg.content)" class="md-body"></div>
+            <!-- streaming cursor -->
+            <span v-if="msg.streaming && msg.content" class="streaming-cursor"></span>
+            <!-- confirm result -->
+            <div v-if="msg.confirmResult" style="color:#16a34a;font-size:13px;margin-top:8px">
+              {{ msg.confirmResult }}
+            </div>
+            <!-- pending actions -->
+            <div v-else-if="!msg.streaming && msg.pendingActions && msg.pendingActions.length" class="pending-card">
+              <div class="pending-card-title">⏳ 待确认操作（{{ msg.pendingActions.length }} 项）</div>
+              <div v-for="a in msg.pendingActions" :key="a.id" class="pending-action-item">
+                <span class="pending-action-label" v-html="pendingLabel(a)"></span>
+                <span class="pending-action-badge">{{ a.action }}</span>
+              </div>
+              <div class="pending-actions-bar">
+                <button class="confirm-btn"
+                        @click="agentConfirm(msg.pendingActions.map(a => a.id), [], i)">全部确认执行</button>
+                <button class="reject-btn"
+                        @click="agentConfirm([], msg.pendingActions.map(a => a.id), i)">全部忽略</button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
       <div class="agent-bottom">
         <div class="agent-toolbar">
-          <button class="agent-tool-btn" onclick="agentExport()" title="导出为 Markdown 文件">导出 MD</button>
-          <button class="agent-tool-btn" onclick="agentClear()">清空对话</button>
+          <button class="agent-tool-btn" @click="agentExport()" title="导出为 Markdown 文件">导出 MD</button>
+          <button class="agent-tool-btn" @click="agentClear()">清空对话</button>
         </div>
         <div class="agent-input-row">
           <div class="agent-input-wrap">
-            <textarea class="agent-input" id="agentInput" placeholder="欢迎顶刊一作来找我提问呀~" rows="1"
-              onkeydown="agentInputKeydown(event)"></textarea>
-            <button class="agent-input-resize" type="button" title="向上拖动调整输入框高度" aria-label="向上拖动调整输入框高度"></button>
+            <textarea class="agent-input" ref="agentInput" v-model="agentInput"
+                      placeholder="欢迎顶刊一作来找我提问呀~" rows="1"
+                      @keydown="agentInputKeydown"></textarea>
+            <button class="agent-input-resize" type="button" ref="agentResizeHandle"
+                    title="向上拖动调整输入框高度" aria-label="向上拖动调整输入框高度"></button>
           </div>
-          <button class="agent-send-btn" id="agentSendBtn" onclick="agentSend()">发送</button>
-          <button class="agent-interrupt-btn" id="agentInterruptBtn" onclick="agentInterrupt()" style="display:none">停止</button>
+          <button v-if="!agentBusy" class="agent-send-btn" @click="agentSend()">发送</button>
+          <button v-else class="agent-interrupt-btn" @click="agentInterrupt()">停止</button>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="app-footer">
+  <div class="app-footer" v-if="currentTab !== 'agent'">
     <div class="app-footer-card">
       欢迎访问项目主页：
       <a href="https://github.com/nanoxxs/sserveros" target="_blank" rel="noopener noreferrer">GitHub 仓库</a>
       <br>
-      ⚠️ 遇到问题？
-      请前往
+      ⚠️ 遇到问题？请前往
       <a href="https://github.com/nanoxxs/sserveros/blob/main/README.md" target="_blank" rel="noopener noreferrer">官方文档</a>
-      查看使用教程和常见问题汇总。注意：第三方教程可能已过时，请以官方文档为准。
+      查看使用教程和常见问题汇总。
     </div>
   </div>
-</div>
+</template>
 
-<div class="toast" id="toast"></div>
+<!-- ── Toast ──────────────────────────────────────── -->
+<div class="toast" :class="{show: toast.visible}"
+     :style="toast.ok ? '' : 'background:#ef4444'">{{ toast.text }}</div>
 
-<!-- Password Modal -->
-<div class="modal-overlay" id="pwdModal" onclick="if(event.target===this)closePwdModal()">
+<!-- ── Password Modal ─────────────────────────────── -->
+<div class="modal-overlay" :class="{open: pwdModalOpen}" @click.self="pwdModalOpen=false">
   <div class="modal-box">
     <div class="modal-title">修改密码</div>
-    <input class="modal-input" id="cfgCurPwd" type="password" placeholder="当前密码"
-           onkeydown="if(event.key==='Enter')changePassword()">
-    <input class="modal-input" id="cfgNewPwd" type="password" placeholder="新密码"
-           onkeydown="if(event.key==='Enter')changePassword()">
-    <input class="modal-input" id="cfgConfirmPwd" type="password" placeholder="再次输入新密码"
-           onkeydown="if(event.key==='Enter')changePassword()">
-    <div class="modal-msg" id="pwdMsg"></div>
+    <input class="modal-input" v-model="curPwd" type="password" placeholder="当前密码"
+           @keydown.enter="changePassword()">
+    <input class="modal-input" v-model="newPwd" type="password" placeholder="新密码"
+           @keydown.enter="changePassword()">
+    <input class="modal-input" v-model="confirmPwd" type="password" placeholder="再次输入新密码"
+           @keydown.enter="changePassword()">
+    <div v-if="pwdMsg.text" class="modal-msg" :class="pwdMsg.kind">{{ pwdMsg.text }}</div>
     <div class="modal-actions">
-      <button class="modal-cancel" onclick="closePwdModal()">取消</button>
-      <button class="modal-submit" onclick="changePassword()">确认修改</button>
+      <button class="modal-cancel" @click="pwdModalOpen=false">取消</button>
+      <button class="modal-submit" @click="changePassword()">确认修改</button>
     </div>
   </div>
 </div>
+
+</div><!-- #app -->
 
 <script>
 const TAG_LABELS = {
@@ -581,1046 +813,800 @@ const TAG_CLASSES = {
   admin_stop:'tag-admin-stop', stop:'tag-stop', crash:'tag-crash'
 };
 
-let _refreshTimer = null;
-let _currentTab = 'gpu';
-let _appStarted = false;
-let _pidData = [];
+const { createApp } = Vue;
 
-// ── Helpers ──────────────────────────────────────────────
-
-async function api(path, opts = {}) {
-  const r = await fetch(path, opts);
-  if (r.status === 401 && path !== '/api/auth/login') {
-    location.reload();
-  }
-  return r;
-}
-
-function $(id) { return document.getElementById(id); }
-
-function showMessage(targetId, text, kind = 'success') {
-  const el = $(targetId);
-  el.className = 'notice-msg ' + kind;
-  el.textContent = text;
-  el.style.display = text ? 'block' : 'none';
-}
-
-// ── Toast ────────────────────────────────────────────────
-
-let _toastTimer = null;
-function showToast(msg, ok = true) {
-  const el = $('toast');
-  el.textContent = msg;
-  el.style.background = ok ? '#1e293b' : '#ef4444';
-  el.classList.add('show');
-  if (_toastTimer) clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
-}
-
-// ── Dropdown ─────────────────────────────────────────────
-
-function toggleDropdown() {
-  $('headerMenu').classList.toggle('open');
-}
-
-function closeDropdown() {
-  $('headerMenu').classList.remove('open');
-}
-
-document.addEventListener('click', e => {
-  const dd = $('headerDropdown');
-  if (dd && !dd.contains(e.target)) closeDropdown();
-});
-
-// ── Auth ─────────────────────────────────────────────────
-
-async function doLogin() {
-  const pwd = $('loginPwd').value;
-  const r = await fetch('/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password: pwd })
-  });
-  if (r.ok) {
-    showApp();
-  } else {
-    $('loginErr').style.display = 'block';
-  }
-}
-
-async function doLogout() {
-  await fetch('/api/auth/logout', { method: 'POST' });
-  location.reload();
-}
-
-function showApp() {
-  $('loginWrap').style.display = 'none';
-  $('app').style.display = 'block';
-  startApp();
-}
-
-// ── Bootstrap ────────────────────────────────────────────
-
-function startApp() {
-  if (_appStarted) return;
-  _appStarted = true;
-  $('headerHost').textContent = '机器: ' + location.hostname;
-  startStateRefresh();
-}
-
-// Silent auth check on page load
-(async function checkAuth() {
-  try {
-    const r = await fetch('/api/state');
-    if (r.ok) {
-      showApp();
-      return;
-    }
-  } catch (e) {}
-  $('loginWrap').style.display = 'flex';
-})();
-
-// ── Tab switching ────────────────────────────────────────
-
-function switchTab(name) {
-  _currentTab = name;
-  $('app').classList.toggle('agent-active', name === 'agent');
-  const TABS = ['gpu', 'pids', 'settings', 'log', 'agent'];
-  document.querySelectorAll('.tab').forEach((el, i) => {
-    el.classList.toggle('active', TABS[i] === name);
-  });
-  document.querySelectorAll('.pane').forEach(el => {
-    const active = el.id === 'pane' + name[0].toUpperCase() + name.slice(1);
-    el.classList.toggle('active', active);
-  });
-  if (name === 'gpu' || name === 'pids') fetchState();
-  if (name === 'pids') loadPids();
-  if (name === 'settings') { loadSettings(); loadAgentConfig(); }
-  if (name === 'log') { loadLog(); loadArchives(); }
-  if (name === 'agent') {
-    window.scrollTo({top: 0, left: 0, behavior: 'auto'});
-    updateAgentPaneHeight();
-    requestAnimationFrame(updateAgentPaneHeight);
-    loadAgentConfig();
-  }
-}
-
-function updateAgentPaneHeight() {
-  if (_currentTab !== 'agent') return;
-  const pane = $('paneAgent');
-  const top = pane.getBoundingClientRect().top;
-  pane.style.setProperty('--agent-pane-height', Math.max(320, window.innerHeight - top) + 'px');
-}
-
-window.addEventListener('resize', updateAgentPaneHeight);
-
-// ── State ────────────────────────────────────────────────
-
-function startStateRefresh() {
-  if (_refreshTimer) return;
-  fetchState();
-  fetchSysinfo();
-  _refreshTimer = setInterval(() => { fetchState(); fetchSysinfo(); }, 5000);
-}
-
-function stopStateRefresh() {
-  if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
-}
-
-async function fetchState() {
-  try {
-    const r = await api('/api/state');
-    if (!r.ok) return;
-    const data = await r.json();
-    renderGpu(data);
-    if (data.hostname) $('headerHost').textContent = '机器: ' + data.hostname;
-    if (_currentTab === 'pids') renderPids(data.watch_pids || []);
-    updateStatusBanner(data);
-  } catch (e) {}
-}
-
-function updateStatusBanner(data) {
-  const running = data.monitor_running;
-  $('offlineBanner').style.display = running ? 'none' : 'block';
-  const badge = $('statusBadge');
-  badge.textContent = running ? '● 运行中' : '● 未运行';
-  badge.className = 'status-badge' + (running ? '' : ' offline');
-  updateAgentPaneHeight();
-}
-
-function renderGpu(data) {
-  const grid = $('gpuGrid');
-  if (!data.gpus || !data.gpus.length) {
-    grid.innerHTML = '<p style="color:#94a3b8;padding:16px;font-size:14px">暂无 GPU 数据</p>';
-    return;
-  }
-  grid.innerHTML = data.gpus.map(gpu => {
-    const pct = gpu.mem_total > 0 ? Math.round(gpu.mem_used / gpu.mem_total * 100) : 0;
-    return `<div class="gpu-card" onclick="showGpuDetail(${gpu.index})">
-      <div class="gpu-top">
-        <div><span class="gpu-name">GPU ${gpu.index}</span><span class="gpu-model">${escHtml(gpu.name || '')}</span></div>
-        <span class="gpu-pct" style="${memBadgeStyle(pct)}">${pct}%</span>
-      </div>
-      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%;background:${memBarGradient(pct)}"></div></div>
-      <div class="gpu-meta">
-        <span>${gpu.mem_used} / ${gpu.mem_total} MiB</span>
-        <span>主PID: <b>${gpu.top_pid || '—'}</b></span>
-      </div>
-      <div class="gpu-cmd" title="${escHtml(gpu.top_cmd || '')}">${escHtml(gpu.top_cmd || '')}</div>
-    </div>`;
-  }).join('');
-}
-
-// ── GPU Detail ───────────────────────────────────────────
-
-let _currentGpuIndex = null;
-
-async function showGpuDetail(gpuIdx) {
-  _currentGpuIndex = gpuIdx;
-  $('gpuListView').style.display = 'none';
-  $('gpuDetailView').style.display = 'block';
-  $('gpuDetailTitle').textContent = `GPU ${gpuIdx}`;
-  $('gpuDetailStats').innerHTML = '<span style="color:#94a3b8;font-size:13px">加载中…</span>';
-  $('gpuDetailProcs').innerHTML = '';
-  await _loadGpuDetail(gpuIdx);
-}
-
-async function refreshGpuDetail() {
-  if (_currentGpuIndex === null) return;
-  $('gpuDetailStats').innerHTML = '<span style="color:#94a3b8;font-size:13px">刷新中…</span>';
-  $('gpuDetailProcs').innerHTML = '';
-  await _loadGpuDetail(_currentGpuIndex);
-}
-
-async function _loadGpuDetail(gpuIdx) {
-  try {
-    const r = await api(`/api/gpu/${gpuIdx}/processes`);
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      $('gpuDetailStats').innerHTML = `<span style="color:#ef4444;font-size:13px">${escHtml(err.error || '获取失败')}</span>`;
-      return;
-    }
-    const d = await r.json();
-    $('gpuDetailTitle').textContent = `GPU ${gpuIdx}${d.gpu_name ? ' — ' + escHtml(d.gpu_name) : ''}`;
-
-    const memPct = (d.mem_total > 0) ? Math.round(d.mem_used / d.mem_total * 100) : null;
-    const stats = [];
-    if (d.mem_used != null && d.mem_total != null) {
-      stats.push({ label: '显存', value: `${d.mem_used} / ${d.mem_total} MiB${memPct != null ? ' (' + memPct + '%)' : ''}` });
-    }
-    if (d.util_pct != null) stats.push({ label: 'GPU 利用率', value: `${d.util_pct}%` });
-    if (d.temp_c != null) stats.push({ label: '温度', value: `${d.temp_c}°C` });
-    stats.push({ label: '进程数', value: `${d.processes.length}` });
-
-    $('gpuDetailStats').innerHTML = stats.map(s =>
-      `<div class="gpu-stat"><div class="gpu-stat-label">${s.label}</div><div class="gpu-stat-value">${s.value}</div></div>`
-    ).join('');
-
-    if (d.processes.length === 0) {
-      $('gpuDetailProcs').innerHTML = '<div style="padding:16px;color:#94a3b8;font-size:14px">当前无 Compute 进程</div>';
-    } else {
-      const sorted = [...d.processes].sort((a, b) => b.mem_mib - a.mem_mib);
-      $('gpuDetailProcs').innerHTML = `<div class="proc-table-wrap"><table class="proc-table">
-        <thead><tr>
-          <th>PID</th><th>显存 (MiB)</th><th>用户</th><th>启动时间</th><th>命令</th>
-        </tr></thead>
-        <tbody>${sorted.map(p => {
-          const typeBadge = `<span style="font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;margin-left:5px;vertical-align:middle;${p.type==='C'?'background:#dbeafe;color:#2563eb':'background:#f1f5f9;color:#64748b'}">${escHtml(p.type||'?')}</span>`;
-          return `<tr>
-          <td data-label="PID" class="proc-pid-cell">${p.pid}${typeBadge}</td>
-          <td data-label="显存" class="proc-mem-cell">${p.mem_mib} MiB</td>
-          <td data-label="用户" style="white-space:nowrap;color:#475569">${escHtml(p.user || '—')}</td>
-          <td data-label="启动" style="white-space:nowrap;color:#64748b;font-size:12px">${escHtml(fmtStartTime(p.start_time))}</td>
-          <td data-label="命令" class="proc-cmd-cell">${escHtml(p.cmd || '—')}</td>
-        </tr>`;}).join('')}</tbody>
-      </table></div>`;
-    }
-  } catch (e) {
-    $('gpuDetailStats').innerHTML = '<span style="color:#ef4444;font-size:13px">请求出错</span>';
-  }
-}
-
-function showGpuList() {
-  _currentGpuIndex = null;
-  $('gpuDetailView').style.display = 'none';
-  $('gpuListView').style.display = 'block';
-}
-
-// ── PIDs ─────────────────────────────────────────────────
-
-function renderPids(pids) {
-  _pidData = pids;
-  const deadCount = pids.filter(p => !p.alive).length;
-  $('pidCount').textContent = pids.length + ' 个';
-  const clearBtn = $('clearDeadBtn');
-  if (deadCount > 0) {
-    clearBtn.style.display = 'block';
-    clearBtn.textContent = `清除已死 (${deadCount})`;
-  } else {
-    clearBtn.style.display = 'none';
-  }
-  $('pidList').innerHTML = pids.length === 0
-    ? '<div style="padding:16px;color:#94a3b8;font-size:14px">暂无监控 PID</div>'
-    : pids.map(p => `<div class="pid-row">
-        <div>
-          <div class="pid-num">${p.pid}${p.note ? `<span style="font-size:12px;font-weight:400;color:#64748b;margin-left:8px">${escHtml(p.note)}</span>` : ''}</div>
-          <div class="pid-cmd" title="${escHtml(p.cmd || '')}">${escHtml(p.cmd || '')}</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px">
-          <span class="${p.alive ? 'badge-alive' : 'badge-dead'}">${p.alive ? '存活' : '已消失'}</span>
-          <button class="del-btn" onclick="removePid(${p.pid})">×</button>
-        </div>
-      </div>`).join('');
-}
-
-async function loadPids() {
-  const r = await api('/api/state');
-  if (!r.ok) return;
-  const data = await r.json();
-  renderPids(data.watch_pids || []);
-}
-
-async function addPid() {
-  const input = $('addPidInput');
-  const noteInput = $('addNoteInput');
-  const pid = parseInt(input.value);
-  if (!pid || pid <= 0) {
-    showMessage('pidMsg', 'PID 必须是正整数', 'error');
-    return;
-  }
-  const note = noteInput.value.trim();
-  const r = await api('/api/pids/add', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pid, note })
-  });
-  const payload = await r.json().catch(() => ({}));
-  if (r.ok) {
-    input.value = '';
-    noteInput.value = '';
-    showMessage('pidMsg', payload.warning || payload.message || 'PID 已保存', payload.warning ? 'warn' : 'success');
-    loadPids();
-    return;
-  }
-  showMessage('pidMsg', payload.error || '添加失败', 'error');
-}
-
-async function removePid(pid) {
-  const r = await api('/api/pids/remove', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pid })
-  });
-  const payload = await r.json().catch(() => ({}));
-  showMessage('pidMsg', payload.warning || payload.message || (r.ok ? 'PID 已移除' : '移除失败'), r.ok ? (payload.warning ? 'warn' : 'success') : 'error');
-  loadPids();
-}
-
-// ── Settings ─────────────────────────────────────────────
-
-async function loadSettings() {
-  const r = await api('/api/config');
-  if (!r.ok) return;
-  const cfg = await r.json();
-  const envSummary = cfg.env_channel_summary || {};
-  $('cfgThreshold').value = cfg.mem_threshold_mib ?? 10240;
-  $('cfgInterval').value  = cfg.check_interval ?? 5;
-  $('cfgConfirm').value   = cfg.confirm_times ?? 2;
-  $('cfgLogMb').value     = cfg.log_max_size_mb ?? 10;
-  $('cfgLogKeep').value   = cfg.log_archive_keep ?? 5;
-  $('cfgGpus').value      = (cfg.gpus || []).join(',');
-  $('cfgMemMonitor').checked = cfg.gpu_mem_monitor_enabled !== false;
-
-  // Server Chan keys: merge legacy sendkey + serverchan_keys
-  const scKeys = [...(cfg.serverchan_keys || [])];
-  if (cfg.sendkey && !scKeys.includes(cfg.sendkey)) scKeys.unshift(cfg.sendkey);
-  $('cfgServerchanKeys').value = scKeys.join('\n');
-
-  // Bark configs
-  const barkList = $('barkList');
-  barkList.innerHTML = '';
-  (cfg.bark_configs || []).forEach(b => addBarkRow(b.url, b.key));
-
-  if (envSummary.env_active) {
-    const parts = [];
-    if (envSummary.env_serverchan_count) parts.push(`Server Chan ${envSummary.env_serverchan_count} 个`);
-    if (envSummary.env_bark_count) parts.push(`Bark ${envSummary.env_bark_count} 个`);
-    showMessage(
-      'envChannelMsg',
-      `检测到来自环境变量/.env 的通知渠道：${parts.join('，')}。以下条目为只读展示；测试通知会使用这些有效渠道。若环境变量仍存在，运行时仍优先使用环境变量。`,
-      'warn'
-    );
-    renderEnvChannelList(envSummary.env_channel_details || []);
-  } else {
-    showMessage('envChannelMsg', '', 'warn');
-    renderEnvChannelList([]);
-  }
-}
-
-function addBarkRow(url = '', key = '') {
-  const barkList = $('barkList');
-  const row = document.createElement('div');
-  row.className = 'bark-row';
-  row.innerHTML = `
-    <input class="setting-input bark-url" placeholder="URL（如 https://api.day.app）" value="${_esc(url)}">
-    <input class="setting-input bark-key" placeholder="设备 Key" value="${_esc(key)}">
-    <button class="bark-del" onclick="this.parentElement.remove()" title="删除">×</button>`;
-  barkList.appendChild(row);
-}
-
-function _esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-}
-
-function renderEnvChannelList(details = []) {
-  const el = $('envChannelList');
-  if (!details.length) {
-    el.innerHTML = '';
-    el.style.display = 'none';
-    return;
-  }
-  el.innerHTML = details.map(item =>
-    `<div class="env-channel-item">${escHtml(item.label || '')}</div>`
-  ).join('');
-  el.style.display = 'flex';
-}
-
-async function saveSettings() {
-  const msg = $('saveMsg');
-  const parsePositive = (id, label) => {
-    const value = parseInt($(id).value, 10);
-    if (!Number.isInteger(value) || value <= 0) {
-      throw new Error(label + '必须是正整数');
-    }
-    return value;
-  };
-
-  const gpusStr = $('cfgGpus').value.trim();
-  const gpus = [];
-  if (gpusStr) {
-    const seen = new Set();
-    for (const raw of gpusStr.split(',')) {
-      const token = raw.trim();
-      if (!token) continue;
-      if (!/^\d+$/.test(token)) {
-        showMessage('saveMsg', 'GPU 索引格式错误，请输入如 0,1,2', 'error');
-        return;
-      }
-      const value = Number(token);
-      if (seen.has(value)) {
-        showMessage('saveMsg', 'GPU 索引不能重复', 'error');
-        return;
-      }
-      seen.add(value);
-      gpus.push(value);
-    }
-  }
-
-  const serverchan_keys = $('cfgServerchanKeys').value
-    .split('\n').map(s => s.trim()).filter(Boolean);
-
-  const bark_configs = [];
-  for (const row of $('barkList').querySelectorAll('.bark-row')) {
-    const url = row.querySelector('.bark-url').value.trim();
-    const key = row.querySelector('.bark-key').value.trim();
-    if (url && key) bark_configs.push({ url, key });
-    else if (url || key) {
-      showMessage('saveMsg', 'Bark 配置不完整，URL 和设备 Key 均必填', 'error');
-      return;
-    }
-  }
-
-  let body;
-  try {
-    body = {
-      mem_threshold_mib:        parsePositive('cfgThreshold', '显存告警阈值'),
-      check_interval:           parsePositive('cfgInterval', '检测间隔'),
-      confirm_times:            parsePositive('cfgConfirm', '确认次数'),
-      log_max_size_mb:          parsePositive('cfgLogMb', '日志压缩触发大小'),
-      log_archive_keep:         parsePositive('cfgLogKeep', '历史存档保留数量'),
-      gpus,
-      gpu_mem_monitor_enabled:  $('cfgMemMonitor').checked,
-      sendkey:                  '',
-      serverchan_keys,
-      bark_configs,
+createApp({
+  data() {
+    return {
+      // Auth
+      isLoggedIn: false,
+      loginPwd: '',
+      loginError: false,
+      // App
+      tabs: [
+        {id:'gpu', label:'概览'},
+        {id:'pids', label:'PIDs'},
+        {id:'settings', label:'设置'},
+        {id:'log', label:'日志'},
+        {id:'agent', label:'Agent'},
+      ],
+      currentTab: 'gpu',
+      hostname: '',
+      monitorRunning: false,
+      _refreshTimer: null,
+      _appStarted: false,
+      // Toast
+      toast: {text:'', ok:true, visible:false},
+      _toastTimer: null,
+      // Dropdown
+      dropdownOpen: false,
+      // Password modal
+      pwdModalOpen: false,
+      curPwd: '', newPwd: '', confirmPwd: '',
+      pwdMsg: {text:'', kind:''},
+      // GPU / sysinfo
+      gpus: [],
+      gpuView: 'list',
+      currentGpuIndex: null,
+      gpuDetail: null,
+      gpuDetailLoading: false,
+      gpuDetailError: '',
+      cpuPct: null,
+      ramUsedMib: null, ramTotalMib: null,
+      diskPct: null, diskUsedGb: null, diskTotalGb: null,
+      diskData: [],
+      // PID
+      pidData: [],
+      addPidInput: '',
+      addNoteInput: '',
+      pidMsg: {text:'', kind:''},
+      // Settings
+      cfgMemMonitor: true,
+      cfgThreshold: 10240,
+      cfgInterval: 5,
+      cfgConfirm: 2,
+      cfgLogMb: 10,
+      cfgLogKeep: 5,
+      cfgGpus: '',
+      cfgServerchanKeys: '',
+      barkConfigs: [],
+      saveMsg: {text:'', kind:''},
+      envChannelMsg: {text:'', kind:''},
+      // Agent config
+      cfgAgentEnabled: false,
+      cfgLlmBaseUrl: '',
+      cfgLlmApiKey: '',
+      cfgLlmModel: '',
+      cfgLlmMaxIter: 8,
+      cfgLlmTimeout: 30,
+      cfgLlmTemp: 0.2,
+      cfgAgentStream: true,
+      agentSaveMsg: {text:'', kind:''},
+      // Log
+      logEntries: [],
+      archives: [],
+      logView: 'list',
+      logDetailIdx: null,
+      // Agent
+      agentEnabled: false,
+      agentMessages: [],
+      agentInput: '',
+      agentBusy: false,
+      agentSessionId: null,
+      agentHistory: [],
+      agentAbortCtrl: null,
+      agentPaneHeight: 600,
+      _resizeBound: false,
     };
-  } catch (err) {
-    showMessage('saveMsg', err.message || '输入不合法', 'error');
-    return;
-  }
+  },
 
-  const r = await api('/api/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  const payload = await r.json().catch(() => ({}));
-  if (r.ok) {
-    showMessage('saveMsg', payload.warning || payload.message || '已保存', payload.warning ? 'warn' : 'success');
-    setTimeout(() => { msg.style.display = 'none'; }, 2500);
-  } else {
-    showMessage('saveMsg', payload.error || '保存失败', 'error');
-  }
-}
+  computed: {
+    ramPct() {
+      return this.ramTotalMib > 0 ? Math.round(this.ramUsedMib / this.ramTotalMib * 100) : 0;
+    },
+    ramDisplay() {
+      return this.ramTotalMib
+        ? (this.ramUsedMib / 1024).toFixed(1) + ' / ' + (this.ramTotalMib / 1024).toFixed(1) + ' GB'
+        : '—';
+    },
+    diskDisplay() {
+      return this.diskTotalGb ? this.diskUsedGb + ' / ' + this.diskTotalGb + ' GB' : '—';
+    },
+    gpuDetailStats() {
+      if (!this.gpuDetail) return [];
+      const d = this.gpuDetail;
+      const stats = [];
+      if (d.mem_used != null && d.mem_total != null) {
+        const p = d.mem_total > 0 ? Math.round(d.mem_used / d.mem_total * 100) : null;
+        stats.push({label:'显存', value:`${d.mem_used} / ${d.mem_total} MiB${p != null ? ' (' + p + '%)' : ''}`});
+      }
+      if (d.util_pct != null) stats.push({label:'GPU 利用率', value:`${d.util_pct}%`});
+      if (d.temp_c != null) stats.push({label:'温度', value:`${d.temp_c}°C`});
+      stats.push({label:'进程数', value:`${(d.processes||[]).length}`});
+      return stats;
+    },
+    gpuDetailProcessesSorted() {
+      return [...(this.gpuDetail?.processes || [])].sort((a, b) => b.mem_mib - a.mem_mib);
+    },
+    logDetail() {
+      return this.logDetailIdx !== null ? this.logEntries[this.logDetailIdx] : null;
+    },
+    deadPidCount() {
+      return this.pidData.filter(p => !p.alive).length;
+    },
+  },
 
-function openPwdModal() {
-  $('cfgCurPwd').value = '';
-  $('cfgNewPwd').value = '';
-  $('cfgConfirmPwd').value = '';
-  $('pwdMsg').style.display = 'none';
-  $('pwdModal').classList.add('open');
-  setTimeout(() => $('cfgCurPwd').focus(), 50);
-}
-
-function closePwdModal() {
-  $('pwdModal').classList.remove('open');
-}
-
-async function changePassword() {
-  const cur = $('cfgCurPwd').value;
-  const nw  = $('cfgNewPwd').value;
-  const cf  = $('cfgConfirmPwd').value;
-  const msg = $('pwdMsg');
-  msg.style.color = '#ef4444';
-  if (!cur || !nw) {
-    msg.textContent = '请填写当前密码和新密码';
-    msg.style.display = 'block';
-    return;
-  }
-  if (nw !== cf) {
-    msg.textContent = '两次输入的新密码不一致';
-    msg.style.display = 'block';
-    return;
-  }
-  const r = await api('/api/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ current_password: cur, new_password: nw })
-  });
-  const payload = await r.json().catch(() => ({}));
-  if (r.ok) {
-    msg.className = 'notice-msg success';
-    msg.textContent = payload.message || '密码已修改';
-    msg.style.display = 'block';
-    setTimeout(() => closePwdModal(), 1200);
-  } else {
-    msg.className = 'notice-msg error';
-    msg.textContent = payload.error || '修改失败';
-    msg.style.display = 'block';
-  }
-}
-
-// ── Notify Test ──────────────────────────────────────────
-
-async function sendTestNotify() {
-  const btn = $('testNotifyBtn');
-  const orig = btn.textContent;
-  btn.textContent = '发送中…';
-  btn.disabled = true;
-  try {
-    const r = await api('/api/notify/test', { method: 'POST' });
-    const payload = await r.json().catch(() => ({}));
-    showToast(r.ok ? (payload.message || '已发送') : (payload.error || '发送失败'), r.ok);
-  } catch (e) {
-    showToast('请求出错', false);
-  } finally {
-    btn.textContent = orig;
-    btn.disabled = false;
-  }
-}
-
-// ── Clear Dead PIDs ──────────────────────────────────────
-
-async function clearDeadPids() {
-  const dead = _pidData.filter(p => !p.alive);
-  if (!dead.length) return;
-  if (!confirm(`确认移除全部 ${dead.length} 个已消失的 PID？`)) return;
-  const r = await api('/api/pids/clear-dead', { method: 'POST' });
-  const payload = await r.json().catch(() => ({}));
-  if (r.ok) {
-    const count = payload.removed_count ?? dead.length;
-    showMessage(
-      'pidMsg',
-      payload.warning || payload.message || `已移除 ${count} 个已消失的 PID`,
-      payload.warning ? 'warn' : 'success'
-    );
-    loadPids();
-    return;
-  }
-  showMessage('pidMsg', payload.error || '批量移除失败', 'error');
-}
-
-// ── Log ──────────────────────────────────────────────────
-
-async function loadLog() {
-  const r = await api('/api/log');
-  if (!r.ok) return;
-  const entries = await r.json();
-  $('logList').innerHTML = entries.length === 0
-    ? '<div style="padding:16px;color:#94a3b8;font-size:14px">暂无日志</div>'
-    : entries.map((e, i) => {
-        const tagClass = TAG_CLASSES[e.type] || 'tag-info';
-        const tagLabel = TAG_LABELS[e.type] || e.type;
-        return `<div class="log-row" onclick="showLogDetail(${i})">
-          <span class="log-tag ${tagClass}">${tagLabel}</span>
-          <div class="log-main">
-            <div class="log-title-text">${escHtml(e.title)}</div>
-            <div class="log-time-text">${e.time}</div>
-          </div>
-          <div class="log-right">
-            <span class="${e.send_success ? 'send-ok' : 'send-fail'}">${e.send_success ? '✓ 已发送' : '✗ 失败'}</span>
-            <span class="chevron">›</span>
-          </div>
-        </div>`;
-      }).join('');
-  window._logEntries = entries;
-}
-
-async function loadArchives() {
-  const r = await api('/api/log/archives');
-  if (!r.ok) return;
-  const archives = await r.json();
-  $('archiveCount').textContent = archives.length + ' 个';
-  $('archiveList').innerHTML = archives.length === 0
-    ? '<div style="padding:16px;color:#94a3b8;font-size:14px">暂无存档</div>'
-    : archives.map(a => {
-        const kb = (a.size_bytes / 1024).toFixed(1);
-        return `<div class="archive-row">
-          <div>
-            <div style="font-size:14px">${escHtml(a.filename)}</div>
-            <div style="font-size:12px;color:#94a3b8">${kb} KB</div>
-          </div>
-          <a href="/api/log/archives/${encodeURIComponent(a.filename)}" download>
-            <button class="dl-btn">下载</button>
-          </a>
-        </div>`;
-      }).join('');
-}
-
-function showLogDetail(idx) {
-  const e = (window._logEntries || [])[idx];
-  if (!e) return;
-  const tagClass = TAG_CLASSES[e.type] || 'tag-info';
-  const tagLabel = TAG_LABELS[e.type] || e.type;
-  $('detailTitle').textContent = e.title;
-  $('detailTag').textContent = tagLabel;
-  $('detailTag').className = 'log-tag ' + tagClass;
-  $('detailTime').textContent = e.time;
-  $('detailSendkey').textContent = e.channel_hint || ('Server Chan · ' + (e.sendkey_hint || ''));
-  const statusEl = $('detailStatus');
-  if (e.send_success) {
-    statusEl.innerHTML = `<span class="meta-ok">✓ 成功（HTTP ${e.http_status}）</span>`;
-  } else {
-    statusEl.innerHTML = `<span class="meta-fail">✗ 失败（HTTP ${e.http_status}）</span>`;
-  }
-  $('detailContent').textContent = e.content;
-  $('logListView').style.display = 'none';
-  $('logDetailView').style.display = 'block';
-}
-
-function showLogList() {
-  $('logDetailView').style.display = 'none';
-  $('logListView').style.display = 'block';
-}
-
-// ── Sysinfo ──────────────────────────────────────────────
-
-let _diskData = [];
-
-async function fetchSysinfo() {
-  try {
-    const r = await api('/api/sysinfo');
-    if (!r.ok) return;
-    renderSysinfo(await r.json());
-  } catch (e) {}
-}
-
-function renderSysinfo(d) {
-  const cpuPct = d.cpu_pct ?? 0;
-  $('siCpuVal').textContent = d.cpu_pct != null ? d.cpu_pct.toFixed(1) + '%' : '—';
-  $('siCpuBar').style.width = cpuPct + '%';
-  $('siCpuBar').style.background = memBarGradient(cpuPct);
-
-  const ramPct = d.ram_total_mib > 0 ? Math.round(d.ram_used_mib / d.ram_total_mib * 100) : 0;
-  $('siRamVal').textContent = d.ram_total_mib
-    ? (d.ram_used_mib / 1024).toFixed(1) + ' / ' + (d.ram_total_mib / 1024).toFixed(1) + ' GB'
-    : '—';
-  $('siRamBar').style.width = ramPct + '%';
-  $('siRamBar').style.background = memBarGradient(ramPct);
-  $('siRamSub').textContent = d.ram_total_mib ? ramPct + '%' : '';
-
-  _diskData = d.disks || [];
-  const diskPct = d.disk_pct ?? 0;
-  $('siDiskVal').textContent = d.disk_total_gb ? d.disk_used_gb + ' / ' + d.disk_total_gb + ' GB' : '—';
-  $('siDiskBar').style.width = diskPct + '%';
-  $('siDiskBar').style.background = memBarGradient(diskPct);
-  $('siDiskSub').textContent = d.disk_total_gb ? diskPct.toFixed(1) + '%' : '';
-}
-
-// ── Disk Detail ──────────────────────────────────────────
-
-function showDiskDetail() {
-  if (!_diskData.length) return;
-  $('gpuListView').style.display = 'none';
-  $('gpuDetailView').style.display = 'none';
-  $('diskDetailView').style.display = 'block';
-  renderDiskDetail(_diskData);
-}
-
-function showDiskList() {
-  $('diskDetailView').style.display = 'none';
-  $('gpuListView').style.display = 'block';
-}
-
-function renderDiskDetail(disks) {
-  if (!disks || !disks.length) {
-    $('diskDetailBody').innerHTML = '<div style="padding:16px;color:#94a3b8;font-size:14px">无磁盘数据</div>';
-    return;
-  }
-  $('diskDetailBody').innerHTML = disks.map(d => {
-    const typeStyle = d.disk_type === 'SSD'
-      ? 'background:#dbeafe;color:#2563eb'
-      : d.disk_type === 'HDD'
-        ? 'background:#fef3c7;color:#d97706'
-        : 'background:#f1f5f9;color:#64748b';
-    const pct = d.pct ?? 0;
-    return `<div style="padding:14px 16px;border-bottom:1px solid #f8fafc">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div>
-          <span style="font-weight:600;font-size:15px">${escHtml(d.mountpoint)}</span>
-          <span style="font-size:11px;padding:2px 7px;border-radius:8px;font-weight:600;margin-left:8px;${typeStyle}">${escHtml(d.disk_type)}</span>
-        </div>
-        <span style="font-size:13px;color:#64748b">${pct.toFixed(1)}%</span>
-      </div>
-      <div class="bar-bg" style="margin-bottom:6px"><div class="bar-fill" style="width:${pct}%;background:${memBarGradient(pct)}"></div></div>
-      <div style="display:flex;justify-content:space-between;font-size:12px;color:#94a3b8">
-        <span>${escHtml(d.device)} · ${escHtml(d.fstype)}</span>
-        <span>${d.used_gb} / ${d.total_gb} GB</span>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-// ── Util ─────────────────────────────────────────────────
-
-// "Mon Apr 13 10:07:46 2026" → "Apr 13 10:07"
-function fmtStartTime(s) {
-  if (!s) return '—';
-  const p = s.trim().split(/\s+/);
-  // [weekday, month, day, time, year]
-  if (p.length >= 5) return `${p[1]} ${p[2]} ${p[3].slice(0, 5)}`;
-  return s;
-}
-
-function escHtml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function memBarGradient(pct) {
-  if (pct >= 80) return 'linear-gradient(90deg,#ef4444,#f87171)';
-  if (pct >= 60) return 'linear-gradient(90deg,#f59e0b,#fbbf24)';
-  return 'linear-gradient(90deg,#22c55e,#4ade80)';
-}
-
-function memBadgeStyle(pct) {
-  if (pct >= 80) return 'background:#fee2e2;color:#ef4444';
-  if (pct >= 60) return 'background:#fef3c7;color:#d97706';
-  return 'background:#dcfce7;color:#16a34a';
-}
-
-// ── Agent ─────────────────────────────────────────────────
-
-let _agentSessionId = null;
-let _agentBusy = false;
-let _agentAbortCtrl = null;
-let _agentHistory = []; // [{role, content, tool_trace?}] for export
-
-function _agentEnsureSession() {
-  if (!_agentSessionId) {
-    _agentSessionId = 'sess_' + Math.random().toString(36).slice(2) + Date.now();
-  }
-  return _agentSessionId;
-}
-
-async function loadAgentConfig() {
-  try {
-    const r = await api('/api/agent/config');
-    if (!r.ok) return;
-    const cfg = await r.json();
-    $('cfgAgentEnabled').checked = !!cfg.agent_enabled;
-    $('cfgLlmBaseUrl').value = cfg.llm_base_url || '';
-    $('cfgLlmApiKey').value = cfg.llm_api_key || '';
-    $('cfgLlmModel').value = cfg.llm_model || '';
-    $('cfgLlmMaxIter').value = cfg.llm_max_iterations ?? 8;
-    $('cfgLlmTimeout').value = cfg.llm_request_timeout ?? 30;
-    $('cfgLlmTemp').value = cfg.llm_temperature ?? 0.2;
-
-    $('agentDisabled').style.display = cfg.agent_enabled ? 'none' : '';
-    $('agentMain').style.display = cfg.agent_enabled ? '' : 'none';
-  } catch(e) {}
-}
-
-async function saveAgentConfig() {
-  const body = {
-    agent_enabled: $('cfgAgentEnabled').checked,
-    llm_base_url: $('cfgLlmBaseUrl').value.trim(),
-    llm_api_key: $('cfgLlmApiKey').value.trim(),
-    llm_model: $('cfgLlmModel').value.trim(),
-    llm_max_iterations: parseInt($('cfgLlmMaxIter').value) || 8,
-    llm_request_timeout: parseInt($('cfgLlmTimeout').value) || 30,
-    llm_temperature: parseFloat($('cfgLlmTemp').value) || 0.2,
-  };
-  try {
-    const r = await api('/api/agent/config', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body),
-    });
-    const d = await r.json();
-    showMessage('agentSaveMsg', d.ok ? 'Agent 配置已保存' : (d.error || '保存失败'), d.ok ? 'success' : 'error');
-    setTimeout(() => showMessage('agentSaveMsg', ''), 3000);
-    await loadAgentConfig();
-  } catch(e) {
-    showMessage('agentSaveMsg', '保存失败：' + e.message, 'error');
-  }
-}
-
-function _agentAppendMsg(role, content, toolTrace, pendingActions) {
-  // record for export
-  if (role === 'user' || role === 'assistant') {
-    _agentHistory.push({role, content, tool_trace: toolTrace || []});
-  }
-  const wrap = $('agentMessages');
-  const div = document.createElement('div');
-  if (role === 'user') {
-    div.className = 'msg-user';
-    div.textContent = content;
-  } else if (role === 'error') {
-    div.className = 'msg-error';
-    div.textContent = '⚠ ' + content;
-  } else {
-    div.className = 'msg-assistant';
-    div.textContent = content;
-    if (toolTrace && toolTrace.length) {
-      const traceWrap = document.createElement('div');
-      traceWrap.className = 'tool-trace';
-      const toggle = document.createElement('div');
-      toggle.className = 'tool-trace-toggle';
-      toggle.textContent = `▸ 调用了 ${toolTrace.length} 个工具`;
-      const steps = document.createElement('div');
-      steps.style.display = 'none';
-      toolTrace.forEach(t => {
-        const s = document.createElement('div');
-        s.className = 'tool-step ' + (t.ok ? 'ok' : 'fail');
-        s.textContent = `${t.name}(${JSON.stringify(t.args)}) → ${t.summary}`;
-        steps.appendChild(s);
-      });
-      toggle.onclick = () => {
-        const open = steps.style.display !== 'none';
-        steps.style.display = open ? 'none' : '';
-        toggle.textContent = (open ? '▸' : '▾') + ` 调用了 ${toolTrace.length} 个工具`;
-      };
-      traceWrap.appendChild(toggle);
-      traceWrap.appendChild(steps);
-      div.appendChild(traceWrap);
-    }
-    if (pendingActions && pendingActions.length) {
-      const card = document.createElement('div');
-      card.className = 'pending-card';
-      card.id = 'pending_' + _agentSessionId;
-      card.innerHTML = `<div class="pending-card-title">⏳ 待确认操作（${pendingActions.length} 项）</div>`;
-      pendingActions.forEach(a => {
-        const row = document.createElement('div');
-        row.className = 'pending-action-item';
-        const label = a.action === 'add_watch_pid'
-          ? `添加监控 <code>PID ${a.pid}</code>${a.note ? ' · ' + escHtml(a.note) : ''}`
-          : `移除监控 <code>PID ${a.pid}</code>`;
-        row.innerHTML = `<span class="pending-action-label">${label}</span><span class="pending-action-badge">${a.action}</span>`;
-        card.appendChild(row);
-      });
-      const bar = document.createElement('div');
-      bar.className = 'pending-actions-bar';
-      const confirmBtn = document.createElement('button');
-      confirmBtn.className = 'confirm-btn';
-      confirmBtn.textContent = '全部确认执行';
-      confirmBtn.onclick = () => agentConfirm(pendingActions.map(a => a.id), [], card);
-      const rejectBtn = document.createElement('button');
-      rejectBtn.className = 'reject-btn';
-      rejectBtn.textContent = '全部忽略';
-      rejectBtn.onclick = () => agentConfirm([], pendingActions.map(a => a.id), card);
-      bar.appendChild(confirmBtn);
-      bar.appendChild(rejectBtn);
-      card.appendChild(bar);
-      div.appendChild(card);
-    }
-  }
-  wrap.appendChild(div);
-  wrap.scrollTop = wrap.scrollHeight;
-}
-
-function _agentShowThinking() {
-  const wrap = $('agentMessages');
-  const div = document.createElement('div');
-  div.className = 'msg-thinking';
-  div.id = 'agentThinking';
-  div.innerHTML = '思考中 <div class="thinking-dots"><span></span><span></span><span></span></div>';
-  wrap.appendChild(div);
-  wrap.scrollTop = wrap.scrollHeight;
-  $('agentSendBtn').style.display = 'none';
-  $('agentInterruptBtn').style.display = '';
-}
-
-function _agentRemoveThinking() {
-  const el = $('agentThinking');
-  if (el) el.remove();
-  $('agentSendBtn').style.display = '';
-  $('agentInterruptBtn').style.display = 'none';
-}
-
-async function agentSend() {
-  if (_agentBusy) return;
-  const input = $('agentInput');
-  const msg = input.value.trim();
-  if (!msg) return;
-  input.value = '';
-  input.style.height = '';
-  _agentEnsureSession();
-  _agentAppendMsg('user', msg);
-  _agentBusy = true;
-  $('agentSendBtn').disabled = true;
-  _agentAbortCtrl = new AbortController();
-  _agentShowThinking();
-  try {
-    const r = await api('/api/agent/chat', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({session_id: _agentSessionId, message: msg}),
-      signal: _agentAbortCtrl.signal,
-    });
-    _agentRemoveThinking();
-    const d = await r.json();
-    if (d.ok) {
-      _agentAppendMsg('assistant', d.reply, d.tool_trace, d.pending_actions);
-    } else {
-      _agentAppendMsg('error', d.error || '请求失败');
-    }
-  } catch(e) {
-    _agentRemoveThinking();
-    if (e.name === 'AbortError') {
-      _agentAppendMsg('error', '已中断');
-    } else {
-      _agentAppendMsg('error', '网络错误：' + e.message);
-    }
-  } finally {
-    _agentBusy = false;
-    _agentAbortCtrl = null;
-    $('agentSendBtn').disabled = false;
-    $('agentInput').focus();
-  }
-}
-
-function agentInterrupt() {
-  if (_agentAbortCtrl) {
-    _agentAbortCtrl.abort();
-  }
-}
-
-async function agentConfirm(approved, rejected, cardEl) {
-  try {
-    const r = await api('/api/agent/confirm', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({session_id: _agentSessionId, approved, rejected}),
-    });
-    const d = await r.json();
-    if (cardEl) {
-      const succeeded = d.executed?.filter(e => e.ok).length || 0;
-      cardEl.innerHTML = `<div style="color:#16a34a;font-size:13px">✓ 已执行 ${succeeded} 项操作${rejected.length ? '，' + rejected.length + ' 项已忽略' : ''}</div>`;
-    }
-    if (d.executed?.some(e => e.ok)) fetchState();
-  } catch(e) {
-    showToast('确认失败：' + e.message, false);
-  }
-}
-
-async function agentClear() {
-  if (_agentSessionId) {
-    await api(`/api/agent/session/${_agentSessionId}`, {method: 'DELETE'});
-  }
-  _agentSessionId = null;
-  _agentHistory = [];
-  $('agentMessages').innerHTML = '';
-}
-
-function agentExport() {
-  if (!_agentHistory.length) { showToast('暂无对话内容', false); return; }
-  const lines = [`# Agent 对话记录`, ``, `> 导出时间：${new Date().toLocaleString('zh-CN')}`, ``];
-  _agentHistory.forEach(m => {
-    if (m.role === 'user') {
-      lines.push(`**用户**\n\n${m.content}`, ``);
-    } else {
-      lines.push(`**助手**\n\n${m.content}`);
-      if (m.tool_trace && m.tool_trace.length) {
-        lines.push(``, `<details><summary>工具调用（${m.tool_trace.length} 步）</summary>`, ``);
-        m.tool_trace.forEach(t => {
-          lines.push(`- \`${t.name}(${JSON.stringify(t.args)})\` → ${t.summary}`);
+  watch: {
+    currentTab(tab) {
+      if (tab === 'agent') {
+        this.$nextTick(() => {
+          this.updateAgentPaneHeight();
+          this.initAgentInputResize();
         });
-        lines.push(``, `</details>`);
       }
-      lines.push(``);
-    }
-  });
-  const blob = new Blob([lines.join('\n')], {type: 'text/markdown;charset=utf-8'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `agent-chat-${new Date().toISOString().slice(0,10)}.md`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+    },
+  },
 
-function agentInputKeydown(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    agentSend();
-  }
-}
+  methods: {
+    // ── API ──────────────────────────────────────────
+    async api(path, opts = {}) {
+      const r = await fetch(path, opts);
+      if (r.status === 401 && path !== '/api/auth/login') location.reload();
+      return r;
+    },
 
-function initAgentInputResize() {
-  const handle = document.querySelector('.agent-input-resize');
-  const input = $('agentInput');
-  if (!handle || !input || handle.dataset.bound) return;
-  handle.dataset.bound = '1';
+    // ── Auth ─────────────────────────────────────────
+    async doLogin() {
+      const r = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({password: this.loginPwd}),
+      });
+      if (r.ok) {
+        this.loginError = false;
+        this.isLoggedIn = true;
+        this.startApp();
+      } else {
+        this.loginError = true;
+      }
+    },
 
-  handle.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    handle.setPointerCapture(e.pointerId);
-    const startY = e.clientY;
-    const startHeight = input.offsetHeight;
+    async doLogout() {
+      await fetch('/api/auth/logout', {method: 'POST'});
+      location.reload();
+    },
 
-    const onMove = ev => {
-      const minHeight = 42;
-      const maxHeight = Math.max(180, Math.floor(window.innerHeight * 0.45));
-      const nextHeight = Math.max(minHeight, Math.min(maxHeight, startHeight + startY - ev.clientY));
-      input.style.height = nextHeight + 'px';
-    };
-    const onUp = ev => {
-      handle.releasePointerCapture(ev.pointerId);
-      handle.removeEventListener('pointermove', onMove);
-      handle.removeEventListener('pointerup', onUp);
-      handle.removeEventListener('pointercancel', onUp);
-    };
+    async checkAuth() {
+      try {
+        const r = await fetch('/api/state');
+        if (r.ok) { this.isLoggedIn = true; this.startApp(); return; }
+      } catch(e) {}
+    },
 
-    handle.addEventListener('pointermove', onMove);
-    handle.addEventListener('pointerup', onUp);
-    handle.addEventListener('pointercancel', onUp);
-  });
-}
+    // ── Bootstrap ────────────────────────────────────
+    startApp() {
+      if (this._appStarted) return;
+      this._appStarted = true;
+      this.hostname = location.hostname;
+      this.startStateRefresh();
+    },
 
-initAgentInputResize();
+    // ── Toast ─────────────────────────────────────────
+    showToast(msg, ok = true) {
+      this.toast = {text: msg, ok, visible: true};
+      if (this._toastTimer) clearTimeout(this._toastTimer);
+      this._toastTimer = setTimeout(() => { this.toast.visible = false; }, 2800);
+    },
 
+    // ── Tab ───────────────────────────────────────────
+    switchTab(name) {
+      this.currentTab = name;
+      if (name === 'gpu' || name === 'pids') this.fetchState();
+      if (name === 'pids') this.loadPids();
+      if (name === 'settings') { this.loadSettings(); this.loadAgentConfig(); }
+      if (name === 'log') { this.loadLog(); this.loadArchives(); }
+      if (name === 'agent') {
+        window.scrollTo({top:0, left:0, behavior:'auto'});
+        this.loadAgentConfig();
+        this.$nextTick(() => {
+          this.updateAgentPaneHeight();
+          this.initAgentInputResize();
+        });
+      }
+    },
+
+    updateAgentPaneHeight() {
+      if (this.currentTab !== 'agent') return;
+      const pane = document.getElementById('paneAgent');
+      if (!pane) return;
+      const top = pane.getBoundingClientRect().top;
+      this.agentPaneHeight = Math.max(320, window.innerHeight - top);
+    },
+
+    // ── State ─────────────────────────────────────────
+    startStateRefresh() {
+      if (this._refreshTimer) return;
+      this.fetchState();
+      this.fetchSysinfo();
+      this._refreshTimer = setInterval(() => {
+        this.fetchState();
+        this.fetchSysinfo();
+      }, 5000);
+    },
+
+    async fetchState() {
+      try {
+        const r = await this.api('/api/state');
+        if (!r.ok) return;
+        const data = await r.json();
+        this.gpus = data.gpus || [];
+        if (data.hostname) this.hostname = data.hostname;
+        if (this.currentTab === 'pids') this.pidData = data.watch_pids || [];
+        this.monitorRunning = !!data.monitor_running;
+        this.updateAgentPaneHeight();
+      } catch(e) {}
+    },
+
+    async fetchSysinfo() {
+      try {
+        const r = await this.api('/api/sysinfo');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.cpuPct = d.cpu_pct ?? null;
+        this.ramUsedMib = d.ram_used_mib ?? null;
+        this.ramTotalMib = d.ram_total_mib ?? null;
+        this.diskPct = d.disk_pct ?? null;
+        this.diskUsedGb = d.disk_used_gb ?? null;
+        this.diskTotalGb = d.disk_total_gb ?? null;
+        this.diskData = d.disks || [];
+      } catch(e) {}
+    },
+
+    // ── GPU ───────────────────────────────────────────
+    gpuMemPct(gpu) {
+      return gpu.mem_total > 0 ? Math.round(gpu.mem_used / gpu.mem_total * 100) : 0;
+    },
+
+    async showGpuDetail(idx) {
+      this.currentGpuIndex = idx;
+      this.gpuView = 'detail';
+      this.gpuDetail = null;
+      this.gpuDetailError = '';
+      await this.loadGpuDetail(idx);
+    },
+
+    async loadGpuDetail(idx) {
+      this.gpuDetailLoading = true;
+      this.gpuDetailError = '';
+      try {
+        const r = await this.api(`/api/gpu/${idx}/processes`);
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          this.gpuDetailError = err.error || '获取失败';
+          return;
+        }
+        this.gpuDetail = await r.json();
+      } catch(e) {
+        this.gpuDetailError = '请求出错';
+      } finally {
+        this.gpuDetailLoading = false;
+      }
+    },
+
+    showDiskDetail() {
+      if (!this.diskData.length) return;
+      this.gpuView = 'disk';
+    },
+
+    // ── PIDs ──────────────────────────────────────────
+    async loadPids() {
+      const r = await this.api('/api/state');
+      if (!r.ok) return;
+      const data = await r.json();
+      this.pidData = data.watch_pids || [];
+    },
+
+    async addPid() {
+      const pid = parseInt(this.addPidInput);
+      if (!pid || pid <= 0) {
+        this.pidMsg = {text:'PID 必须是正整数', kind:'error'};
+        return;
+      }
+      const note = this.addNoteInput.trim();
+      const r = await this.api('/api/pids/add', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({pid, note}),
+      });
+      const payload = await r.json().catch(() => ({}));
+      if (r.ok) {
+        this.addPidInput = ''; this.addNoteInput = '';
+        this.pidMsg = {text: payload.warning||payload.message||'PID 已保存', kind: payload.warning?'warn':'success'};
+        this.loadPids();
+        return;
+      }
+      this.pidMsg = {text: payload.error||'添加失败', kind:'error'};
+    },
+
+    async removePid(pid) {
+      const r = await this.api('/api/pids/remove', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({pid}),
+      });
+      const payload = await r.json().catch(() => ({}));
+      this.pidMsg = {
+        text: payload.warning||payload.message||(r.ok?'PID 已移除':'移除失败'),
+        kind: r.ok ? (payload.warning?'warn':'success') : 'error',
+      };
+      this.loadPids();
+    },
+
+    async clearDeadPids() {
+      const dead = this.pidData.filter(p => !p.alive);
+      if (!dead.length) return;
+      if (!confirm(`确认移除全部 ${dead.length} 个已消失的 PID？`)) return;
+      const r = await this.api('/api/pids/clear-dead', {method:'POST'});
+      const payload = await r.json().catch(() => ({}));
+      if (r.ok) {
+        const count = payload.removed_count ?? dead.length;
+        this.pidMsg = {
+          text: payload.warning||payload.message||`已移除 ${count} 个已消失的 PID`,
+          kind: payload.warning?'warn':'success',
+        };
+        this.loadPids();
+        return;
+      }
+      this.pidMsg = {text: payload.error||'批量移除失败', kind:'error'};
+    },
+
+    // ── Settings ──────────────────────────────────────
+    async loadSettings() {
+      const r = await this.api('/api/config');
+      if (!r.ok) return;
+      const cfg = await r.json();
+      const env = cfg.env_channel_summary || {};
+      this.cfgThreshold = cfg.mem_threshold_mib ?? 10240;
+      this.cfgInterval = cfg.check_interval ?? 5;
+      this.cfgConfirm = cfg.confirm_times ?? 2;
+      this.cfgLogMb = cfg.log_max_size_mb ?? 10;
+      this.cfgLogKeep = cfg.log_archive_keep ?? 5;
+      this.cfgGpus = (cfg.gpus || []).join(',');
+      this.cfgMemMonitor = cfg.gpu_mem_monitor_enabled !== false;
+      const envScKeys = env.env_serverchan_keys || [];
+      const envBarkConfigs = env.env_bark_configs || [];
+      const scKeys = [...(cfg.serverchan_keys || [])];
+      if (cfg.sendkey && !scKeys.includes(cfg.sendkey)) scKeys.unshift(cfg.sendkey);
+      for (const k of envScKeys) { if (!scKeys.includes(k)) scKeys.push(k); }
+      this.cfgServerchanKeys = scKeys.join('\n');
+      const seenBark = new Set();
+      const allBark = [];
+      for (const b of [...(cfg.bark_configs || []), ...envBarkConfigs]) {
+        const sig = `${b.url}|${b.key}`;
+        if (!seenBark.has(sig)) { seenBark.add(sig); allBark.push({url: b.url||'', key: b.key||''}); }
+      }
+      this.barkConfigs = allBark;
+      if (env.env_active) {
+        const parts = [];
+        if (env.env_serverchan_count) parts.push(`Server Chan ${env.env_serverchan_count} 个`);
+        if (env.env_bark_count) parts.push(`Bark ${env.env_bark_count} 个`);
+        this.envChannelMsg = {
+          text: `已合并来自 .env 的通知渠道（${parts.join('，')}），保存后将从 .env 中清除并迁移至配置文件。`,
+          kind: 'warn',
+        };
+      } else {
+        this.envChannelMsg = {text:'', kind:''};
+      }
+    },
+
+    async saveSettings() {
+      const parsePos = (val, label) => {
+        const v = parseInt(val, 10);
+        if (!Number.isInteger(v) || v <= 0) throw new Error(label + '必须是正整数');
+        return v;
+      };
+      const gpusStr = this.cfgGpus.trim();
+      const gpus = [];
+      if (gpusStr) {
+        const seen = new Set();
+        for (const raw of gpusStr.split(',')) {
+          const token = raw.trim();
+          if (!token) continue;
+          if (!/^\d+$/.test(token)) { this.saveMsg={text:'GPU 索引格式错误，请输入如 0,1,2',kind:'error'}; return; }
+          const v = Number(token);
+          if (seen.has(v)) { this.saveMsg={text:'GPU 索引不能重复',kind:'error'}; return; }
+          seen.add(v); gpus.push(v);
+        }
+      }
+      const serverchan_keys = this.cfgServerchanKeys.split('\n').map(s=>s.trim()).filter(Boolean);
+      const bark_configs = [];
+      for (const b of this.barkConfigs) {
+        const url = b.url.trim(), key = b.key.trim();
+        if (url && key) { bark_configs.push({url, key}); }
+        else if (url || key) { this.saveMsg={text:'Bark 配置不完整，URL 和设备 Key 均必填',kind:'error'}; return; }
+      }
+      let body;
+      try {
+        body = {
+          mem_threshold_mib: parsePos(this.cfgThreshold, '显存告警阈值'),
+          check_interval: parsePos(this.cfgInterval, '检测间隔'),
+          confirm_times: parsePos(this.cfgConfirm, '确认次数'),
+          log_max_size_mb: parsePos(this.cfgLogMb, '日志压缩触发大小'),
+          log_archive_keep: parsePos(this.cfgLogKeep, '历史存档保留数量'),
+          gpus, gpu_mem_monitor_enabled: this.cfgMemMonitor,
+          sendkey: '', serverchan_keys, bark_configs,
+        };
+      } catch(err) {
+        this.saveMsg = {text: err.message||'输入不合法', kind:'error'};
+        return;
+      }
+      const r = await this.api('/api/settings', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body),
+      });
+      const payload = await r.json().catch(() => ({}));
+      if (r.ok) {
+        this.saveMsg = {text: payload.warning||payload.message||'已保存', kind: payload.warning?'warn':'success'};
+        setTimeout(() => { this.saveMsg = {text:'', kind:''}; }, 2500);
+      } else {
+        this.saveMsg = {text: payload.error||'保存失败', kind:'error'};
+      }
+    },
+
+    // ── Agent Config ──────────────────────────────────
+    async loadAgentConfig() {
+      try {
+        const r = await this.api('/api/agent/config');
+        if (!r.ok) return;
+        const cfg = await r.json();
+        this.cfgAgentEnabled = !!cfg.agent_enabled;
+        this.cfgLlmBaseUrl = cfg.llm_base_url || '';
+        this.cfgLlmApiKey = cfg.llm_api_key || '';
+        this.cfgLlmModel = cfg.llm_model || '';
+        this.cfgLlmMaxIter = cfg.llm_max_iterations ?? 8;
+        this.cfgLlmTimeout = cfg.llm_request_timeout ?? 30;
+        this.cfgLlmTemp = cfg.llm_temperature ?? 0.2;
+        this.cfgAgentStream = cfg.agent_stream_enabled !== false;
+        this.agentEnabled = !!cfg.agent_enabled;
+      } catch(e) {}
+    },
+
+    async saveAgentConfig() {
+      const body = {
+        agent_enabled: this.cfgAgentEnabled,
+        agent_stream_enabled: this.cfgAgentStream,
+        llm_base_url: this.cfgLlmBaseUrl.trim(),
+        llm_api_key: this.cfgLlmApiKey.trim(),
+        llm_model: this.cfgLlmModel.trim(),
+        llm_max_iterations: parseInt(this.cfgLlmMaxIter) || 8,
+        llm_request_timeout: parseInt(this.cfgLlmTimeout) || 30,
+        llm_temperature: parseFloat(this.cfgLlmTemp) || 0.2,
+      };
+      try {
+        const r = await this.api('/api/agent/config', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        this.agentSaveMsg = {text: d.ok?'Agent 配置已保存':(d.error||'保存失败'), kind: d.ok?'success':'error'};
+        setTimeout(() => { this.agentSaveMsg = {text:'',kind:''}; }, 3000);
+        await this.loadAgentConfig();
+      } catch(e) {
+        this.agentSaveMsg = {text:'保存失败：'+e.message, kind:'error'};
+      }
+    },
+
+    // ── Log ───────────────────────────────────────────
+    async loadLog() {
+      const r = await this.api('/api/log');
+      if (!r.ok) return;
+      this.logEntries = await r.json();
+    },
+
+    async loadArchives() {
+      const r = await this.api('/api/log/archives');
+      if (!r.ok) return;
+      this.archives = await r.json();
+    },
+
+    // ── Notify ────────────────────────────────────────
+    async sendTestNotify() {
+      try {
+        const r = await this.api('/api/notify/test', {method:'POST'});
+        const payload = await r.json().catch(() => ({}));
+        this.showToast(r.ok ? (payload.message||'已发送') : (payload.error||'发送失败'), r.ok);
+      } catch(e) {
+        this.showToast('请求出错', false);
+      }
+    },
+
+    // ── Password ──────────────────────────────────────
+    async changePassword() {
+      if (!this.curPwd || !this.newPwd) {
+        this.pwdMsg = {text:'请填写当前密码和新密码', kind:'error'}; return;
+      }
+      if (this.newPwd !== this.confirmPwd) {
+        this.pwdMsg = {text:'两次输入的新密码不一致', kind:'error'}; return;
+      }
+      const r = await this.api('/api/settings', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({current_password: this.curPwd, new_password: this.newPwd}),
+      });
+      const payload = await r.json().catch(() => ({}));
+      if (r.ok) {
+        this.pwdMsg = {text: payload.message||'密码已修改', kind:'success'};
+        setTimeout(() => { this.pwdModalOpen = false; this.pwdMsg = {text:'',kind:''}; }, 1200);
+      } else {
+        this.pwdMsg = {text: payload.error||'修改失败', kind:'error'};
+      }
+    },
+
+    // ── Agent ─────────────────────────────────────────
+    scrollAgentToBottom() {
+      const el = this.$refs.agentMessages;
+      if (el) el.scrollTop = el.scrollHeight;
+    },
+
+    async agentSend() {
+      if (this.agentBusy) return;
+      const msg = this.agentInput.trim();
+      if (!msg) return;
+      this.agentInput = '';
+      if (this.$refs.agentInput) this.$refs.agentInput.style.height = '';
+
+      if (!this.agentSessionId) {
+        this.agentSessionId = 'sess_' + Math.random().toString(36).slice(2) + Date.now();
+      }
+
+      this.agentMessages.push({role:'user', content:msg});
+      this.agentHistory.push({role:'user', content:msg, tool_trace:[]});
+
+      const assistantIdx = this.agentMessages.length;
+      this.agentMessages.push({
+        role:'assistant', content:'', toolTrace:[], pendingActions:[],
+        streaming:true, traceOpen:false, confirmResult:null,
+      });
+      this.agentBusy = true;
+      this.agentAbortCtrl = new AbortController();
+      this.$nextTick(() => this.scrollAgentToBottom());
+
+      try {
+        if (this.cfgAgentStream) {
+          await this._agentSendStream(assistantIdx, msg);
+        } else {
+          await this._agentSendSync(assistantIdx, msg);
+        }
+      } catch(e) {
+        const m = this.agentMessages[assistantIdx];
+        if (m) {
+          const errText = e.name === 'AbortError' ? '已中断' : '网络错误：' + e.message;
+          this.agentMessages[assistantIdx] = {role:'error', content: errText, streaming:false};
+        }
+      } finally {
+        this.agentBusy = false;
+        this.agentAbortCtrl = null;
+        const m = this.agentMessages[assistantIdx];
+        if (m) m.streaming = false;
+        this.$nextTick(() => {
+          if (this.$refs.agentInput) this.$refs.agentInput.focus();
+        });
+      }
+    },
+
+    async _agentSendStream(assistantIdx, msg) {
+      const resp = await this.api('/api/agent/chat/stream', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({session_id: this.agentSessionId, message: msg}),
+        signal: this.agentAbortCtrl.signal,
+      });
+      if (!resp.ok) {
+        const d = await resp.json().catch(() => ({}));
+        this.agentMessages[assistantIdx] = {role:'error', content: d.error||'请求失败', streaming:false};
+        return;
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, {stream:true});
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let event;
+          try { event = JSON.parse(line.slice(6)); } catch { continue; }
+          const m = this.agentMessages[assistantIdx];
+          if (!m) continue;
+          if (event.type === 'tool_call') {
+            m.toolTrace.push(event);
+          } else if (event.type === 'text_delta') {
+            m.content += event.delta;
+            this.$nextTick(() => this.scrollAgentToBottom());
+          } else if (event.type === 'done') {
+            m.streaming = false;
+            m.pendingActions = event.pending_actions || [];
+            this.agentHistory.push({role:'assistant', content:event.reply, tool_trace:event.tool_trace||[]});
+          } else if (event.type === 'error') {
+            this.agentMessages[assistantIdx] = {role:'error', content: event.error||'请求失败', streaming:false};
+          }
+        }
+      }
+    },
+
+    async _agentSendSync(assistantIdx, msg) {
+      const r = await this.api('/api/agent/chat', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({session_id: this.agentSessionId, message: msg}),
+        signal: this.agentAbortCtrl.signal,
+      });
+      const d = await r.json();
+      if (d.ok) {
+        this.agentMessages[assistantIdx] = {
+          role:'assistant', content: d.reply,
+          toolTrace: d.tool_trace||[], pendingActions: d.pending_actions||[],
+          streaming:false, traceOpen:false, confirmResult:null,
+        };
+        this.agentHistory.push({role:'assistant', content:d.reply, tool_trace:d.tool_trace||[]});
+      } else {
+        this.agentMessages[assistantIdx] = {role:'error', content: d.error||'请求失败', streaming:false};
+      }
+      this.$nextTick(() => this.scrollAgentToBottom());
+    },
+
+    agentInterrupt() {
+      if (this.agentAbortCtrl) this.agentAbortCtrl.abort();
+    },
+
+    async agentConfirm(approved, rejected, msgIdx) {
+      try {
+        const r = await this.api('/api/agent/confirm', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({session_id: this.agentSessionId, approved, rejected}),
+        });
+        const d = await r.json();
+        const m = this.agentMessages[msgIdx];
+        if (m) {
+          const succeeded = d.executed?.filter(e => e.ok).length || 0;
+          m.pendingActions = [];
+          m.confirmResult = `✓ 已执行 ${succeeded} 项操作${rejected.length ? '，' + rejected.length + ' 项已忽略' : ''}`;
+        }
+        if (d.executed?.some(e => e.ok)) this.fetchState();
+      } catch(e) {
+        this.showToast('确认失败：' + e.message, false);
+      }
+    },
+
+    async agentClear() {
+      if (this.agentSessionId) {
+        await this.api(`/api/agent/session/${this.agentSessionId}`, {method:'DELETE'});
+      }
+      this.agentSessionId = null;
+      this.agentHistory = [];
+      this.agentMessages = [];
+    },
+
+    agentExport() {
+      if (!this.agentHistory.length) { this.showToast('暂无对话内容', false); return; }
+      const lines = ['# Agent 对话记录', '', `> 导出时间：${new Date().toLocaleString('zh-CN')}`, ''];
+      this.agentHistory.forEach(m => {
+        if (m.role === 'user') {
+          lines.push(`**用户**\n\n${m.content}`, '');
+        } else {
+          lines.push(`**助手**\n\n${m.content}`);
+          if (m.tool_trace && m.tool_trace.length) {
+            lines.push('', `<details><summary>工具调用（${m.tool_trace.length} 步）</summary>`, '');
+            m.tool_trace.forEach(t => {
+              lines.push(`- \`${t.name}(${JSON.stringify(t.args)})\` → ${t.summary}`);
+            });
+            lines.push('', '</details>');
+          }
+          lines.push('');
+        }
+      });
+      const blob = new Blob([lines.join('\n')], {type:'text/markdown;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `agent-chat-${new Date().toISOString().slice(0,10)}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+
+    agentInputKeydown(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this.agentSend();
+      }
+    },
+
+    initAgentInputResize() {
+      if (this._resizeBound) return;
+      const handle = this.$refs.agentResizeHandle;
+      const input = this.$refs.agentInput;
+      if (!handle || !input) return;
+      this._resizeBound = true;
+      handle.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        handle.setPointerCapture(e.pointerId);
+        const startY = e.clientY;
+        const startH = input.offsetHeight;
+        const onMove = ev => {
+          const min = 42, max = Math.max(180, Math.floor(window.innerHeight * 0.45));
+          input.style.height = Math.max(min, Math.min(max, startH + startY - ev.clientY)) + 'px';
+        };
+        const onUp = ev => {
+          handle.releasePointerCapture(ev.pointerId);
+          handle.removeEventListener('pointermove', onMove);
+          handle.removeEventListener('pointerup', onUp);
+          handle.removeEventListener('pointercancel', onUp);
+        };
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onUp);
+        handle.addEventListener('pointercancel', onUp);
+      });
+    },
+
+    // ── Markdown ──────────────────────────────────────
+    renderMd(text) {
+      if (!text) return '';
+      return DOMPurify.sanitize(marked.parse(text));
+    },
+
+    pendingLabel(a) {
+      const note = a.note ? ' · ' + this.escHtml(a.note) : '';
+      if (a.action === 'add_watch_pid')
+        return `添加监控 <code>PID ${a.pid}</code>${note}`;
+      return `移除监控 <code>PID ${a.pid}</code>`;
+    },
+
+    // ── Util ──────────────────────────────────────────
+    barColor(pct) {
+      if (pct >= 80) return 'linear-gradient(90deg,#ef4444,#f87171)';
+      if (pct >= 60) return 'linear-gradient(90deg,#f59e0b,#fbbf24)';
+      return 'linear-gradient(90deg,#22c55e,#4ade80)';
+    },
+
+    gpuBadgeStyle(pct) {
+      if (pct >= 80) return 'background:#fee2e2;color:#ef4444';
+      if (pct >= 60) return 'background:#fef3c7;color:#d97706';
+      return 'background:#dbeafe;color:#2563eb';
+    },
+
+    diskTypeStyle(type) {
+      if (type === 'SSD') return 'background:#dbeafe;color:#2563eb';
+      if (type === 'HDD') return 'background:#fef3c7;color:#d97706';
+      return 'background:#f1f5f9;color:#64748b';
+    },
+
+    tagLabel(type) { return TAG_LABELS[type] || type; },
+    tagClass(type) { return TAG_CLASSES[type] || 'tag-info'; },
+
+    fmtStartTime(s) {
+      if (!s) return '—';
+      const p = s.trim().split(/\s+/);
+      if (p.length >= 5) return `${p[1]} ${p[2]} ${p[3].slice(0,5)}`;
+      return s;
+    },
+
+    escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    },
+  },
+
+  mounted() {
+    this.checkAuth();
+    window.addEventListener('resize', this.updateAgentPaneHeight);
+    document.addEventListener('click', e => {
+      const dd = this.$refs.headerDropdown;
+      if (dd && !dd.contains(e.target)) this.dropdownOpen = false;
+    });
+  },
+
+  beforeUnmount() {
+    window.removeEventListener('resize', this.updateAgentPaneHeight);
+    if (this._refreshTimer) clearInterval(this._refreshTimer);
+  },
+}).mount('#app');
 </script>
 </body>
 </html>

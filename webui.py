@@ -22,11 +22,31 @@ from storage import (
     runtime_path as _runtime_path,
     save_config_file,
 )
-from flask import Flask, jsonify, request, send_file, session
+from flask import Flask, Response, jsonify, request, send_file, session, stream_with_context
 from werkzeug.security import check_password_hash, generate_password_hash
 
 _MONITOR_NUMERIC_SETTINGS = ('mem_threshold_mib', 'check_interval', 'confirm_times')
 _WEBUI_NUMERIC_SETTINGS = ('log_max_size_mb', 'log_archive_keep')
+_ENV_CHANNEL_KEYS = ('SERVERCHAN_KEYS', 'BARK_CONFIGS', 'SENDKEY')
+
+
+def _clear_env_channel_keys(script_dir: str) -> None:
+    env_path = os.path.join(script_dir, '.env')
+    if not os.path.exists(env_path):
+        return
+    kept = []
+    with open(env_path, encoding='utf-8') as f:
+        for line in f:
+            key = line.split('=', 1)[0].strip()
+            if key not in _ENV_CHANNEL_KEYS:
+                kept.append(line)
+    tmp = env_path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        f.writelines(kept)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, env_path)
+    for k in _ENV_CHANNEL_KEYS:
+        os.environ.pop(k, None)
 
 
 def create_app(script_dir: str = None):
@@ -490,6 +510,9 @@ def create_app(script_dir: str = None):
             cfg['password_hash'] = generate_password_hash(data['new_password'])
             password_changed = True
         save_config_file(_config_path(script_dir), cfg)
+        if 'serverchan_keys' in data or 'bark_configs' in data:
+            if any(os.environ.get(k) for k in _ENV_CHANNEL_KEYS):
+                _clear_env_channel_keys(script_dir)
         if not runtime_reload_needed:
             return jsonify({
                 'ok': True,
@@ -551,6 +574,7 @@ def create_app(script_dir: str = None):
             'llm_max_iterations': cfg.get('llm_max_iterations', 8),
             'llm_request_timeout': cfg.get('llm_request_timeout', 30),
             'llm_temperature': cfg.get('llm_temperature', 0.2),
+            'agent_stream_enabled': cfg.get('agent_stream_enabled', True),
         })
 
     @app.route('/api/agent/config', methods=['POST'])
@@ -574,6 +598,8 @@ def create_app(script_dir: str = None):
             cfg['llm_request_timeout'] = max(5, min(int(data['llm_request_timeout']), 120))
         if 'llm_temperature' in data:
             cfg['llm_temperature'] = max(0.0, min(float(data['llm_temperature']), 2.0))
+        if 'agent_stream_enabled' in data:
+            cfg['agent_stream_enabled'] = bool(data['agent_stream_enabled'])
         save_config_file(_config_path(script_dir), cfg)
         return jsonify({'ok': True})
 
@@ -594,6 +620,39 @@ def create_app(script_dir: str = None):
             return jsonify({'error': '未配置 LLM API Key，请在「设置 → Agent」中填写'}), 403
         result = _agent_runner().chat(session_id, message)
         return jsonify(result), 200 if result.get('ok') else 500
+
+    @app.route('/api/agent/chat/stream', methods=['POST'])
+    @require_auth
+    def api_agent_chat_stream():
+        data = request.get_json() or {}
+        session_id = str(data.get('session_id', '')).strip()
+        message = str(data.get('message', '')).strip()
+        if not session_id:
+            return jsonify({'error': 'session_id required'}), 400
+        if not message:
+            return jsonify({'error': 'message required'}), 400
+        cfg = load_config_file(_config_path(script_dir))
+        if not cfg.get('agent_enabled'):
+            return jsonify({'error': 'agent 未启用，请在「设置 → Agent」中开启并填写 LLM 配置'}), 403
+        if not cfg.get('llm_api_key', '').strip():
+            return jsonify({'error': '未配置 LLM API Key，请在「设置 → Agent」中填写'}), 403
+
+        def generate():
+            try:
+                for event in _agent_runner().chat_stream(session_id, message):
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',
+                'Connection': 'keep-alive',
+            },
+        )
 
     @app.route('/api/agent/confirm', methods=['POST'])
     @require_auth

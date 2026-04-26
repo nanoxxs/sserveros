@@ -261,5 +261,141 @@ class AgentRunner:
         self._store.touch(session)
         return {'ok': True, 'executed': executed, 'skipped': skipped}
 
+    def chat_stream(self, session_id: str, user_message: str):
+        session = self._store.get(session_id)
+        session.messages.append({'role': 'user', 'content': user_message})
+
+        llm_messages = [{'role': 'system', 'content': SYSTEM_PROMPT}] + [
+            {k: v for k, v in m.items() if k != 'staged'} for m in session.messages
+        ]
+
+        base_url = self._cfg.get('llm_base_url', 'https://api.deepseek.com/v1').rstrip('/')
+        api_key = self._cfg.get('llm_api_key', '')
+        model = self._cfg.get('llm_model', 'deepseek-chat')
+        max_iter = max(1, min(int(self._cfg.get('llm_max_iterations', 8)), 20))
+        timeout = max(5, min(int(self._cfg.get('llm_request_timeout', 30)), 120))
+        temperature = max(0.0, min(float(self._cfg.get('llm_temperature', 0.2)), 2.0))
+
+        headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}
+        tool_trace = []
+        pending = []
+        counter = [len(session.pending_actions)]
+        final_reply = ''
+
+        for _ in range(max_iter):
+            tool_calls_by_idx: dict = {}
+            text_content = ''
+
+            try:
+                with httpx.stream(
+                    'POST',
+                    f'{base_url}/chat/completions',
+                    headers=headers,
+                    json={
+                        'model': model,
+                        'messages': llm_messages,
+                        'tools': TOOL_SCHEMAS,
+                        'tool_choice': 'auto',
+                        'temperature': temperature,
+                        'stream': True,
+                    },
+                    timeout=timeout,
+                ) as resp:
+                    resp.raise_for_status()
+                    for raw_line in resp.iter_lines():
+                        raw_line = raw_line.strip()
+                        if not raw_line or not raw_line.startswith('data: '):
+                            continue
+                        payload = raw_line[6:]
+                        if payload == '[DONE]':
+                            break
+                        try:
+                            chunk = json.loads(payload)
+                        except json.JSONDecodeError:
+                            continue
+                        if not chunk.get('choices'):
+                            continue
+                        delta = chunk['choices'][0].get('delta', {})
+                        if delta.get('content'):
+                            text_content += delta['content']
+                            yield {'type': 'text_delta', 'delta': delta['content']}
+                        for tc in delta.get('tool_calls', []):
+                            idx = tc.get('index', 0)
+                            if idx not in tool_calls_by_idx:
+                                tool_calls_by_idx[idx] = {'id': '', 'name': '', 'arguments': ''}
+                            if tc.get('id'):
+                                tool_calls_by_idx[idx]['id'] = tc['id']
+                            fn = tc.get('function', {})
+                            if fn.get('name'):
+                                tool_calls_by_idx[idx]['name'] += fn['name']
+                            if fn.get('arguments'):
+                                tool_calls_by_idx[idx]['arguments'] += fn['arguments']
+            except httpx.TimeoutException:
+                yield {'type': 'error', 'error': f'LLM 请求超时（>{timeout}s）'}
+                return
+            except httpx.HTTPStatusError as e:
+                body = e.response.text[:300] if e.response else ''
+                yield {'type': 'error', 'error': f'LLM 返回 HTTP {e.response.status_code}: {body}'}
+                return
+            except Exception as e:
+                yield {'type': 'error', 'error': str(e)}
+                return
+
+            if tool_calls_by_idx:
+                tc_list = [
+                    {
+                        'id': tool_calls_by_idx[i]['id'],
+                        'type': 'function',
+                        'function': {
+                            'name': tool_calls_by_idx[i]['name'],
+                            'arguments': tool_calls_by_idx[i]['arguments'],
+                        },
+                    }
+                    for i in sorted(tool_calls_by_idx)
+                ]
+                llm_messages.append({
+                    'role': 'assistant',
+                    'content': text_content or None,
+                    'tool_calls': tc_list,
+                })
+                for tc in tc_list:
+                    fn_name = tc['function']['name']
+                    try:
+                        fn_args = json.loads(tc['function']['arguments'])
+                    except (json.JSONDecodeError, KeyError):
+                        fn_args = {}
+                    result_str = self._call_tool(fn_name, fn_args, pending, counter)
+                    try:
+                        result_data = json.loads(result_str)
+                    except Exception:
+                        result_data = {}
+                    t = {
+                        'name': fn_name,
+                        'args': fn_args,
+                        'ok': result_data.get('ok', True),
+                        'summary': _summarize_result(fn_name, result_data),
+                    }
+                    tool_trace.append(t)
+                    yield {'type': 'tool_call', 'name': t['name'], 'args': t['args'],
+                           'ok': t['ok'], 'summary': t['summary']}
+                    llm_messages.append({
+                        'role': 'tool',
+                        'tool_call_id': tc['id'],
+                        'content': result_str,
+                    })
+            else:
+                final_reply = text_content
+                break
+        else:
+            if not final_reply:
+                final_reply = '（已达到最大工具调用轮次，以上是目前的分析结果）'
+                yield {'type': 'text_delta', 'delta': final_reply}
+
+        session.messages.append({'role': 'assistant', 'content': final_reply})
+        session.pending_actions.extend(pending)
+        self._store.touch(session)
+        yield {'type': 'done', 'reply': final_reply,
+               'tool_trace': tool_trace, 'pending_actions': pending}
+
     def clear_session(self, session_id: str):
         self._store.clear(session_id)

@@ -93,6 +93,8 @@ def channel_summary(cfg: dict, *, environ: dict = None) -> dict:
         'env_active': bool(env_serverchan or env_bark),
         'effective_serverchan_count': len(_serverchan_keys(effective)),
         'effective_bark_count': len(_bark_configs(effective)),
+        'env_serverchan_keys': env_serverchan,
+        'env_bark_configs': env_bark,
         'env_channel_details': [
             {'channel': 'serverchan', 'label': f'Server Chan · {_serverchan_hint(key)}'}
             for key in env_serverchan

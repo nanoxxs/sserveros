@@ -966,11 +966,7 @@ quick_start_flow() {
   fi
 
   if any_notify_channel_configured; then
-    if prompt_yes_no "是否启动 monitor.py？"; then
-      start_backend
-    else
-      echo "已跳过 monitor.py 启动。"
-    fi
+    start_backend
   else
     echo "当前尚未配置通知渠道，已跳过 monitor.py 启动。"
     echo "可以先进入 WebUI → 设置 完成配置，再从菜单启动 monitor.py。"

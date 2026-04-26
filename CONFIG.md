@@ -19,6 +19,14 @@
 | `watch_pids` | object[] | `[]` | 是（PIDs 页） | 否 | 持久化的监控 PID 列表，格式：`[{"pid": 1234, "note": "备注"}]` |
 | `webui_host` | string | `"0.0.0.0"` | 否 | 否 | WebUI 绑定地址，修改需重启 |
 | `webui_port` | int | `6777` | 否 | 否 | WebUI 监听端口，修改需重启 |
+| `agent_enabled` | bool | `false` | 是（设置页） | 否 | 是否启用 Agent Tab |
+| `llm_base_url` | string | `"https://api.deepseek.com/v1"` | 是 | 否 | LLM API 地址（OpenAI 兼容） |
+| `llm_api_key` | string | `""` | 是 | 是 | LLM API Key |
+| `llm_model` | string | `"deepseek-chat"` | 是 | 否 | 模型名称 |
+| `llm_max_iterations` | int | `8` | 是 | 否 | 最大工具调用轮次（1-20） |
+| `llm_request_timeout` | int | `30` | 是 | 否 | LLM 请求超时（秒，5-120） |
+| `llm_temperature` | float | `0.2` | 是 | 否 | 采样温度（0-2） |
+| `agent_stream_enabled` | bool | `true` | 是 | 否 | Agent 是否使用流式输出（SSE），关闭则等待完整回复后一次性显示 |
 
 ## 敏感配置
 

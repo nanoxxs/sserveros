@@ -196,7 +196,7 @@ python monitor.py             # 启动监控守护进程
 
 ## webui.html
 
-单文件前端，内嵌所有 CSS + JS，无外部依赖。
+单文件前端，通过 CDN 引入 Vue 3、marked.js、DOMPurify，无本地构建步骤。
 
 ### 页面结构
 
@@ -209,9 +209,9 @@ python monitor.py             # 启动监控守护进程
     └── 内容区（.pane × 5）
         ├── 概览   – CPU/内存/磁盘 + GPU 显存进度条 + 主 PID，每 5 秒自动刷新
         ├── PIDs   – 监控列表（存活状态 + 删除）+ 添加表单（支持备注）
-        ├── 设置   – 监控参数 + 通知渠道（Server Chan 多 key / Bark 多地址）+ Agent LLM 配置
+        ├── 设置   – 监控参数 + 通知渠道（Server Chan 多 key / Bark 多地址）+ Agent LLM 配置（含流式输出开关）
         ├── 日志   – 事件列表 + 点击查看详情 + 存档下载
-        └── Agent  – 对话消息区 + 待确认操作卡片 + 右上角上拖式可调高度输入框
+        └── Agent  – 对话消息区（Markdown 渲染）+ 待确认操作卡片 + 可调高度输入框
 ```
 
 ---
@@ -240,6 +240,8 @@ webui.py (Flask)
   │  POST /api/pids/clear-dead → 更新 config.json → 写 remove queue → kill -USR2
   │  POST /api/settings    → 写 config.json → kill -USR2
   │  POST /api/notify/test → notifier.send_all()
+  │  /api/agent/chat        → AgentRunner.chat()（非流式）
+  │  /api/agent/chat/stream → AgentRunner.chat_stream()（SSE 流式）
   │  /api/agent/*          → AgentRunner / SessionStore → agent/tools/*
   │
   ▼
@@ -251,10 +253,13 @@ Agent 数据流：
 
 ```
 webui.html Agent Tab
-  │  POST /api/agent/chat
+  │  POST /api/agent/chat/stream（流式，默认）
+  │  POST /api/agent/chat（非流式，可在设置关闭流式后使用）
   ▼
 webui.py
-  │  AgentRunner 调用 OpenAI 兼容 LLM
+  │  AgentRunner 调用 OpenAI 兼容 LLM（stream=True）
+  │  每轮工具调用完成后 SSE yield tool_call 事件
+  │  最终回复逐 token SSE yield text_delta 事件
   │  只读工具立即执行：GPU/PID/进程/服务/端口/磁盘/系统信息
   │  写工具暂存：add_watch_pid / remove_watch_pid
   ▼
