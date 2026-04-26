@@ -95,6 +95,37 @@ def test_index_contains_project_links(client):
     assert '第三方教程可能已过时，请以官方文档为准' in text
 
 
+def test_index_contains_gpu_detail_quick_pid_monitor(client):
+    r = client.get('/')
+    text = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert '添加监控' in text
+    assert 'isPidWatched(p.pid)' in text
+    assert 'addGpuProcessPid(p)' in text
+    assert '/api/pids/add' in text
+
+
+def test_index_contains_v1_ui_theme_controls(client):
+    r = client.get('/')
+    text = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert 'data-theme="light"' in text
+    assert 'data-glass="off"' in text
+    assert '--gradient-mem' in text
+    assert "localStorage.getItem('sserveros.theme')" in text
+    assert "localStorage.getItem('sserveros.surface')" in text
+    assert "setUiTheme('dark')" in text
+    assert "setUiSurface('glass')" in text
+
+
+def test_index_contains_agent_empty_welcome(client):
+    r = client.get('/')
+    text = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert 'agentMessages.length === 0' in text
+    assert '你可以向我提问' in text
+
+
 # ── State / Config ──────────────────────────────────────
 
 def test_state_no_file(auth_client):

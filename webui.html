@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh" data-theme="light" data-glass="off">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -39,6 +39,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .dropdown-item:last-child { border-bottom: none; }
 .dropdown-item:hover { background: #f8fafc; }
 .dropdown-item.danger { color: #ef4444; }
+.dropdown-section { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; }
+.dropdown-section-label { font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
+.dropdown-segment { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.dropdown-segment-btn { border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #64748b; font-size: 12px; padding: 7px 8px; cursor: pointer; }
+.dropdown-segment-btn.active { background: #dbeafe; border-color: #93c5fd; color: #2563eb; font-weight: 600; }
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1e293b; color: #fff; padding: 10px 20px; border-radius: 10px; font-size: 14px; z-index: 300; opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap; }
 .toast.show { opacity: 1; }
 
@@ -109,6 +114,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .proc-pid-cell { font-weight: 600; color: #1e293b; white-space: nowrap; }
 .proc-mem-cell { white-space: nowrap; color: #2563eb; font-weight: 500; }
 .proc-cmd-cell { color: #475569; font-family: monospace; font-size: 12px; word-break: break-all; max-width: 400px; }
+.proc-action-cell { white-space: nowrap; text-align: right; }
+.proc-add-btn { background: #2563eb; color: #fff; border: none; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.proc-add-btn:hover { background: #1d4ed8; }
+.proc-add-btn:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
+.proc-watched { display: inline-flex; align-items: center; background: #dcfce7; color: #16a34a; border-radius: 8px; padding: 4px 8px; font-size: 11px; font-weight: 600; }
 @media (max-width: 639px) {
   .proc-table thead { display: none; }
   .proc-table, .proc-table tbody, .proc-table tr, .proc-table td { display: block; width: 100%; }
@@ -118,6 +128,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   .proc-table td::before { content: attr(data-label); font-size: 10px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; min-width: 48px; flex-shrink: 0; }
   .proc-cmd-cell { word-break: break-all; font-size: 12px; }
   .proc-table td.proc-cmd-cell { align-items: flex-start; }
+  .proc-action-cell { text-align: left; }
 }
 
 /* PIDs */
@@ -213,6 +224,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 }
 .agent-layout { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #fff; min-height: 0; }
 .agent-messages { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; -webkit-overflow-scrolling: touch; min-height: 0; }
+.agent-empty { flex: 1; min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #94a3b8; padding: 24px 12px; }
+.agent-empty-title { font-size: 18px; font-weight: 700; color: #1e293b; margin-bottom: 8px; }
+.agent-empty-sub { font-size: 13px; line-height: 1.6; max-width: 420px; }
 .msg-user { align-self: flex-end; background: #2563eb; color: #fff; border-radius: 14px 14px 4px 14px; padding: 10px 14px; max-width: 82%; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .msg-assistant { align-self: flex-start; background: #f1f5f9; color: #1e293b; border-radius: 4px 14px 14px 14px; padding: 10px 14px; max-width: 92%; font-size: 14px; line-height: 1.6; word-break: break-word; }
 .msg-error { align-self: flex-start; background: #fee2e2; color: #b91c1c; border-radius: 4px 14px 14px 14px; padding: 10px 14px; max-width: 92%; font-size: 13px; }
@@ -290,6 +304,183 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .md-body strong { font-weight: 600; }
 .md-body em { font-style: italic; }
 .md-body hr { border: none; border-top: 1px solid #e2e8f0; margin: 8px 0; }
+
+/* v1 visual system */
+:root,
+[data-theme="light"] {
+  --bg-0: oklch(99% 0.002 260);
+  --bg-1: oklch(100% 0 0);
+  --bg-2: oklch(96.5% 0.005 260);
+  --bg-3: oklch(93% 0.008 260);
+  --bg-4: oklch(88% 0.010 260);
+  --fg-1: oklch(20% 0.018 260);
+  --fg-2: oklch(38% 0.014 260);
+  --fg-3: oklch(56% 0.012 260);
+  --fg-4: oklch(72% 0.008 260);
+  --border-subtle: oklch(94% 0.006 260);
+  --border-default: oklch(89% 0.010 260);
+  --border-strong: oklch(74% 0.014 260);
+  --accent: oklch(54% 0.21 280);
+  --accent-fg: oklch(99% 0.005 280);
+  --accent-bg: oklch(95% 0.04 280);
+  --accent-ring: oklch(54% 0.21 280 / 0.35);
+  --ok-fg: oklch(48% 0.16 150);
+  --ok-bg: oklch(94% 0.05 150);
+  --warn-fg: oklch(56% 0.16 75);
+  --warn-bg: oklch(95% 0.06 75);
+  --danger-fg: oklch(54% 0.22 25);
+  --danger-bg: oklch(95% 0.06 25);
+  --info-fg: oklch(50% 0.14 220);
+  --info-bg: oklch(94% 0.05 220);
+  --gradient-mem: linear-gradient(90deg, var(--ok-fg) 0%, var(--ok-fg) 60%, var(--warn-fg) 78%, var(--danger-fg) 100%);
+  --shadow-sm: 0 1px 2px rgba(15,18,24,.06);
+  --shadow-md: 0 2px 10px rgba(15,18,24,.08);
+  --shadow-lg: 0 12px 40px rgba(15,18,24,.18);
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+  --font-sans: Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+[data-theme="dark"] {
+  --bg-0: oklch(16% 0.012 260);
+  --bg-1: oklch(20% 0.014 260);
+  --bg-2: oklch(24% 0.016 260);
+  --bg-3: oklch(28% 0.018 260);
+  --bg-4: oklch(34% 0.020 260);
+  --fg-1: oklch(96% 0.005 90);
+  --fg-2: oklch(78% 0.008 90);
+  --fg-3: oklch(60% 0.010 260);
+  --fg-4: oklch(45% 0.010 260);
+  --border-subtle: oklch(28% 0.014 260);
+  --border-default: oklch(34% 0.016 260);
+  --border-strong: oklch(46% 0.018 260);
+  --accent: oklch(68% 0.20 280);
+  --accent-fg: oklch(96% 0.02 280);
+  --accent-bg: oklch(28% 0.06 280);
+  --accent-ring: oklch(68% 0.20 280 / 0.4);
+  --ok-fg: oklch(78% 0.18 150);
+  --ok-bg: oklch(28% 0.07 150);
+  --warn-fg: oklch(82% 0.16 75);
+  --warn-bg: oklch(30% 0.07 75);
+  --danger-fg: oklch(72% 0.20 25);
+  --danger-bg: oklch(30% 0.10 25);
+  --info-fg: oklch(80% 0.13 220);
+  --info-bg: oklch(28% 0.06 220);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.32);
+  --shadow-md: 0 2px 10px rgba(0,0,0,.36);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,.48);
+}
+html { background: var(--bg-0); }
+body { font-family: var(--font-sans); background: var(--bg-0); color: var(--fg-1); -webkit-font-smoothing: antialiased; }
+body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, .dropdown-menu, .agent-layout, .agent-bottom, .app-footer-card {
+  transition: background .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease;
+}
+.login-card, .card, .sysinfo-card, .gpu-card, .app-footer-card, .agent-layout {
+  background: var(--bg-1);
+  border-color: var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: none;
+}
+.header {
+  height: 48px;
+  background: color-mix(in oklab, var(--bg-0) 86%, transparent);
+  border-bottom-color: var(--border-subtle);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+}
+.header-title { font-family: var(--font-mono); font-size: 16px; font-weight: 500; color: var(--fg-1); }
+.header-host, .login-sub, .sysinfo-sub, .gpu-model, .gpu-cmd, .refresh-hint, .log-time-text, .pid-cmd { color: var(--fg-3); }
+.tabs { height: 38px; background: var(--bg-0); border-bottom-color: var(--border-subtle); padding: 0 20px; gap: 20px; justify-content: center; }
+.tab { flex: 0 0 auto; min-width: 0; padding: 10px 4px 8px; color: var(--fg-3); border-bottom-width: 2px; font-size: 13px; }
+.tab.active { color: var(--fg-1); border-bottom-color: var(--accent); font-weight: 500; }
+.pane { max-width: 1180px; gap: 10px; padding: 14px 20px 24px; }
+@media (max-width: 560px) {
+  .tabs { justify-content: flex-start; }
+}
+.card-header, .detail-header, .detail-meta, .gpu-stat-row, .agent-bottom { border-color: var(--border-subtle); }
+.sysinfo-label, .sysinfo-section-title, .gpu-stat-label, .detail-body-label, .setting-label, .proc-table th {
+  color: var(--fg-3);
+  letter-spacing: .06em;
+}
+.sysinfo-value, .gpu-name, .gpu-stat-value, .proc-pid-cell, .pid-num, .log-title-text, .detail-title-text, .meta-value { color: var(--fg-1); }
+.gpu-card:hover, .sysinfo-card-link:hover { border-color: var(--border-strong); background: var(--bg-2); box-shadow: none; }
+.bar-bg { background: var(--bg-3); height: 6px; }
+.bar-fill { background: var(--ok-fg); }
+.gpu-pct, .status-badge, .log-tag, .badge-alive, .badge-dead, .proc-watched { border-radius: var(--radius-pill); }
+.login-input, .modal-input, .add-input, .setting-input, .agent-input, .dropdown-segment-btn {
+  background: var(--bg-2);
+  border-color: var(--border-default);
+  color: var(--fg-1);
+}
+.login-input:focus, .modal-input:focus, .add-input:focus, .setting-input:focus, .agent-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+.login-btn, .add-btn, .save-btn, .modal-submit, .agent-send-btn, .proc-add-btn {
+  background: var(--accent);
+  color: var(--accent-fg);
+  box-shadow: none;
+}
+.login-btn:hover, .add-btn:hover, .modal-submit:hover, .agent-send-btn:hover, .proc-add-btn:hover { filter: brightness(.96); }
+.back-btn, .pwd-btn, .logout-btn, .menu-btn, .agent-tool-btn, .dl-btn, .modal-cancel {
+  background: transparent;
+  border-color: var(--border-default);
+  color: var(--fg-2);
+}
+.dropdown-menu, .modal-box { background: var(--bg-1); border-color: var(--border-default); box-shadow: var(--shadow-lg); }
+.dropdown-item, .dropdown-segment-btn { color: var(--fg-1); border-color: var(--border-subtle); }
+.dropdown-item:hover, .dropdown-segment-btn:hover { background: var(--bg-3); }
+.dropdown-section { border-color: var(--border-subtle); }
+.dropdown-segment-btn.active { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+.proc-table td, .pid-row, .log-row, .archive-row, .setting-row { border-color: var(--border-subtle); }
+.proc-cmd-cell, .meta-row, .detail-body-content, .msg-assistant, .agent-empty-sub { color: var(--fg-2); }
+.agent-empty-title { color: var(--fg-1); }
+.detail-body-content, .msg-assistant, .tool-step { background: var(--bg-2); border-color: var(--border-default); }
+.msg-user { background: var(--accent); color: var(--accent-fg); }
+.offline-banner { background: var(--danger-bg); color: var(--danger-fg); }
+.status-badge { background: var(--ok-bg); color: var(--ok-fg); }
+.status-badge.offline { background: var(--danger-bg); color: var(--danger-fg); }
+.app-footer-card a, .dl-btn { color: var(--accent); }
+[data-glass="on"] {
+  background:
+    radial-gradient(900px 600px at 8% -8%, oklch(82% 0.15 280 / .55), transparent 60%),
+    radial-gradient(800px 600px at 100% 12%, oklch(86% 0.13 200 / .50), transparent 62%),
+    radial-gradient(700px 500px at 30% 110%, oklch(88% 0.13 110 / .45), transparent 60%),
+    radial-gradient(900px 700px at 95% 100%, oklch(86% 0.14 30 / .45), transparent 60%),
+    var(--bg-0);
+  background-attachment: fixed;
+}
+[data-glass="on"][data-theme="dark"] {
+  background:
+    radial-gradient(900px 600px at 8% -8%, oklch(40% 0.18 280 / .65), transparent 60%),
+    radial-gradient(800px 600px at 100% 12%, oklch(38% 0.14 200 / .60), transparent 62%),
+    radial-gradient(700px 500px at 30% 110%, oklch(42% 0.16 110 / .55), transparent 60%),
+    radial-gradient(900px 700px at 95% 100%, oklch(40% 0.16 30 / .55), transparent 60%),
+    var(--bg-0);
+  background-attachment: fixed;
+}
+[data-glass="on"] body { background: transparent; }
+[data-glass="on"] .header, [data-glass="on"] .tabs {
+  background: color-mix(in oklab, var(--bg-0) 38%, transparent);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+[data-glass="on"] .login-card, [data-glass="on"] .card, [data-glass="on"] .sysinfo-card, [data-glass="on"] .gpu-card, [data-glass="on"] .app-footer-card, [data-glass="on"] .agent-layout, [data-glass="on"] .modal-box, [data-glass="on"] .dropdown-menu {
+  background: color-mix(in oklab, var(--bg-1) 58%, transparent);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-color: color-mix(in oklab, var(--fg-1) 12%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, white 42%, transparent), 0 8px 32px color-mix(in oklab, black 10%, transparent);
+}
+[data-glass="on"] .login-input, [data-glass="on"] .modal-input, [data-glass="on"] .add-input, [data-glass="on"] .setting-input, [data-glass="on"] .agent-input, [data-glass="on"] .dropdown-segment-btn {
+  background: color-mix(in oklab, var(--bg-1) 55%, transparent);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+}
 </style>
 </head>
 <body>
@@ -323,6 +514,20 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <div class="dropdown" ref="headerDropdown">
         <button class="menu-btn" @click="dropdownOpen = !dropdownOpen" title="操作菜单">⚙</button>
         <div class="dropdown-menu" :class="{open: dropdownOpen}">
+          <div class="dropdown-section">
+            <div class="dropdown-section-label">明暗</div>
+            <div class="dropdown-segment">
+              <button class="dropdown-segment-btn" :class="{active: uiTheme === 'light'}" @click="setUiTheme('light')">Light</button>
+              <button class="dropdown-segment-btn" :class="{active: uiTheme === 'dark'}" @click="setUiTheme('dark')">Dark</button>
+            </div>
+          </div>
+          <div class="dropdown-section">
+            <div class="dropdown-section-label">风格</div>
+            <div class="dropdown-segment">
+              <button class="dropdown-segment-btn" :class="{active: uiSurface === 'solid'}" @click="setUiSurface('solid')">Solid</button>
+              <button class="dropdown-segment-btn" :class="{active: uiSurface === 'glass'}" @click="setUiSurface('glass')">Glass</button>
+            </div>
+          </div>
           <button class="dropdown-item" @click="dropdownOpen=false; pwdModalOpen=true">🔑 修改密码</button>
           <button class="dropdown-item" @click="dropdownOpen=false; sendTestNotify()">🔔 测试通知</button>
           <button class="dropdown-item danger" @click="dropdownOpen=false; doLogout()">退出登录</button>
@@ -410,7 +615,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
           <div v-else class="proc-table-wrap">
             <table class="proc-table">
               <thead><tr>
-                <th>PID</th><th>显存 (MiB)</th><th>用户</th><th>启动时间</th><th>命令</th>
+                <th>PID</th><th>显存 (MiB)</th><th>用户</th><th>启动时间</th><th>命令</th><th style="text-align:right">操作</th>
               </tr></thead>
               <tbody>
                 <tr v-for="p in gpuDetailProcessesSorted" :key="p.pid">
@@ -425,6 +630,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
                   <td data-label="用户" style="white-space:nowrap;color:#475569">{{ p.user || '—' }}</td>
                   <td data-label="启动" style="white-space:nowrap;color:#64748b;font-size:12px">{{ fmtStartTime(p.start_time) }}</td>
                   <td data-label="命令" class="proc-cmd-cell">{{ p.cmd || '—' }}</td>
+                  <td data-label="操作" class="proc-action-cell">
+                    <span v-if="isPidWatched(p.pid)" class="proc-watched">已监控</span>
+                    <button v-else class="proc-add-btn" @click="addGpuProcessPid(p)">添加监控</button>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -702,6 +911,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     </div>
     <div v-else class="agent-layout">
       <div class="agent-messages" ref="agentMessages">
+        <div v-if="agentMessages.length === 0" class="agent-empty">
+          <div class="agent-empty-title">你可以向我提问</div>
+          <div class="agent-empty-sub">比如查看 GPU 状态、分析告警日志、添加 PID 监控，或让 Agent 帮你执行系统运维任务。</div>
+        </div>
         <template v-for="(msg, i) in agentMessages" :key="i">
           <div v-if="msg.role === 'user'" class="msg-user">{{ msg.content }}</div>
           <div v-else-if="msg.role === 'error'" class="msg-error">⚠ {{ msg.content }}</div>
@@ -774,7 +987,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <br>
       ⚠️ 遇到问题？请前往
       <a href="https://github.com/nanoxxs/sserveros/blob/main/README.md" target="_blank" rel="noopener noreferrer">官方文档</a>
-      查看使用教程和常见问题汇总。
+      查看使用教程和常见问题汇总。第三方教程可能已过时，请以官方文档为准。
     </div>
   </div>
 </template>
@@ -840,6 +1053,9 @@ createApp({
       _toastTimer: null,
       // Dropdown
       dropdownOpen: false,
+      // UI appearance
+      uiTheme: 'light',
+      uiSurface: 'solid',
       // Password modal
       pwdModalOpen: false,
       curPwd: '', newPwd: '', confirmPwd: '',
@@ -1015,6 +1231,31 @@ createApp({
       }
     },
 
+    initUiAppearance() {
+      const theme = localStorage.getItem('sserveros.theme');
+      const surface = localStorage.getItem('sserveros.surface');
+      this.uiTheme = theme === 'dark' ? 'dark' : 'light';
+      this.uiSurface = surface === 'glass' ? 'glass' : 'solid';
+      this.applyUiAppearance();
+    },
+
+    applyUiAppearance() {
+      document.documentElement.dataset.theme = this.uiTheme;
+      document.documentElement.dataset.glass = this.uiSurface === 'glass' ? 'on' : 'off';
+    },
+
+    setUiTheme(theme) {
+      this.uiTheme = theme === 'dark' ? 'dark' : 'light';
+      localStorage.setItem('sserveros.theme', this.uiTheme);
+      this.applyUiAppearance();
+    },
+
+    setUiSurface(surface) {
+      this.uiSurface = surface === 'glass' ? 'glass' : 'solid';
+      localStorage.setItem('sserveros.surface', this.uiSurface);
+      this.applyUiAppearance();
+    },
+
     updateAgentPaneHeight() {
       if (this.currentTab !== 'agent') return;
       const pane = document.getElementById('paneAgent');
@@ -1072,7 +1313,7 @@ createApp({
       this.gpuView = 'detail';
       this.gpuDetail = null;
       this.gpuDetailError = '';
-      await this.loadGpuDetail(idx);
+      await Promise.all([this.loadGpuDetail(idx), this.loadPids()]);
     },
 
     async loadGpuDetail(idx) {
@@ -1104,6 +1345,30 @@ createApp({
       if (!r.ok) return;
       const data = await r.json();
       this.pidData = data.watch_pids || [];
+    },
+
+    isPidWatched(pid) {
+      return this.pidData.some(p => p.pid === pid);
+    },
+
+    async addGpuProcessPid(proc) {
+      const pid = parseInt(proc?.pid, 10);
+      if (!pid || pid <= 0) {
+        this.showToast('PID 必须是正整数', false);
+        return;
+      }
+      const note = `GPU ${this.currentGpuIndex}`;
+      const r = await this.api('/api/pids/add', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({pid, note}),
+      });
+      const payload = await r.json().catch(() => ({}));
+      if (r.ok) {
+        this.showToast(payload.warning||payload.message||'PID 已加入监控', !payload.warning);
+        await this.loadPids();
+        return;
+      }
+      this.showToast(payload.error||'添加失败', false);
     },
 
     async addPid() {
@@ -1594,6 +1859,7 @@ createApp({
   },
 
   mounted() {
+    this.initUiAppearance();
     this.checkAuth();
     window.addEventListener('resize', this.updateAgentPaneHeight);
     document.addEventListener('click', e => {
