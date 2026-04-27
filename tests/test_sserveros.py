@@ -9,6 +9,8 @@ from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT_DIR))
+from monitor import Monitor
 
 
 def _write_exec(path: Path, content: str):
@@ -35,6 +37,28 @@ def _read_log_entries(path: Path):
     if not path.exists():
         return []
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def test_monitor_notify_cfg_uses_config_source_to_ignore_stale_env(tmp_path, monkeypatch):
+    cfg = {
+        'sendkey': '',
+        'serverchan_keys': ['SCTnew'],
+        'bark_configs': [],
+        'notification_channels_source': 'config',
+        'check_interval': 5,
+        'mem_threshold_mib': 10240,
+        'confirm_times': 2,
+        'gpus': [0],
+        'watch_pids': [],
+    }
+    (tmp_path / 'config.json').write_text(json.dumps(cfg))
+    (tmp_path / 'runtime').mkdir()
+    monkeypatch.setenv('SERVERCHAN_KEYS', 'SCTold')
+
+    monitor = Monitor(script_dir=str(tmp_path))
+    monitor.load_config()
+
+    assert monitor._notify_cfg()['serverchan_keys'] == ['SCTnew']
 
 
 def _write_mock_state(path: Path, *, gpu_indices, gpus, apps, alive_pids):

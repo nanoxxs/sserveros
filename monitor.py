@@ -76,6 +76,7 @@ class Monitor:
         self.sendkey = ''
         self.serverchan_keys: list = []
         self.bark_configs: list = []
+        self.notification_channels_source = ''
 
         # GPU 状态
         self.gpu_low_count: dict[int, int] = {}
@@ -156,6 +157,7 @@ class Monitor:
             self.serverchan_keys = cfg.get('serverchan_keys', [])
         if not self.bark_configs:
             self.bark_configs = cfg.get('bark_configs', [])
+        self.notification_channels_source = cfg.get('notification_channels_source', '')
         watch_pids_cfg = cfg.get('watch_pids', [])
         for wp in watch_pids_cfg:
             pid = int(wp['pid'])
@@ -222,6 +224,10 @@ class Monitor:
             self.sendkey = cfg.get('sendkey', self.sendkey)
             self.serverchan_keys = cfg.get('serverchan_keys', self.serverchan_keys)
             self.bark_configs = cfg.get('bark_configs', self.bark_configs)
+            self.notification_channels_source = cfg.get(
+                'notification_channels_source',
+                self.notification_channels_source,
+            )
             self._sync_gpu_state_arrays()
             if (
                 prev_enabled != self.gpu_mem_monitor_enabled
@@ -271,6 +277,7 @@ class Monitor:
             'sendkey': self.sendkey,
             'serverchan_keys': self.serverchan_keys,
             'bark_configs': self.bark_configs,
+            'notification_channels_source': self.notification_channels_source,
         })
 
     def _clear_stop_context(self):
