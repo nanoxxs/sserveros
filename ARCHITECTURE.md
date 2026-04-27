@@ -126,7 +126,7 @@ python monitor.py             # 启动监控守护进程
 2. `.env` 文件（启动时自动加载）
 3. `config.json` 中的 `serverchan_keys` / `bark_configs` / `sendkey` 字段
 
-环境变量中的通知渠道只在运行时覆盖，不会自动回写到 `config.json`。
+环境变量中的通知渠道只在运行时覆盖，不会自动回写到 `config.json`。通过 WebUI 保存通知渠道后，配置会切换为以 `config.json` 为准，避免运行中进程的旧环境变量继续覆盖新配置。
 
 启动时如果所有渠道均未配置，直接报错退出。
 

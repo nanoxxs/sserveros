@@ -71,6 +71,9 @@ def effective_channel_config(cfg: dict, *, environ: dict = None) -> dict:
         'serverchan_keys': list(cfg.get('serverchan_keys', [])),
         'bark_configs': list(cfg.get('bark_configs', [])),
     }
+    if cfg.get('notification_channels_source') == 'config':
+        return effective
+
     env_serverchan = _serverchan_keys_from_env(environ)
     env_bark = _bark_configs_from_env(environ)
 

@@ -10,6 +10,7 @@
 |------|------|--------|-----------|------|------|
 | `password_hash` | string | 随机生成 | 是（设置页改密） | 是（哈希值） | WebUI 登录密码哈希（werkzeug pbkdf2） |
 | `sendkey` | string | `""` | 是 | 是 | Server Chan 推送密钥，也可通过 `SENDKEY` 环境变量设置 |
+| `notification_channels_source` | string | `""` | 是（隐式） | 否 | WebUI 保存通知渠道后写为 `"config"`，表示后续以 `config.json` 渠道为准 |
 | `check_interval` | int | `5` | 是 | 否 | 主循环检测间隔（秒） |
 | `mem_threshold_mib` | int | `10240` | 是 | 否 | GPU 显存低于此值触发告警（MiB） |
 | `confirm_times` | int | `2` | 是 | 否 | 连续 N 次检测到才触发通知 |
@@ -40,7 +41,7 @@ echo "SENDKEY=SCTxxx" >> .env
 SENDKEY=SCTxxx python monitor.py
 ```
 
-通过 WebUI 设置页保存的渠道配置会写入 `config.json`；通过 `.env` / 环境变量提供的渠道配置只在运行时生效，不会自动回写到 `config.json`。
+通过 WebUI 设置页保存的渠道配置会写入 `config.json`，并让后续通知以 `config.json` 为准；通过 `.env` / 环境变量提供的渠道配置只在运行时生效，不会自动回写到 `config.json`。
 
 ## 优先级
 
@@ -48,7 +49,7 @@ monitor.py 在启动时按以下顺序确定 SENDKEY（先找到则使用）：
 1. 环境变量 `SENDKEY`（含从 `.env` 加载的）
 2. `config.json` 中的 `sendkey` 字段
 
-`SERVERCHAN_KEYS`、`BARK_CONFIGS` 也遵循同样的优先级：环境变量优先于 `config.json`。
+`SERVERCHAN_KEYS`、`BARK_CONFIGS` 也遵循同样的优先级：环境变量优先于 `config.json`。但一旦通过 WebUI 保存过通知渠道，配置会标记为以 `config.json` 为准，避免已经运行的监控进程继续使用启动时残留的旧环境变量。
 
 其他监控参数（`check_interval` 等）从 `config.json` 加载，无法通过环境变量覆盖。
 

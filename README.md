@@ -104,6 +104,7 @@ BARK_CONFIGS=https://api.day.app|YourKey1,https://api.day.app|YourKey2
 说明：
 
 - 通过 `.env` / 环境变量提供的通知渠道只在运行时生效，不会自动回写到 `config.json`
+- 在 WebUI 保存通知渠道后，后续通知会以 `config.json` 为准，避免已运行的监控进程继续使用启动时残留的旧环境变量
 - WebUI 检测到环境变量渠道时，会提示“已配置但不回显明文”；测试通知仍会按当前有效配置发送
 
 ## 启动

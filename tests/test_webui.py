@@ -226,6 +226,24 @@ def test_config_reports_env_channel_summary(auth_client, monkeypatch):
     ]
 
 
+def test_config_source_ignores_stale_env_channels(monkeypatch):
+    import notifier
+
+    monkeypatch.setenv('SERVERCHAN_KEYS', 'SCTold')
+    monkeypatch.setenv('BARK_CONFIGS', 'https://api.day.app|old-key')
+
+    cfg = {
+        'notification_channels_source': 'config',
+        'sendkey': '',
+        'serverchan_keys': ['SCTnew'],
+        'bark_configs': [{'url': 'https://api.day.app', 'key': 'new-key'}],
+    }
+    effective = notifier.effective_channel_config(cfg)
+
+    assert effective['serverchan_keys'] == ['SCTnew']
+    assert effective['bark_configs'] == [{'url': 'https://api.day.app', 'key': 'new-key'}]
+
+
 # ── Log ─────────────────────────────────────────────────
 
 def test_log_empty(auth_client):
@@ -414,6 +432,23 @@ def test_save_settings_serverchan_keys_clear_legacy_sendkey(auth_client, tmp_con
     assert r.status_code == 200
     assert cfg['serverchan_keys'] == ['SCTnew']
     assert cfg['sendkey'] == ''
+    assert cfg['notification_channels_source'] == 'config'
+
+
+def test_save_settings_marks_config_source_so_runtime_env_no_longer_overrides(
+        auth_client, tmp_config, monkeypatch):
+    import notifier
+
+    monkeypatch.setenv('SERVERCHAN_KEYS', 'SCTold')
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+
+    r = auth_client.post('/api/settings', json={'serverchan_keys': ['SCTnew']},
+                         content_type='application/json')
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    effective = notifier.effective_channel_config(cfg, environ={'SERVERCHAN_KEYS': 'SCTold'})
+
+    assert r.status_code == 200
+    assert effective['serverchan_keys'] == ['SCTnew']
 
 
 def test_save_settings_rejects_invalid_gpus(auth_client, monkeypatch):

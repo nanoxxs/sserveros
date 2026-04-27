@@ -394,12 +394,13 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 }
 .header-title { font-family: var(--font-mono); font-size: 16px; font-weight: 500; color: var(--fg-1); }
 .header-host, .login-sub, .sysinfo-sub, .gpu-model, .gpu-cmd, .refresh-hint, .log-time-text, .pid-cmd { color: var(--fg-3); }
-.tabs { height: 38px; background: var(--bg-0); border-bottom-color: var(--border-subtle); padding: 0 20px; gap: 20px; justify-content: center; }
-.tab { flex: 0 0 auto; min-width: 0; padding: 10px 4px 8px; color: var(--fg-3); border-bottom-width: 2px; font-size: 13px; }
+.tabs { height: 38px; background: var(--bg-0); border-bottom-color: var(--border-subtle); padding: 0 24px; gap: 14px; justify-content: center; }
+.tab { flex: 0 0 auto; min-width: 88px; padding: 10px 14px 8px; color: var(--fg-3); border-bottom-width: 2px; font-size: 13px; }
 .tab.active { color: var(--fg-1); border-bottom-color: var(--accent); font-weight: 500; }
 .pane { max-width: 1180px; gap: 10px; padding: 14px 20px 24px; }
 @media (max-width: 560px) {
-  .tabs { justify-content: flex-start; }
+  .tabs { justify-content: flex-start; padding: 0 14px; gap: 10px; }
+  .tab { min-width: 82px; padding-left: 12px; padding-right: 12px; }
 }
 .card-header, .detail-header, .detail-meta, .gpu-stat-row, .agent-bottom { border-color: var(--border-subtle); }
 .sysinfo-label, .sysinfo-section-title, .gpu-stat-label, .detail-body-label, .setting-label, .proc-table th {

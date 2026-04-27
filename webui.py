@@ -509,6 +509,8 @@ def create_app(script_dir: str = None):
                 return jsonify({'error': 'current password incorrect'}), 401
             cfg['password_hash'] = generate_password_hash(data['new_password'])
             password_changed = True
+        if 'serverchan_keys' in data or 'bark_configs' in data:
+            cfg['notification_channels_source'] = 'config'
         save_config_file(_config_path(script_dir), cfg)
         if 'serverchan_keys' in data or 'bark_configs' in data:
             if any(os.environ.get(k) for k in _ENV_CHANNEL_KEYS):
