@@ -209,7 +209,7 @@ prompt_notify_channel() {
     [ -n "${sc}"   ] && echo "  SERVERCHAN_KEYS: ${sc}"
     [ -n "${bark}" ] && echo "  BARK_CONFIGS:    ${bark}"
     [ -n "${sk}"   ] && ! is_placeholder_sendkey "${sk}" && echo "  SENDKEY:         $(mask_value "${sk}")"
-    printf '按回车保留，或输入 1/2 重新配置 [回车跳过]: '
+    printf '按回车保留；输入 1 重新配置 Server Chan，输入 2 重新配置 Bark [回车保留]: '
     read -r choice
     [ -z "${choice}" ] && return 0
   else
