@@ -229,6 +229,94 @@ def test_sserveros_writes_state_from_mocked_commands(tmp_path):
         _stop_monitor(proc)
 
 
+def test_sserveros_main_pid_monitor_can_be_disabled(tmp_path):
+    project_dir, mock_state_path = _prepare_project(tmp_path)
+    log_path = project_dir / 'runtime' / 'log.json'
+    _write_mock_state(
+        mock_state_path,
+        gpu_indices=[0],
+        gpus=[
+            {'index': 0, 'uuid': 'GPU-0', 'mem_used': 4000, 'mem_total': 10000, 'name': 'GPU Zero'},
+        ],
+        apps=[
+            {'gpu_uuid': 'GPU-0', 'pid': 111, 'used_memory': 3500},
+        ],
+        alive_pids={111: 'python train_zero.py'},
+    )
+    proc = _start_monitor(project_dir, {
+        'check_interval': 1,
+        'confirm_times': 1,
+        'mem_threshold_mib': 3000,
+        'gpu_mem_monitor_enabled': False,
+        'main_pid_monitor_enabled': False,
+        'gpus': [0],
+        'watch_pids': [],
+        'sendkey': 'SCTtest',
+    })
+
+    try:
+        state = _wait_until(lambda: _state_if_matches(project_dir, [0]))
+        assert state['gpus'][0]['top_pid'] == 111
+        assert state['gpus'][0]['top_cmd'] == 'python train_zero.py'
+        assert not any('主PID' in e['title'] for e in _read_log_entries(log_path))
+
+        _write_mock_state(
+            mock_state_path,
+            gpu_indices=[0],
+            gpus=[
+                {'index': 0, 'uuid': 'GPU-0', 'mem_used': 0, 'mem_total': 10000, 'name': 'GPU Zero'},
+            ],
+            apps=[],
+            alive_pids={111: 'python train_zero.py'},
+        )
+        state = _wait_until(
+            lambda: _read_json(project_dir / 'runtime' / 'state.json')
+            if (project_dir / 'runtime' / 'state.json').exists()
+            and _read_json(project_dir / 'runtime' / 'state.json')['gpus'][0]['top_pid'] is None
+            else None
+        )
+        assert state['gpus'][0]['top_pid'] is None
+        assert not any('主PID' in e['title'] for e in _read_log_entries(log_path))
+    finally:
+        _stop_monitor(proc)
+
+
+def test_sserveros_recovery_alert_omits_main_pid_when_disabled(tmp_path, monkeypatch):
+    (tmp_path / 'runtime').mkdir()
+    monitor = Monitor(script_dir=str(tmp_path))
+    monitor.gpus = [0]
+    monitor.gpu_mem_monitor_enabled = True
+    monitor.main_pid_monitor_enabled = False
+    monitor.mem_threshold_mib = 3000
+    monitor.confirm_times = 1
+    monitor.gpu_mem_total[0] = 10000
+    monitor.gpu_name[0] = 'GPU Zero'
+    monitor.gpu_low_alerted[0] = True
+    monitor.gpu_need_rearm_notify[0] = True
+    monitor.gpu_low_count[0] = 1
+    monitor.gpu_high_count[0] = 0
+    sent = []
+
+    monkeypatch.setattr(monitor, 'query_gpu_info', lambda: ({'GPU-0': 0}, {0: 4000}))
+    monkeypatch.setattr(monitor, 'query_compute_apps', lambda _uuid_to_gpu: ({0: 111}, {0: 3500}))
+    monkeypatch.setattr('monitor._nvidia_smi_full', lambda: 'mock nvidia-smi')
+    monkeypatch.setattr(
+        monitor,
+        'send_notification',
+        lambda title, content, event_type='info': sent.append({
+            'title': title,
+            'content': content,
+            'type': event_type,
+        }),
+    )
+
+    monitor.check_once()
+
+    assert sent[0]['type'] == 'recover'
+    assert '重新识别主PID' not in sent[0]['content']
+    assert '主PID' not in sent[0]['content']
+
+
 def test_sserveros_usr1_and_usr2_update_watch_pid_state(tmp_path):
     project_dir, mock_state_path = _prepare_project(tmp_path)
     _write_mock_state(

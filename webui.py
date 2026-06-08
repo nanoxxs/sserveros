@@ -503,6 +503,13 @@ def create_app(script_dir: str = None):
             if cfg.get('gpu_mem_monitor_enabled', True) != val:
                 runtime_reload_needed = True
             cfg['gpu_mem_monitor_enabled'] = val
+        if 'main_pid_monitor_enabled' in data:
+            val = data['main_pid_monitor_enabled']
+            if not isinstance(val, bool):
+                return jsonify({'error': 'invalid value for main_pid_monitor_enabled'}), 400
+            if cfg.get('main_pid_monitor_enabled', True) != val:
+                runtime_reload_needed = True
+            cfg['main_pid_monitor_enabled'] = val
         if data.get('new_password'):
             if not check_password_hash(cfg.get('password_hash', ''),
                                        data.get('current_password', '')):
@@ -718,6 +725,7 @@ def _build_test_notify_content(cfg: dict, summary: dict) -> str:
         '如果你看到此消息，说明推送渠道配置正确。\n\n'
         '## 当前监控参数\n'
         f'- 显存阈值监控: {"开启" if cfg.get("gpu_mem_monitor_enabled", True) else "关闭"}\n'
+        f'- 主 PID 监控: {"开启" if cfg.get("main_pid_monitor_enabled", True) else "关闭"}\n'
         f'- 显存告警阈值: {cfg.get("mem_threshold_mib", 10240)} MiB\n'
         f'- 检测间隔: {cfg.get("check_interval", 5)} 秒\n'
         f'- 确认次数: {cfg.get("confirm_times", 2)}\n'

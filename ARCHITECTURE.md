@@ -96,10 +96,10 @@ runtime/
 1. `nvidia-smi --query-gpu` → 获取各卡显存使用 / 总量 / 型号
 2. `nvidia-smi --query-compute-apps` → 获取各卡最大显存占用进程（主 PID）
 3. 事件检测（按顺序）：
-   - 首次发现主 PID → 发通知
-   - 主 PID 连续消失 ≥ confirm_times → 发通知
+   - 首次发现主 PID → 发通知（仅 `main_pid_monitor_enabled=True` 时）
+   - 主 PID 连续消失 ≥ confirm_times → 发通知（仅 `main_pid_monitor_enabled=True` 时）
    - GPU 显存持续低于 mem_threshold_mib → 发通知（仅 `gpu_mem_monitor_enabled=True` 时）
-   - GPU 显存恢复高占用 → 发通知 + 重新识别主 PID（同上）
+   - GPU 显存恢复高占用 → 发通知；仅 `main_pid_monitor_enabled=True` 时附带重新识别主 PID
    - watch_pids 中的指定 PID 消失 → 发通知（不受显存监控开关影响）
 4. `write_state_json` → 写 `runtime/state.json`（原子替换）
 
@@ -181,6 +181,7 @@ python monitor.py             # 启动监控守护进程
 | `log_archive_keep` | int | `5` | 是 | 存档保留数量 |
 | `gpus` | int[] | `[]` | 是 | 监控的 GPU 索引列表，空数组自动检测全部 |
 | `gpu_mem_monitor_enabled` | bool | `true` | 是 | 显存阈值监控开关 |
+| `main_pid_monitor_enabled` | bool | `true` | 是 | 主 PID 发现/消失告警开关 |
 | `watch_pids` | object[] | `[]` | 是（PIDs 页） | `[{"pid":N,"note":"..."}]` |
 | `webui_host` | string | `"0.0.0.0"` | 否（重启生效） | WebUI 绑定地址 |
 | `webui_port` | int | `6777` | 否（重启生效） | WebUI 监听端口 |

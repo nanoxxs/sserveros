@@ -14,6 +14,7 @@ DEFAULT_CONFIG = {
     'log_max_size_mb': 10,
     'log_archive_keep': 5,
     'gpu_mem_monitor_enabled': True,
+    'main_pid_monitor_enabled': True,
     'gpus': [],
     'watch_pids': [],
     'webui_host': '0.0.0.0',

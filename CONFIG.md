@@ -17,6 +17,8 @@
 | `log_max_size_mb` | int | `10` | 是 | 否 | `runtime/log.json` 超过此大小时自动压缩（MB） |
 | `log_archive_keep` | int | `5` | 是 | 否 | 保留的历史压缩存档数量 |
 | `gpus` | int[] | `[]` | 是 | 否 | 监控的 GPU 索引列表，空数组表示自动检测全部 |
+| `main_pid_monitor_enabled` | bool | `true` | 是 | 否 | 主 PID 发现/消失告警开关；关闭后恢复高占用告警不附带主 PID 重识别，概览仍显示当前 top PID |
+| `gpu_mem_monitor_enabled` | bool | `true` | 是 | 否 | 显存阈值告警开关，关闭后不影响主 PID 和指定 PID 监控 |
 | `watch_pids` | object[] | `[]` | 是（PIDs 页） | 否 | 持久化的监控 PID 列表，格式：`[{"pid": 1234, "note": "备注"}]` |
 | `webui_host` | string | `"0.0.0.0"` | 否 | 否 | WebUI 绑定地址，修改需重启 |
 | `webui_port` | int | `6777` | 否 | 否 | WebUI 监听端口，修改需重启 |

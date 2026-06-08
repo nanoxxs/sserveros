@@ -730,6 +730,16 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
           <span class="toggle-slider"></span>
         </label>
       </div>
+      <div class="setting-row setting-row-toggle">
+        <div>
+          <div class="setting-label" style="margin-bottom:2px">主 PID 监控</div>
+          <div style="font-size:12px;color:#94a3b8">关闭后停止主 PID 发现/消失和恢复告警中的重识别，概览仍显示 top PID</div>
+        </div>
+        <label class="toggle-switch" style="margin-left:16px">
+          <input type="checkbox" v-model="cfgMainPidMonitor">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
       <div class="setting-row">
         <div class="setting-label">显存告警阈值 (MiB)</div>
         <input class="setting-input" v-model.number="cfgThreshold" type="number">
@@ -1079,6 +1089,7 @@ createApp({
       pidMsg: {text:'', kind:''},
       // Settings
       cfgMemMonitor: true,
+      cfgMainPidMonitor: true,
       cfgThreshold: 10240,
       cfgInterval: 5,
       cfgConfirm: 2,
@@ -1437,6 +1448,7 @@ createApp({
       this.cfgLogKeep = cfg.log_archive_keep ?? 5;
       this.cfgGpus = (cfg.gpus || []).join(',');
       this.cfgMemMonitor = cfg.gpu_mem_monitor_enabled !== false;
+      this.cfgMainPidMonitor = cfg.main_pid_monitor_enabled !== false;
       const envScKeys = env.env_serverchan_keys || [];
       const envBarkConfigs = env.env_bark_configs || [];
       const scKeys = [...(cfg.serverchan_keys || [])];
@@ -1497,7 +1509,9 @@ createApp({
           confirm_times: parsePos(this.cfgConfirm, '确认次数'),
           log_max_size_mb: parsePos(this.cfgLogMb, '日志压缩触发大小'),
           log_archive_keep: parsePos(this.cfgLogKeep, '历史存档保留数量'),
-          gpus, gpu_mem_monitor_enabled: this.cfgMemMonitor,
+          gpus,
+          gpu_mem_monitor_enabled: this.cfgMemMonitor,
+          main_pid_monitor_enabled: this.cfgMainPidMonitor,
           sendkey: '', serverchan_keys, bark_configs,
         };
       } catch(err) {

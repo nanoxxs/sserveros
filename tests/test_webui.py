@@ -26,6 +26,8 @@ def tmp_config(tmp_path):
         'confirm_times': 2,
         'log_max_size_mb': 10,
         'log_archive_keep': 5,
+        'gpu_mem_monitor_enabled': True,
+        'main_pid_monitor_enabled': True,
         'gpus': [],
         'watch_pids': [],
         'webui_host': '0.0.0.0',
@@ -391,10 +393,13 @@ def test_save_settings_updates_config(auth_client, tmp_config, monkeypatch):
     auth_client.post('/api/settings', json={
         'mem_threshold_mib': 8192, 'check_interval': 10,
         'confirm_times': 3, 'log_max_size_mb': 5, 'log_archive_keep': 2,
+        'gpu_mem_monitor_enabled': False, 'main_pid_monitor_enabled': False,
     }, content_type='application/json')
     cfg = json.loads((tmp_config / 'config.json').read_text())
     assert cfg['mem_threshold_mib'] == 8192
     assert cfg['check_interval'] == 10
+    assert cfg['gpu_mem_monitor_enabled'] is False
+    assert cfg['main_pid_monitor_enabled'] is False
 
 
 def test_save_settings_updates_gpus(auth_client, tmp_config, monkeypatch):
@@ -461,6 +466,13 @@ def test_save_settings_rejects_invalid_gpus(auth_client, monkeypatch):
 def test_save_settings_rejects_bool_numeric_values(auth_client, monkeypatch):
     monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
     r = auth_client.post('/api/settings', json={'check_interval': True},
+                         content_type='application/json')
+    assert r.status_code == 400
+
+
+def test_save_settings_rejects_invalid_main_pid_monitor_toggle(auth_client, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+    r = auth_client.post('/api/settings', json={'main_pid_monitor_enabled': 'no'},
                          content_type='application/json')
     assert r.status_code == 400
 

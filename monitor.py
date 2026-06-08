@@ -72,6 +72,7 @@ class Monitor:
         self.confirm_times = 2
         self.mem_threshold_mib = 10240
         self.gpu_mem_monitor_enabled = True
+        self.main_pid_monitor_enabled = True
         self.gpus: list[int] = []
         self.sendkey = ''
         self.serverchan_keys: list = []
@@ -149,6 +150,7 @@ class Monitor:
         self.confirm_times = cfg.get('confirm_times', self.confirm_times)
         self.mem_threshold_mib = cfg.get('mem_threshold_mib', self.mem_threshold_mib)
         self.gpu_mem_monitor_enabled = cfg.get('gpu_mem_monitor_enabled', True)
+        self.main_pid_monitor_enabled = cfg.get('main_pid_monitor_enabled', True)
         raw_gpus = cfg.get('gpus', [])
         self.gpus = [int(g) for g in raw_gpus] if raw_gpus else self._detect_all_gpus()
         if not self.sendkey:
@@ -214,11 +216,13 @@ class Monitor:
             prev_check_interval = self.check_interval
             prev_confirm_times = self.confirm_times
             prev_enabled = self.gpu_mem_monitor_enabled
+            prev_main_pid_enabled = self.main_pid_monitor_enabled
             prev_gpus = list(self.gpus)
             self.mem_threshold_mib = cfg.get('mem_threshold_mib', self.mem_threshold_mib)
             self.check_interval = cfg.get('check_interval', self.check_interval)
             self.confirm_times = cfg.get('confirm_times', self.confirm_times)
             self.gpu_mem_monitor_enabled = cfg.get('gpu_mem_monitor_enabled', True)
+            self.main_pid_monitor_enabled = cfg.get('main_pid_monitor_enabled', True)
             raw_gpus = cfg.get('gpus', [])
             self.gpus = [int(g) for g in raw_gpus] if raw_gpus else self._detect_all_gpus()
             self.sendkey = cfg.get('sendkey', self.sendkey)
@@ -237,11 +241,13 @@ class Monitor:
                 or prev_gpus != self.gpus
             ):
                 self._reset_gpu_mem_alert_state()
+            if prev_main_pid_enabled != self.main_pid_monitor_enabled or prev_gpus != self.gpus:
+                self._reset_main_pid_state()
             ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             print(
                 f'[{ts}] 已重新加载配置: GPUs={self.gpus} 阈值={self.mem_threshold_mib} '
                 f'间隔={self.check_interval} 确认={self.confirm_times} '
-                f'显存监控={self.gpu_mem_monitor_enabled}',
+                f'显存监控={self.gpu_mem_monitor_enabled} 主PID监控={self.main_pid_monitor_enabled}',
                 flush=True,
             )
 
@@ -486,6 +492,13 @@ class Monitor:
                     d.pop(pid, None)
                 self.prev_pid_present.discard(pid)
 
+    def _reset_main_pid_state(self):
+        for d in (self.pid_seen_notified, self.pid_disappear_notified,
+                  self.pid_miss_count, self.pid_last_psfp,
+                  self.pid_last_cmd, self.pid_last_gpus, self.pid_last_maxmem):
+            d.clear()
+        self.prev_pid_present.clear()
+
     # ── 主检测循环 ────────────────────────────────────────────────────────────
 
     def check_once(self):
@@ -518,66 +531,67 @@ class Monitor:
             if mem > current_pid_maxmem.get(pid, 0):
                 current_pid_maxmem[pid] = mem
 
-        # ── 事件 1：首次发现主 PID ────────────────────────────────────────────
-        for pid in current_pid_present:
-            self.pid_miss_count[pid] = 0
-            self.prev_pid_present.add(pid)
-            if self.pid_disappear_notified.get(pid):
-                self.pid_disappear_notified[pid] = False
-            self.pid_last_gpus[pid] = current_pid_gpus[pid]
-            self.pid_last_maxmem[pid] = current_pid_maxmem[pid]
-
-            if self.pid_seen_notified.get(pid):
-                continue
-
-            self.fill_pid_cache_if_alive(pid)
-            psfp = self.pid_last_psfp.get(pid, '（进程已退出，无法获取）')
-            cmd = self.pid_last_cmd.get(pid, '（进程已退出，无法获取）')
-            pid_gpus = self.pid_last_gpus.get(pid, '未知')
-            pid_mem = self.pid_last_maxmem.get(pid, '未知')
-
-            content = (
-                f'## 发现新的主PID — {HOSTNAME_TAG}\n\n'
-                f'- PID: `{pid}`\n'
-                f'- GPU: `{pid_gpus}`\n'
-                f'- 显存占用: `{pid_mem} MiB`\n'
-                f'- 检测时间: `{now}`\n\n'
-                f'### ps -fp {pid}\n```\n{psfp}\n```\n\n'
-                f'### 完整启动命令\n```\n{cmd}\n```\n\n'
-                f'### nvidia-smi\n```\n{get_nvs()}\n```'
-            )
-            self.send_notification(f'{TITLE_PREFIX} - 发现主PID [{HOSTNAME_TAG}]', content, 'found')
-            self.pid_seen_notified[pid] = True
-            print(f'[{now}] 发现主PID: pid={pid} gpus={pid_gpus}', flush=True)
-
-        # ── 事件 2：主 PID 连续消失 ───────────────────────────────────────────
-        for pid in list(self.prev_pid_present):
-            if pid in current_pid_present:
+        if self.main_pid_monitor_enabled:
+            # ── 事件 1：首次发现主 PID ────────────────────────────────────────
+            for pid in current_pid_present:
                 self.pid_miss_count[pid] = 0
-                continue
-            self.pid_miss_count[pid] = self.pid_miss_count.get(pid, 0) + 1
-            miss = self.pid_miss_count[pid]
-            if miss < self.confirm_times:
-                continue
-            if self.pid_disappear_notified.get(pid):
-                continue
+                self.prev_pid_present.add(pid)
+                if self.pid_disappear_notified.get(pid):
+                    self.pid_disappear_notified[pid] = False
+                self.pid_last_gpus[pid] = current_pid_gpus[pid]
+                self.pid_last_maxmem[pid] = current_pid_maxmem[pid]
 
-            content = (
-                f'## 主PID已消失 — {HOSTNAME_TAG}\n\n'
-                f'- PID: `{pid}`\n'
-                f'- GPU: `{self.pid_last_gpus.get(pid, "未知")}`\n'
-                f'- 最大显存: `{self.pid_last_maxmem.get(pid, "未知")} MiB`\n'
-                f'- 检测时间: `{now}`\n'
-                f'- 判定: 连续 {self.confirm_times} 次未出现\n\n'
-                f'### 最后记录的 ps -fp {pid}\n```\n'
-                f'{self.pid_last_psfp.get(pid, "（进程已退出，无法获取）")}\n```\n\n'
-                f'### 最后记录的完整命令\n```\n'
-                f'{self.pid_last_cmd.get(pid, "（进程已退出，无法获取）")}\n```\n\n'
-                f'### nvidia-smi\n```\n{get_nvs()}\n```'
-            )
-            self.send_notification(f'{TITLE_PREFIX} - 主PID消失 [{HOSTNAME_TAG}]', content, 'warn')
-            self.pid_disappear_notified[pid] = True
-            print(f'[{now}] 主PID消失: pid={pid}', flush=True)
+                if self.pid_seen_notified.get(pid):
+                    continue
+
+                self.fill_pid_cache_if_alive(pid)
+                psfp = self.pid_last_psfp.get(pid, '（进程已退出，无法获取）')
+                cmd = self.pid_last_cmd.get(pid, '（进程已退出，无法获取）')
+                pid_gpus = self.pid_last_gpus.get(pid, '未知')
+                pid_mem = self.pid_last_maxmem.get(pid, '未知')
+
+                content = (
+                    f'## 发现新的主PID — {HOSTNAME_TAG}\n\n'
+                    f'- PID: `{pid}`\n'
+                    f'- GPU: `{pid_gpus}`\n'
+                    f'- 显存占用: `{pid_mem} MiB`\n'
+                    f'- 检测时间: `{now}`\n\n'
+                    f'### ps -fp {pid}\n```\n{psfp}\n```\n\n'
+                    f'### 完整启动命令\n```\n{cmd}\n```\n\n'
+                    f'### nvidia-smi\n```\n{get_nvs()}\n```'
+                )
+                self.send_notification(f'{TITLE_PREFIX} - 发现主PID [{HOSTNAME_TAG}]', content, 'found')
+                self.pid_seen_notified[pid] = True
+                print(f'[{now}] 发现主PID: pid={pid} gpus={pid_gpus}', flush=True)
+
+            # ── 事件 2：主 PID 连续消失 ───────────────────────────────────────
+            for pid in list(self.prev_pid_present):
+                if pid in current_pid_present:
+                    self.pid_miss_count[pid] = 0
+                    continue
+                self.pid_miss_count[pid] = self.pid_miss_count.get(pid, 0) + 1
+                miss = self.pid_miss_count[pid]
+                if miss < self.confirm_times:
+                    continue
+                if self.pid_disappear_notified.get(pid):
+                    continue
+
+                content = (
+                    f'## 主PID已消失 — {HOSTNAME_TAG}\n\n'
+                    f'- PID: `{pid}`\n'
+                    f'- GPU: `{self.pid_last_gpus.get(pid, "未知")}`\n'
+                    f'- 最大显存: `{self.pid_last_maxmem.get(pid, "未知")} MiB`\n'
+                    f'- 检测时间: `{now}`\n'
+                    f'- 判定: 连续 {self.confirm_times} 次未出现\n\n'
+                    f'### 最后记录的 ps -fp {pid}\n```\n'
+                    f'{self.pid_last_psfp.get(pid, "（进程已退出，无法获取）")}\n```\n\n'
+                    f'### 最后记录的完整命令\n```\n'
+                    f'{self.pid_last_cmd.get(pid, "（进程已退出，无法获取）")}\n```\n\n'
+                    f'### nvidia-smi\n```\n{get_nvs()}\n```'
+                )
+                self.send_notification(f'{TITLE_PREFIX} - 主PID消失 [{HOSTNAME_TAG}]', content, 'warn')
+                self.pid_disappear_notified[pid] = True
+                print(f'[{now}] 主PID消失: pid={pid}', flush=True)
 
         # ── 事件 3/4：GPU 显存跌破 / 恢复阈值 ────────────────────────────────
         if self.gpu_mem_monitor_enabled:
@@ -622,36 +636,50 @@ class Monitor:
                     if high < self.confirm_times:
                         continue
 
-                    t_pid = top_pid.get(gpu)
-                    t_mem = top_mem.get(gpu, '')
-                    if t_pid:
-                        self.fill_pid_cache_if_alive(t_pid)
-                        psfp = self.pid_last_psfp.get(t_pid, '（进程已退出，无法获取）')
-                        cmd = self.pid_last_cmd.get(t_pid, '（进程已退出，无法获取）')
-                    else:
-                        psfp = '当前无计算PID'
-                        cmd = '当前无计算PID'
+                    if self.main_pid_monitor_enabled:
+                        t_pid = top_pid.get(gpu)
+                        t_mem = top_mem.get(gpu, '')
+                        if t_pid:
+                            self.fill_pid_cache_if_alive(t_pid)
+                            psfp = self.pid_last_psfp.get(t_pid, '（进程已退出，无法获取）')
+                            cmd = self.pid_last_cmd.get(t_pid, '（进程已退出，无法获取）')
+                        else:
+                            psfp = '当前无计算PID'
+                            cmd = '当前无计算PID'
 
-                    content = (
-                        f'## GPU 已恢复高占用，重新识别主PID — {HOSTNAME_TAG}\n\n'
-                        f'- GPU: `{gpu}`\n'
-                        f'- 当前显存: `{used} MiB`\n'
-                        f'- 阈值: `{self.mem_threshold_mib} MiB`\n'
-                        f'- 检测时间: `{now}`\n'
-                        f'- 判定: 连续 {self.confirm_times} 次恢复到阈值以上\n\n'
-                        f'- 主PID: `{t_pid or "无"}`\n'
-                        f'- 显存占用: `{t_mem or "无"} MiB`\n\n'
-                        f'### ps -fp {t_pid or "无"}\n```\n{psfp}\n```\n\n'
-                        f'### 完整启动命令\n```\n{cmd}\n```\n\n'
-                        f'### nvidia-smi\n```\n{get_nvs()}\n```'
-                    )
+                        content = (
+                            f'## GPU 已恢复高占用，重新识别主PID — {HOSTNAME_TAG}\n\n'
+                            f'- GPU: `{gpu}`\n'
+                            f'- 当前显存: `{used} MiB`\n'
+                            f'- 阈值: `{self.mem_threshold_mib} MiB`\n'
+                            f'- 检测时间: `{now}`\n'
+                            f'- 判定: 连续 {self.confirm_times} 次恢复到阈值以上\n\n'
+                            f'- 主PID: `{t_pid or "无"}`\n'
+                            f'- 显存占用: `{t_mem or "无"} MiB`\n\n'
+                            f'### ps -fp {t_pid or "无"}\n```\n{psfp}\n```\n\n'
+                            f'### 完整启动命令\n```\n{cmd}\n```\n\n'
+                            f'### nvidia-smi\n```\n{get_nvs()}\n```'
+                        )
+                    else:
+                        content = (
+                            f'## GPU 已恢复高占用 — {HOSTNAME_TAG}\n\n'
+                            f'- GPU: `{gpu}`\n'
+                            f'- 当前显存: `{used} MiB`\n'
+                            f'- 阈值: `{self.mem_threshold_mib} MiB`\n'
+                            f'- 检测时间: `{now}`\n'
+                            f'- 判定: 连续 {self.confirm_times} 次恢复到阈值以上\n\n'
+                            f'### nvidia-smi\n```\n{get_nvs()}\n```'
+                        )
                     self.send_notification(
                         f'{TITLE_PREFIX} - GPU恢复高占用 [{HOSTNAME_TAG}]', content, 'recover'
                     )
                     self.gpu_low_alerted[gpu] = False
                     self.gpu_need_rearm_notify[gpu] = False
                     self.gpu_high_count[gpu] = 0
-                    print(f'[{now}] GPU恢复高占用: gpu={gpu} pid={t_pid or "none"}', flush=True)
+                    if self.main_pid_monitor_enabled:
+                        print(f'[{now}] GPU恢复高占用: gpu={gpu} pid={t_pid or "none"}', flush=True)
+                    else:
+                        print(f'[{now}] GPU恢复高占用: gpu={gpu}', flush=True)
 
         # ── 事件 5：指定 PID 消失 ─────────────────────────────────────────────
         for pid in list(self.watch_pids):
