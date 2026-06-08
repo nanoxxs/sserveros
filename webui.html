@@ -27,6 +27,22 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .header { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 10; }
 .header-title { font-weight: 700; font-size: 17px; }
 .header-host { font-size: 12px; color: #94a3b8; margin-top: 1px; }
+.brand-lockup { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand-mark { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex: 0 0 30px; position: relative; overflow: hidden; border: 1px solid transparent; }
+.brand-mark-text { position: relative; z-index: 1; font-family: var(--font-mono); font-size: 15px; font-weight: 800; line-height: 1; }
+.brand-copy { min-width: 0; }
+.brand-name { display: flex; align-items: baseline; gap: 5px; min-width: 0; color: #1e293b; line-height: 1.05; }
+.brand-name-main { font-weight: 800; font-size: 16px; white-space: nowrap; }
+.brand-name-suffix { font-family: var(--font-mono); font-size: 11px; font-weight: 800; color: #2563eb; }
+.brand-host-line { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.brand-edition, .brand-host-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brand-host-sep { color: #cbd5e1; flex: 0 0 auto; }
+.brand-core .brand-mark { background: linear-gradient(135deg, #0f172a 0%, #334155 48%, #2563eb 100%); color: #fff; box-shadow: 0 6px 16px rgba(15,23,42,.16); }
+.brand-core .brand-mark::after { content: ""; position: absolute; right: 5px; bottom: 5px; width: 5px; height: 5px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 2px rgba(255,255,255,.45); }
+.login-brand { margin-bottom: 22px; }
+.login-brand .brand-mark { width: 36px; height: 36px; flex-basis: 36px; }
+.login-brand .brand-name-main { font-size: 19px; }
+.login-brand .brand-name-suffix { font-size: 12px; }
 .status-badge { background: #dcfce7; color: #16a34a; font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 500; }
 .status-badge.offline { background: #fee2e2; color: #ef4444; }
 .logout-btn { font-size: 12px; color: #94a3b8; background: none; border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px 12px; cursor: pointer; margin-left: 10px; }
@@ -393,6 +409,15 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   -webkit-backdrop-filter: blur(8px) saturate(140%);
 }
 .header-title { font-family: var(--font-mono); font-size: 16px; font-weight: 500; color: var(--fg-1); }
+.brand-name { color: var(--fg-1); }
+.brand-name-suffix { color: var(--accent); }
+.brand-host-sep { color: var(--fg-4); }
+.brand-core .brand-mark {
+  background: linear-gradient(135deg, var(--fg-1) 0%, color-mix(in oklab, var(--fg-1) 65%, var(--accent)) 48%, var(--accent) 100%);
+  color: var(--bg-1);
+  box-shadow: var(--shadow-sm);
+}
+.brand-core .brand-mark::after { background: var(--ok-fg); box-shadow: 0 0 0 2px color-mix(in oklab, var(--bg-1) 72%, transparent); }
 .header-host, .login-sub, .sysinfo-sub, .gpu-model, .gpu-cmd, .refresh-hint, .log-time-text, .pid-cmd { color: var(--fg-3); }
 .tabs { height: 38px; background: var(--bg-0); border-bottom-color: var(--border-subtle); padding: 0 24px; gap: 14px; justify-content: center; }
 .tab { flex: 0 0 auto; min-width: 88px; padding: 10px 14px 8px; color: var(--fg-3); border-bottom-width: 2px; font-size: 13px; }
@@ -401,6 +426,12 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 @media (max-width: 560px) {
   .tabs { justify-content: flex-start; padding: 0 14px; gap: 10px; }
   .tab { min-width: 82px; padding-left: 12px; padding-right: 12px; }
+  .header { padding-left: 14px; padding-right: 14px; }
+  .brand-lockup { gap: 8px; }
+  .brand-name-main { font-size: 15px; }
+  .brand-edition, .brand-host-sep { display: none; }
+  .brand-host-text { max-width: 112px; }
+  .status-badge { padding-left: 8px; padding-right: 8px; }
 }
 .card-header, .detail-header, .detail-meta, .gpu-stat-row, .agent-bottom { border-color: var(--border-subtle); }
 .sysinfo-label, .sysinfo-section-title, .gpu-stat-label, .detail-body-label, .setting-label, .proc-table th {
@@ -482,20 +513,194 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   backdrop-filter: blur(12px) saturate(160%);
   -webkit-backdrop-filter: blur(12px) saturate(160%);
 }
+
+/* Selected login style: Dark Console */
+.login-console-wrap {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) minmax(320px, 430px);
+  background: #101827;
+  color: #e6edf7;
+}
+.login-console-showcase {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 42px;
+}
+.login-console-window {
+  width: min(100%, 680px);
+  border: 1px solid #2b374b;
+  border-radius: 10px;
+  background: #0b1220;
+  overflow: hidden;
+  box-shadow: 0 18px 50px rgba(0,0,0,.28);
+}
+.login-console-bar {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px;
+  border-bottom: 1px solid #2b374b;
+}
+.login-console-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #3b82f6;
+}
+.login-console-dot:nth-child(2) { background: #f59e0b; }
+.login-console-dot:nth-child(3) { background: #22c55e; }
+.login-console-body {
+  min-height: 300px;
+  padding: 22px;
+  color: #a7f3d0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 2;
+}
+.login-console-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid rgba(43,55,75,.55);
+  padding: 8px 0;
+}
+.login-console-row:first-child,
+.login-console-row:last-child {
+  border-bottom: 0;
+  color: #dbeafe;
+}
+.login-console-row strong { color: #f8fafc; font-weight: 700; }
+.login-console-row span:last-child {
+  color: #f8fafc;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.login-console-panel {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 42px 42px 42px 0;
+}
+.login-console-card.login-card {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 30px;
+  display: grid;
+  gap: 18px;
+  border: 1px solid #2b374b;
+  border-radius: 10px;
+  background: #151f30;
+  color: #e6edf7;
+  box-shadow: none;
+}
+.login-console-card .login-brand { margin-bottom: 0; }
+.login-console-card .brand-name { color: #f8fafc; }
+.login-console-card .brand-name-suffix { color: #60a5fa; }
+.login-console-card .login-sub { margin-bottom: 0; color: #94a3b8; }
+.login-console-title {
+  color: #f8fafc;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.15;
+}
+.login-console-card .login-input {
+  height: 44px;
+  margin-bottom: 0;
+  border-color: #334155;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #f8fafc;
+}
+.login-console-card .login-input::placeholder { color: #64748b; }
+.login-console-card .login-input:focus {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34,197,94,.18);
+}
+.login-console-card .login-btn {
+  height: 44px;
+  border-radius: 8px;
+  background: #22c55e;
+  color: #052e16;
+  font-weight: 800;
+  padding: 0 13px;
+}
+.login-console-card .login-btn:hover { filter: brightness(.97); }
+.login-console-card .login-error {
+  margin-top: -4px;
+  color: #fca5a5;
+}
+@media (max-width: 820px) {
+  .login-console-wrap {
+    grid-template-columns: 1fr;
+    background: #101827;
+  }
+  .login-console-showcase {
+    padding: 22px 18px 0;
+  }
+  .login-console-window {
+    width: 100%;
+  }
+  .login-console-body {
+    min-height: 210px;
+    font-size: 12px;
+  }
+  .login-console-panel {
+    padding: 18px;
+  }
+}
 </style>
 </head>
 <body>
 <div id="app">
 
 <!-- ── Login ─────────────────────────────────────── -->
-<div class="login-wrap" v-if="!isLoggedIn">
-  <div class="login-card">
-    <div class="login-title">sserveros</div>
-    <div class="login-sub">请输入访问密码</div>
-    <input class="login-input" type="password" v-model="loginPwd" placeholder="密码"
-           @keydown.enter="doLogin">
-    <button class="login-btn" @click="doLogin">登录</button>
-    <div class="login-error" v-if="loginError" v-cloak>密码错误，请重试</div>
+<div class="login-console-wrap" v-if="!isLoggedIn">
+  <div class="login-console-showcase" aria-hidden="true">
+    <div class="login-console-window">
+      <div class="login-console-bar">
+        <span class="login-console-dot"></span>
+        <span class="login-console-dot"></span>
+        <span class="login-console-dot"></span>
+      </div>
+      <div class="login-console-body">
+        <div class="login-console-row"><strong>$ sserveros status</strong></div>
+        <div class="login-console-row"><span>monitor</span><span>running</span></div>
+        <div class="login-console-row"><span>gpu</span><span>visible</span></div>
+        <div class="login-console-row"><span>pid.watch</span><span>enabled</span></div>
+        <div class="login-console-row"><span>alert</span><span>ready</span></div>
+        <div class="login-console-row"><strong>$ open control-plane</strong></div>
+      </div>
+    </div>
+  </div>
+  <div class="login-console-panel">
+    <div class="login-card login-console-card">
+      <div class="login-brand">
+        <div class="brand-lockup brand-core">
+          <div class="brand-mark" aria-hidden="true">
+            <span class="brand-mark-text">S</span>
+          </div>
+          <div class="brand-copy">
+            <div class="brand-name">
+              <span class="brand-name-main">SServer</span>
+              <span class="brand-name-suffix">OS</span>
+            </div>
+            <div class="login-sub" style="margin:4px 0 0">Local Control</div>
+          </div>
+        </div>
+      </div>
+      <div class="login-console-title">Secure Shell</div>
+      <div class="login-sub">请输入访问密码</div>
+      <input class="login-input" type="password" v-model="loginPwd" placeholder="access token"
+             @keydown.enter="doLogin">
+      <button class="login-btn" @click="doLogin">进入 WebUI</button>
+      <div class="login-error" v-if="loginError" v-cloak>密码错误，请重试</div>
+    </div>
   </div>
 </div>
 
@@ -504,9 +709,21 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   <div class="offline-banner" v-if="!monitorRunning">⚠ 监控脚本未运行</div>
 
   <div class="header">
-    <div>
-      <div class="header-title">sserveros</div>
-      <div class="header-host">机器: {{ hostname }}</div>
+    <div class="brand-lockup brand-core">
+      <div class="brand-mark" aria-hidden="true">
+        <span class="brand-mark-text">S</span>
+      </div>
+      <div class="brand-copy">
+        <div class="brand-name">
+          <span class="brand-name-main">SServer</span>
+          <span class="brand-name-suffix">OS</span>
+        </div>
+        <div class="header-host brand-host-line">
+          <span class="brand-edition">Local Control</span>
+          <span class="brand-host-sep">·</span>
+          <span class="brand-host-text">机器: {{ hostname }}</span>
+        </div>
+      </div>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
       <span class="status-badge" :class="{offline: !monitorRunning}">

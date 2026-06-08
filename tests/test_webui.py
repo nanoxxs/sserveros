@@ -120,6 +120,27 @@ def test_index_contains_v1_ui_theme_controls(client):
     assert "setUiSurface('glass')" in text
 
 
+def test_index_uses_core_brand_only(client):
+    r = client.get('/')
+    text = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert 'SServer' in text
+    assert 'brand-core' in text
+    assert 'BRAND_OPTIONS' not in text
+    assert "localStorage.getItem('sserveros.brand')" not in text
+    assert "setBrandStyle" not in text
+
+
+def test_index_uses_dark_console_login(client):
+    r = client.get('/')
+    text = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert 'login-console-wrap' in text
+    assert '$ sserveros status' in text
+    assert 'Secure Shell' in text
+    assert '进入 WebUI' in text
+
+
 def test_index_contains_agent_empty_welcome(client):
     r = client.get('/')
     text = r.get_data(as_text=True)
