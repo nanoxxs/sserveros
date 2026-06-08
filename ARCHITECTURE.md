@@ -174,7 +174,7 @@ python monitor.py             # 启动监控守护进程
 | `sendkey` | str | `""` | 是 | Server Chan 单 key（旧版兼容）|
 | `serverchan_keys` | str[] | `[]` | 是 | Server Chan 多 key 列表 |
 | `bark_configs` | object[] | `[]` | 是 | Bark 列表 `[{"url":"...","key":"..."}]` |
-| `check_interval` | int | `5` | 是 | 检测间隔（秒）|
+| `check_interval` | int | `60` | 是 | 检测间隔（秒）|
 | `mem_threshold_mib` | int | `10240` | 是 | 显存告警阈值 |
 | `confirm_times` | int | `2` | 是 | 确认次数 |
 | `log_max_size_mb` | int | `10` | 是 | 日志压缩触发大小 |
@@ -188,7 +188,7 @@ python monitor.py             # 启动监控守护进程
 | `agent_enabled` | bool | `false` | 是（设置页 Agent） | 是否启用 Agent 标签页对话 |
 | `llm_base_url` | string | `"https://api.deepseek.com/v1"` | 是 | OpenAI 兼容 API Base URL |
 | `llm_api_key` | string | `""` | 是 | LLM API Key，读取接口只返回掩码 |
-| `llm_model` | string | `"deepseek-chat"` | 是 | LLM 模型名 |
+| `llm_model` | string | `"deepseek-v4-flash"` | 是 | LLM 模型名 |
 | `llm_max_iterations` | int | `8` | 是 | 单轮对话最大工具调用轮次（1-20） |
 | `llm_request_timeout` | int | `30` | 是 | LLM 请求超时秒数（5-120） |
 | `llm_temperature` | float | `0.2` | 是 | LLM temperature（0-2） |

@@ -68,7 +68,7 @@ class Monitor:
         self.config_file = _config_path(self.script_dir)
 
         # 运行参数（从 config.json 加载）
-        self.check_interval = 5
+        self.check_interval = 60
         self.confirm_times = 2
         self.mem_threshold_mib = 10240
         self.gpu_mem_monitor_enabled = True

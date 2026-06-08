@@ -114,7 +114,7 @@ def create_app(script_dir: str = None):
         try:
             ts = datetime.strptime(state['timestamp'], '%Y-%m-%d %H:%M:%S')
             age = (datetime.now() - ts).total_seconds()
-            state['monitor_running'] = age < cfg.get('check_interval', 5) * 3
+            state['monitor_running'] = age < cfg.get('check_interval', 60) * 3
         except Exception:
             state['monitor_running'] = False
         state['watch_pids'] = _merge_watch_pids(state.get('watch_pids', []), cfg)
@@ -579,7 +579,7 @@ def create_app(script_dir: str = None):
             'agent_enabled': cfg.get('agent_enabled', False),
             'llm_base_url': cfg.get('llm_base_url', 'https://api.deepseek.com/v1'),
             'llm_api_key': _mask_key(cfg.get('llm_api_key', '')),
-            'llm_model': cfg.get('llm_model', 'deepseek-chat'),
+            'llm_model': cfg.get('llm_model', 'deepseek-v4-flash'),
             'llm_max_iterations': cfg.get('llm_max_iterations', 8),
             'llm_request_timeout': cfg.get('llm_request_timeout', 30),
             'llm_temperature': cfg.get('llm_temperature', 0.2),
@@ -727,7 +727,7 @@ def _build_test_notify_content(cfg: dict, summary: dict) -> str:
         f'- 显存阈值监控: {"开启" if cfg.get("gpu_mem_monitor_enabled", True) else "关闭"}\n'
         f'- 主 PID 监控: {"开启" if cfg.get("main_pid_monitor_enabled", True) else "关闭"}\n'
         f'- 显存告警阈值: {cfg.get("mem_threshold_mib", 10240)} MiB\n'
-        f'- 检测间隔: {cfg.get("check_interval", 5)} 秒\n'
+        f'- 检测间隔: {cfg.get("check_interval", 60)} 秒\n'
         f'- 确认次数: {cfg.get("confirm_times", 2)}\n'
         f'- 监控 GPU: {gpu_text}\n'
         f'- 日志压缩触发大小: {cfg.get("log_max_size_mb", 10)} MB\n'

@@ -11,7 +11,7 @@
 | `password_hash` | string | 随机生成 | 是（设置页改密） | 是（哈希值） | WebUI 登录密码哈希（werkzeug pbkdf2） |
 | `sendkey` | string | `""` | 是 | 是 | Server Chan 推送密钥，也可通过 `SENDKEY` 环境变量设置 |
 | `notification_channels_source` | string | `""` | 是（隐式） | 否 | WebUI 保存通知渠道后写为 `"config"`，表示后续以 `config.json` 渠道为准 |
-| `check_interval` | int | `5` | 是 | 否 | 主循环检测间隔（秒） |
+| `check_interval` | int | `60` | 是 | 否 | 主循环检测间隔（秒） |
 | `mem_threshold_mib` | int | `10240` | 是 | 否 | GPU 显存低于此值触发告警（MiB） |
 | `confirm_times` | int | `2` | 是 | 否 | 连续 N 次检测到才触发通知 |
 | `log_max_size_mb` | int | `10` | 是 | 否 | `runtime/log.json` 超过此大小时自动压缩（MB） |
@@ -25,7 +25,7 @@
 | `agent_enabled` | bool | `false` | 是（设置页） | 否 | 是否启用 Agent Tab |
 | `llm_base_url` | string | `"https://api.deepseek.com/v1"` | 是 | 否 | LLM API 地址（OpenAI 兼容） |
 | `llm_api_key` | string | `""` | 是 | 是 | LLM API Key |
-| `llm_model` | string | `"deepseek-chat"` | 是 | 否 | 模型名称 |
+| `llm_model` | string | `"deepseek-v4-flash"` | 是 | 否 | 模型名称 |
 | `llm_max_iterations` | int | `8` | 是 | 否 | 最大工具调用轮次（1-20） |
 | `llm_request_timeout` | int | `30` | 是 | 否 | LLM 请求超时（秒，5-120） |
 | `llm_temperature` | float | `0.2` | 是 | 否 | 采样温度（0-2） |

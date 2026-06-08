@@ -21,7 +21,7 @@ def tmp_config(tmp_path):
     cfg = {
         'password_hash': generate_password_hash('default'),
         'sendkey': 'SCTtest',
-        'check_interval': 5,
+        'check_interval': 60,
         'mem_threshold_mib': 10240,
         'confirm_times': 2,
         'log_max_size_mb': 10,
@@ -666,7 +666,7 @@ def test_notify_test_sends_request(auth_client, monkeypatch):
     assert captured['title'] == 'sserveros 测试通知'
     assert '## 当前监控参数' in captured['content']
     assert '- 显存告警阈值: 10240 MiB' in captured['content']
-    assert '- 检测间隔: 5 秒' in captured['content']
+    assert '- 检测间隔: 60 秒' in captured['content']
     assert '- 确认次数: 2' in captured['content']
 
 

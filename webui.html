@@ -824,7 +824,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
       </div>
       <div class="setting-row">
         <div class="setting-label">模型名称</div>
-        <input class="setting-input" v-model="cfgLlmModel" placeholder="deepseek-chat">
+        <input class="setting-input" v-model="cfgLlmModel" placeholder="deepseek-v4-flash">
       </div>
       <div class="setting-row">
         <div class="setting-label">最大工具调用轮次（1-20）</div>
@@ -1091,7 +1091,7 @@ createApp({
       cfgMemMonitor: true,
       cfgMainPidMonitor: true,
       cfgThreshold: 10240,
-      cfgInterval: 5,
+      cfgInterval: 60,
       cfgConfirm: 2,
       cfgLogMb: 10,
       cfgLogKeep: 5,
@@ -1442,7 +1442,7 @@ createApp({
       const cfg = await r.json();
       const env = cfg.env_channel_summary || {};
       this.cfgThreshold = cfg.mem_threshold_mib ?? 10240;
-      this.cfgInterval = cfg.check_interval ?? 5;
+      this.cfgInterval = cfg.check_interval ?? 60;
       this.cfgConfirm = cfg.confirm_times ?? 2;
       this.cfgLogMb = cfg.log_max_size_mb ?? 10;
       this.cfgLogKeep = cfg.log_archive_keep ?? 5;
