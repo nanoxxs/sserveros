@@ -160,6 +160,9 @@ def test_index_contains_settings_side_nav_and_release_settings(client):
     assert 'cfgReleaseCommandInterval' in text
     assert 'cfgReleaseCommandConfirm' in text
     assert 'cfgReleaseCommandNotify' in text
+    assert 'saveMonitorSettings' in text
+    assert 'saveReleaseSettings' in text
+    assert 'saveNotifySettings' in text
 
 
 # ── State / Config ──────────────────────────────────────

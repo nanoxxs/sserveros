@@ -1041,6 +1041,8 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
         <input class="setting-input" v-model="cfgGpus" placeholder="例：0,1,2">
       </div>
     </div>
+    <button class="save-btn" @click="saveMonitorSettings()" style="margin-top:0">保存监控参数</button>
+    <div v-if="monitorSaveMsg.text" class="notice-msg" :class="monitorSaveMsg.kind" style="display:block">{{ monitorSaveMsg.text }}</div>
     <div class="card settings-section" ref="settingsRelease">
       <div class="card-header">
         <span>显存释放后执行队列</span>
@@ -1211,6 +1213,8 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
         </div>
       </div>
     </div>
+    <button class="save-btn" @click="saveReleaseSettings()" style="margin-top:0">保存释放队列配置</button>
+    <div v-if="releaseSaveMsg.text" class="notice-msg" :class="releaseSaveMsg.kind" style="display:block">{{ releaseSaveMsg.text }}</div>
     <div class="card settings-section" ref="settingsNotify">
       <div class="card-header">通知渠道</div>
       <div class="setting-row">
@@ -1233,8 +1237,8 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
       </div>
     </div>
     <div v-if="envChannelMsg.text" class="notice-msg" :class="envChannelMsg.kind" style="display:block">{{ envChannelMsg.text }}</div>
-    <button class="save-btn" @click="saveSettings()">保存设置</button>
-    <div v-if="saveMsg.text" class="notice-msg" :class="saveMsg.kind" style="display:block">{{ saveMsg.text }}</div>
+    <button class="save-btn" @click="saveNotifySettings()" style="margin-top:0">保存通知渠道</button>
+    <div v-if="notifySaveMsg.text" class="notice-msg" :class="notifySaveMsg.kind" style="display:block">{{ notifySaveMsg.text }}</div>
 
     <!-- Agent config -->
     <div class="card settings-section" ref="settingsAgent">
@@ -1560,7 +1564,9 @@ createApp({
       releaseCommandMsg: {text:'', kind:''},
       cfgServerchanKeys: '',
       barkConfigs: [],
-      saveMsg: {text:'', kind:''},
+      monitorSaveMsg: {text:'', kind:''},
+      releaseSaveMsg: {text:'', kind:''},
+      notifySaveMsg: {text:'', kind:''},
       envChannelMsg: {text:'', kind:''},
       // Agent config
       settingsSections: [
@@ -2028,85 +2034,134 @@ createApp({
       }
     },
 
-    async saveSettings() {
-      const parsePos = (val, label) => {
-        const v = parseInt(val, 10);
-        if (!Number.isInteger(v) || v <= 0) throw new Error(label + '必须是正整数');
-        return v;
-      };
-      const parseGpuList = (text, label) => {
-        const gpusStr = String(text || '').trim();
-        const gpus = [];
-        if (!gpusStr) return gpus;
-        const seen = new Set();
-        for (const raw of gpusStr.split(',')) {
-          const token = raw.trim();
-          if (!token) continue;
-          if (!/^\d+$/.test(token)) throw new Error(label + '格式错误，请输入如 0,1,2');
-          const v = Number(token);
-          if (seen.has(v)) throw new Error(label + '不能重复');
-          seen.add(v); gpus.push(v);
-        }
-        return gpus;
-      };
-      const serverchan_keys = this.cfgServerchanKeys.split('\n').map(s=>s.trim()).filter(Boolean);
+    parsePositiveInt(val, label) {
+      const v = parseInt(val, 10);
+      if (!Number.isInteger(v) || v <= 0) throw new Error(label + '必须是正整数');
+      return v;
+    },
+
+    parseGpuList(text, label) {
+      const gpusStr = String(text || '').trim();
+      const gpus = [];
+      if (!gpusStr) return gpus;
+      const seen = new Set();
+      for (const raw of gpusStr.split(',')) {
+        const token = raw.trim();
+        if (!token) continue;
+        if (!/^\d+$/.test(token)) throw new Error(label + '格式错误，请输入如 0,1,2');
+        const v = Number(token);
+        if (seen.has(v)) throw new Error(label + '不能重复');
+        seen.add(v);
+        gpus.push(v);
+      }
+      return gpus;
+    },
+
+    collectReleaseGpuSettings() {
+      const release_command_gpu_settings = {};
+      const presetSeen = new Set();
+      for (const preset of this.releaseGpuPresets) {
+        const gpuText = String(preset.gpu ?? '').trim();
+        if (!gpuText) throw new Error('GPU 预设索引不能为空');
+        if (!/^\d+$/.test(gpuText)) throw new Error('GPU 预设索引格式错误');
+        if (presetSeen.has(gpuText)) throw new Error('GPU 预设索引不能重复');
+        presetSeen.add(gpuText);
+        release_command_gpu_settings[gpuText] = {
+          mem_threshold_mib: this.parsePositiveInt(preset.mem_threshold_mib, `GPU ${gpuText} 释放阈值`),
+          check_interval: this.parsePositiveInt(preset.check_interval, `GPU ${gpuText} 检测间隔`),
+          confirm_times: this.parsePositiveInt(preset.confirm_times, `GPU ${gpuText} 确认次数`),
+        };
+      }
+      return release_command_gpu_settings;
+    },
+
+    collectNotifySettings() {
+      const serverchan_keys = this.cfgServerchanKeys.split('\n').map(s => s.trim()).filter(Boolean);
       const bark_configs = [];
       for (const b of this.barkConfigs) {
-        const url = b.url.trim(), key = b.key.trim();
-        if (url && key) { bark_configs.push({url, key}); }
-        else if (url || key) { this.saveMsg={text:'Bark 配置不完整，URL 和设备 Key 均必填',kind:'error'}; return; }
+        const url = b.url.trim();
+        const key = b.key.trim();
+        if (url && key) {
+          bark_configs.push({url, key});
+        } else if (url || key) {
+          throw new Error('Bark 配置不完整，URL 和设备 Key 均必填');
+        }
       }
+      return {sendkey: '', serverchan_keys, bark_configs};
+    },
+
+    async postSettingsPayload(body, msgKey, successText) {
+      try {
+        const r = await this.api('/api/settings', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(body),
+        });
+        const payload = await r.json().catch(() => ({}));
+        if (r.ok) {
+          const text = payload.warning || payload.message || successText;
+          const kind = payload.warning ? 'warn' : 'success';
+          this[msgKey] = {text, kind};
+          setTimeout(() => {
+            if (this[msgKey] && this[msgKey].text === text) this[msgKey] = {text:'', kind:''};
+          }, 2500);
+          return true;
+        }
+        this[msgKey] = {text: payload.error || '保存失败', kind:'error'};
+      } catch(e) {
+        this[msgKey] = {text:'保存失败：' + e.message, kind:'error'};
+      }
+      return false;
+    },
+
+    async saveMonitorSettings() {
       let body;
       try {
-        const gpus = parseGpuList(this.cfgGpus, 'GPU 索引');
-        const release_command_gpus = parseGpuList(this.cfgReleaseCommandGpus, '释放队列 GPU 索引');
-        const release_command_gpu_settings = {};
-        const presetSeen = new Set();
-        for (const preset of this.releaseGpuPresets) {
-          const gpuText = String(preset.gpu ?? '').trim();
-          if (!gpuText) throw new Error('GPU 预设索引不能为空');
-          if (!/^\d+$/.test(gpuText)) throw new Error('GPU 预设索引格式错误');
-          if (presetSeen.has(gpuText)) throw new Error('GPU 预设索引不能重复');
-          presetSeen.add(gpuText);
-          release_command_gpu_settings[gpuText] = {
-            mem_threshold_mib: parsePos(preset.mem_threshold_mib, `GPU ${gpuText} 释放阈值`),
-            check_interval: parsePos(preset.check_interval, `GPU ${gpuText} 检测间隔`),
-            confirm_times: parsePos(preset.confirm_times, `GPU ${gpuText} 确认次数`),
-          };
-        }
         body = {
-          mem_threshold_mib: parsePos(this.cfgThreshold, '显存告警阈值'),
-          check_interval: parsePos(this.cfgInterval, '检测间隔'),
-          confirm_times: parsePos(this.cfgConfirm, '确认次数'),
-          release_command_mem_threshold_mib: parsePos(this.cfgReleaseCommandThreshold, '释放阈值'),
-          release_command_check_interval: parsePos(this.cfgReleaseCommandInterval, '释放检测间隔'),
-          release_command_confirm_times: parsePos(this.cfgReleaseCommandConfirm, '释放确认次数'),
-          log_max_size_mb: parsePos(this.cfgLogMb, '日志压缩触发大小'),
-          log_archive_keep: parsePos(this.cfgLogKeep, '历史存档保留数量'),
-          gpus,
-          release_command_gpus,
-          release_command_gpu_settings,
+          mem_threshold_mib: this.parsePositiveInt(this.cfgThreshold, '显存告警阈值'),
+          check_interval: this.parsePositiveInt(this.cfgInterval, '检测间隔'),
+          confirm_times: this.parsePositiveInt(this.cfgConfirm, '确认次数'),
+          log_max_size_mb: this.parsePositiveInt(this.cfgLogMb, '日志压缩触发大小'),
+          log_archive_keep: this.parsePositiveInt(this.cfgLogKeep, '历史存档保留数量'),
+          gpus: this.parseGpuList(this.cfgGpus, 'GPU 索引'),
           gpu_mem_monitor_enabled: this.cfgMemMonitor,
           main_pid_monitor_enabled: this.cfgMainPidMonitor,
-          release_command_enabled: this.cfgReleaseCommandEnabled,
-          release_command_notify_enabled: this.cfgReleaseCommandNotify,
-          sendkey: '', serverchan_keys, bark_configs,
         };
       } catch(err) {
-        this.saveMsg = {text: err.message||'输入不合法', kind:'error'};
+        this.monitorSaveMsg = {text: err.message || '输入不合法', kind:'error'};
         return;
       }
-      const r = await this.api('/api/settings', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(body),
-      });
-      const payload = await r.json().catch(() => ({}));
-      if (r.ok) {
-        this.saveMsg = {text: payload.warning||payload.message||'已保存', kind: payload.warning?'warn':'success'};
-        setTimeout(() => { this.saveMsg = {text:'', kind:''}; }, 2500);
-      } else {
-        this.saveMsg = {text: payload.error||'保存失败', kind:'error'};
+      await this.postSettingsPayload(body, 'monitorSaveMsg', '监控参数已保存');
+    },
+
+    async saveReleaseSettings() {
+      let body;
+      try {
+        body = {
+          release_command_mem_threshold_mib: this.parsePositiveInt(this.cfgReleaseCommandThreshold, '释放阈值'),
+          release_command_check_interval: this.parsePositiveInt(this.cfgReleaseCommandInterval, '释放检测间隔'),
+          release_command_confirm_times: this.parsePositiveInt(this.cfgReleaseCommandConfirm, '释放确认次数'),
+          release_command_gpus: this.parseGpuList(this.cfgReleaseCommandGpus, '释放队列 GPU 索引'),
+          release_command_gpu_settings: this.collectReleaseGpuSettings(),
+          release_command_enabled: this.cfgReleaseCommandEnabled,
+          release_command_notify_enabled: this.cfgReleaseCommandNotify,
+        };
+      } catch(err) {
+        this.releaseSaveMsg = {text: err.message || '输入不合法', kind:'error'};
+        return;
       }
+      await this.postSettingsPayload(body, 'releaseSaveMsg', '释放队列配置已保存');
+    },
+
+    async saveNotifySettings() {
+      let body;
+      try {
+        body = this.collectNotifySettings();
+      } catch(err) {
+        this.notifySaveMsg = {text: err.message || '输入不合法', kind:'error'};
+        return;
+      }
+      const ok = await this.postSettingsPayload(body, 'notifySaveMsg', '通知渠道已保存');
+      if (ok) this.envChannelMsg = {text:'', kind:''};
     },
 
     // ── Release Commands ─────────────────────────────
