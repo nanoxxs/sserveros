@@ -4,6 +4,7 @@
 import atexit
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -15,12 +16,14 @@ from datetime import datetime
 
 import notifier
 from config_bootstrap import ensure_config
+from release_commands import normalize_release_commands, now_text
 from storage import (
     config_path as _config_path,
     ensure_runtime_dir,
     load_config_file,
     load_dotenv as _load_dotenv,
     runtime_path,
+    save_config_file,
 )
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -73,6 +76,8 @@ class Monitor:
         self.mem_threshold_mib = 10240
         self.gpu_mem_monitor_enabled = True
         self.main_pid_monitor_enabled = True
+        self.release_command_enabled = True
+        self.release_commands: list[dict] = []
         self.gpus: list[int] = []
         self.sendkey = ''
         self.serverchan_keys: list = []
@@ -112,6 +117,7 @@ class Monitor:
         self._exit_reason = 'unknown'
         self._exit_detail = ''
         self._received_signal = None
+        self._release_command_lock = threading.Lock()
 
     # ── 配置加载 ──────────────────────────────────────────────────────────────
 
@@ -151,6 +157,8 @@ class Monitor:
         self.mem_threshold_mib = cfg.get('mem_threshold_mib', self.mem_threshold_mib)
         self.gpu_mem_monitor_enabled = cfg.get('gpu_mem_monitor_enabled', True)
         self.main_pid_monitor_enabled = cfg.get('main_pid_monitor_enabled', True)
+        self.release_command_enabled = cfg.get('release_command_enabled', True)
+        self.release_commands = normalize_release_commands(cfg.get('release_commands', []))
         raw_gpus = cfg.get('gpus', [])
         self.gpus = [int(g) for g in raw_gpus] if raw_gpus else self._detect_all_gpus()
         if not self.sendkey:
@@ -217,12 +225,15 @@ class Monitor:
             prev_confirm_times = self.confirm_times
             prev_enabled = self.gpu_mem_monitor_enabled
             prev_main_pid_enabled = self.main_pid_monitor_enabled
+            prev_release_command_enabled = self.release_command_enabled
             prev_gpus = list(self.gpus)
             self.mem_threshold_mib = cfg.get('mem_threshold_mib', self.mem_threshold_mib)
             self.check_interval = cfg.get('check_interval', self.check_interval)
             self.confirm_times = cfg.get('confirm_times', self.confirm_times)
             self.gpu_mem_monitor_enabled = cfg.get('gpu_mem_monitor_enabled', True)
             self.main_pid_monitor_enabled = cfg.get('main_pid_monitor_enabled', True)
+            self.release_command_enabled = cfg.get('release_command_enabled', True)
+            self.release_commands = normalize_release_commands(cfg.get('release_commands', []))
             raw_gpus = cfg.get('gpus', [])
             self.gpus = [int(g) for g in raw_gpus] if raw_gpus else self._detect_all_gpus()
             self.sendkey = cfg.get('sendkey', self.sendkey)
@@ -247,9 +258,15 @@ class Monitor:
             print(
                 f'[{ts}] 已重新加载配置: GPUs={self.gpus} 阈值={self.mem_threshold_mib} '
                 f'间隔={self.check_interval} 确认={self.confirm_times} '
-                f'显存监控={self.gpu_mem_monitor_enabled} 主PID监控={self.main_pid_monitor_enabled}',
+                f'显存监控={self.gpu_mem_monitor_enabled} 主PID监控={self.main_pid_monitor_enabled} '
+                f'释放命令={self.release_command_enabled}',
                 flush=True,
             )
+            if prev_release_command_enabled != self.release_command_enabled:
+                print(
+                    f'[{ts}] 释放命令队列已{"启用" if self.release_command_enabled else "停用"}',
+                    flush=True,
+                )
 
         if os.path.exists(self.remove_queue_file):
             with open(self.remove_queue_file) as f:
@@ -379,6 +396,190 @@ class Monitor:
             log_file=self.log_file, event_type=event_type,
         )
 
+    # ── 显存释放命令队列 ────────────────────────────────────────────────────
+
+    def _release_command_log_path(self, command_id: str) -> str:
+        safe_id = re.sub(r'[^a-zA-Z0-9_.-]+', '_', command_id).strip('._-') or 'command'
+        log_dir = runtime_path(self.script_dir, 'command_logs')
+        os.makedirs(log_dir, exist_ok=True)
+        return os.path.join(log_dir, f'{safe_id}.log')
+
+    def _tail_file(self, path: str, limit: int = 4000) -> str:
+        try:
+            with open(path, 'rb') as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - limit))
+                data = f.read().decode('utf-8', errors='replace')
+            return data[-limit:].strip()
+        except OSError:
+            return ''
+
+    def _reconcile_release_commands_locked(self):
+        if not os.path.exists(self.config_file):
+            return
+        cfg = load_config_file(self.config_file)
+        queue = normalize_release_commands(cfg.get('release_commands', []))
+        changed = False
+        for item in queue:
+            if item.get('status') != 'running':
+                continue
+            pid = item.get('pid')
+            if pid and _pid_alive(pid):
+                continue
+            item['status'] = 'failed'
+            item['finished_at'] = item.get('finished_at') or now_text()
+            item['exit_code'] = item.get('exit_code')
+            changed = True
+        if changed:
+            cfg['release_commands'] = queue
+            save_config_file(self.config_file, cfg)
+        self.release_commands = queue
+
+    def _finish_release_command(self, command_id: str, proc: subprocess.Popen, log_path: str,
+                                command_text: str):
+        exit_code = proc.wait()
+        finished_at = now_text()
+        status = 'success' if exit_code == 0 else 'failed'
+        with self._release_command_lock:
+            cfg = load_config_file(self.config_file)
+            queue = normalize_release_commands(cfg.get('release_commands', []))
+            for item in queue:
+                if item.get('id') == command_id:
+                    item['status'] = status
+                    item['exit_code'] = exit_code
+                    item['finished_at'] = finished_at
+                    break
+            cfg['release_commands'] = queue
+            save_config_file(self.config_file, cfg)
+            self.release_commands = queue
+
+        tail = self._tail_file(log_path)
+        content = (
+            f'## 显存释放后执行指令已结束 — {HOSTNAME_TAG}\n\n'
+            f'- 指令 ID: `{command_id}`\n'
+            f'- 进程 PID: `{proc.pid}`\n'
+            f'- 退出码: `{exit_code}`\n'
+            f'- 结束时间: `{finished_at}`\n'
+            f'- 状态: `{"成功" if status == "success" else "失败"}`\n'
+            f'- 日志文件: `{log_path}`\n\n'
+            f'### 启动命令\n```\n{command_text}\n```'
+        )
+        if tail:
+            content += f'\n\n### 日志尾部\n```\n{tail}\n```'
+        self.send_notification(
+            f'{TITLE_PREFIX} - 释放指令{"完成" if status == "success" else "失败"} [{HOSTNAME_TAG}]',
+            content,
+            'command',
+        )
+        print(
+            f'[{finished_at}] 释放指令结束: id={command_id} pid={proc.pid} exit={exit_code}',
+            flush=True,
+        )
+
+    def _start_next_release_command(self, gpu: int, used_mib: int, detected_at: str):
+        if not self.release_command_enabled:
+            return
+
+        with self._release_command_lock:
+            self._reconcile_release_commands_locked()
+            cfg = load_config_file(self.config_file)
+            queue = normalize_release_commands(cfg.get('release_commands', []))
+            if any(item.get('status') == 'running' for item in queue):
+                return
+
+            idx = next((i for i, item in enumerate(queue)
+                        if item.get('status', 'pending') == 'pending'), None)
+            if idx is None:
+                self.release_commands = queue
+                return
+
+            item = queue[idx]
+            command_id = item['id']
+            command_text = item['command']
+            log_path = self._release_command_log_path(command_id)
+            started_at = now_text()
+            try:
+                with open(log_path, 'a', encoding='utf-8', buffering=1) as log:
+                    log.write(f'\n===== sserveros release command start {started_at} =====\n')
+                    log.write(f'host={HOSTNAME_TAG} gpu={gpu} used_mib={used_mib}\n')
+                    log.write(command_text + '\n\n')
+                    proc = subprocess.Popen(
+                        command_text,
+                        shell=True,
+                        executable='/bin/bash',
+                        cwd=self.script_dir,
+                        stdin=subprocess.DEVNULL,
+                        stdout=log,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                    )
+            except Exception as exc:
+                item['status'] = 'failed'
+                item['started_at'] = started_at
+                item['finished_at'] = now_text()
+                item['exit_code'] = None
+                item['trigger_gpu'] = gpu
+                item['trigger_mem_mib'] = used_mib
+                item['log_file'] = log_path
+                cfg['release_commands'] = queue
+                save_config_file(self.config_file, cfg)
+                self.release_commands = queue
+                content = (
+                    f'## 显存释放后执行指令启动失败 — {HOSTNAME_TAG}\n\n'
+                    f'- 指令 ID: `{command_id}`\n'
+                    f'- GPU: `{gpu}`\n'
+                    f'- 当前显存: `{used_mib} MiB`\n'
+                    f'- 检测时间: `{detected_at}`\n\n'
+                    f'### 错误\n```\n{exc}\n```\n\n'
+                    f'### 启动命令\n```\n{command_text}\n```'
+                )
+                self.send_notification(
+                    f'{TITLE_PREFIX} - 释放指令启动失败 [{HOSTNAME_TAG}]',
+                    content,
+                    'command',
+                )
+                return
+
+            item['status'] = 'running'
+            item['started_at'] = started_at
+            item['finished_at'] = ''
+            item['pid'] = proc.pid
+            item['exit_code'] = None
+            item['trigger_gpu'] = gpu
+            item['trigger_mem_mib'] = used_mib
+            item['log_file'] = log_path
+            cfg['release_commands'] = queue
+            save_config_file(self.config_file, cfg)
+            self.release_commands = queue
+
+        content = (
+            f'## 显存释放后执行指令已启动 — {HOSTNAME_TAG}\n\n'
+            f'- 指令 ID: `{command_id}`\n'
+            f'- 进程 PID: `{proc.pid}`\n'
+            f'- 触发 GPU: `{gpu}`\n'
+            f'- 当前显存: `{used_mib} MiB`\n'
+            f'- 阈值: `{self.mem_threshold_mib} MiB`\n'
+            f'- 检测时间: `{detected_at}`\n'
+            f'- 日志文件: `{log_path}`\n\n'
+            f'### 启动命令\n```\n{command_text}\n```'
+        )
+        self.send_notification(
+            f'{TITLE_PREFIX} - 释放指令已启动 [{HOSTNAME_TAG}]',
+            content,
+            'command',
+        )
+        print(
+            f'[{started_at}] 释放指令启动: id={command_id} gpu={gpu} pid={proc.pid}',
+            flush=True,
+        )
+        t = threading.Thread(
+            target=self._finish_release_command,
+            args=(command_id, proc, log_path, command_text),
+            daemon=True,
+        )
+        t.start()
+
     # ── GPU 查询 ──────────────────────────────────────────────────────────────
 
     def query_gpu_info(self):
@@ -474,7 +675,14 @@ class Monitor:
                 'cmd': self.watch_pid_last_cmd.get(pid, ''),
                 'note': self.watch_pid_note.get(pid, ''),
             })
-        state = {'timestamp': ts, 'running': True, 'gpus': gpus, 'watch_pids': watch_pids}
+        state = {
+            'timestamp': ts,
+            'running': True,
+            'gpus': gpus,
+            'watch_pids': watch_pids,
+            'release_command_enabled': self.release_command_enabled,
+            'release_commands': self.release_commands,
+        }
         tmp = self.state_file + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(state, f, ensure_ascii=False)
@@ -623,6 +831,7 @@ class Monitor:
                     self.gpu_low_alerted[gpu] = True
                     self.gpu_need_rearm_notify[gpu] = True
                     print(f'[{now}] GPU低显存: gpu={gpu} used={used}MiB', flush=True)
+                    self._start_next_release_command(gpu, used, now)
 
                 else:
                     self.gpu_low_count[gpu] = 0

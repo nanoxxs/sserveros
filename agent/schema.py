@@ -35,6 +35,22 @@ TOOL_SCHEMAS = [
     {
         'type': 'function',
         'function': {
+            'name': 'monitor_settings',
+            'description': '查看当前显存阈值、检测间隔、确认次数、监控开关、GPU 选择和通知渠道摘要。',
+            'parameters': {'type': 'object', 'properties': {}, 'required': []},
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
+            'name': 'list_release_commands',
+            'description': '列出“GPU 显存释放后按顺序执行”的指令队列及每条指令状态。',
+            'parameters': {'type': 'object', 'properties': {}, 'required': []},
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
             'name': 'add_watch_pid',
             'description': '将一个 PID 加入 sserveros 监控列表。注意：此操作需要用户在 WebUI 确认后才真正生效，调用后请告知用户确认。',
             'parameters': {
@@ -58,6 +74,116 @@ TOOL_SCHEMAS = [
                     'pid': {'type': 'integer', 'description': '要移除监控的进程 PID'},
                 },
                 'required': ['pid'],
+            },
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
+            'name': 'set_monitor_settings',
+            'description': '修改显存检测阈值、检测间隔、确认次数、监控 GPU、监控开关或释放指令开关。注意：此操作需要用户在 WebUI 确认后才真正生效。',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'mem_threshold_mib': {'type': 'integer', 'description': '显存释放阈值 MiB，例如 512'},
+                    'check_interval': {'type': 'integer', 'description': '检测间隔秒数，例如 120'},
+                    'confirm_times': {'type': 'integer', 'description': '连续满足条件的确认次数，例如 3'},
+                    'gpu_mem_monitor_enabled': {'type': 'boolean', 'description': '是否启用显存阈值监控'},
+                    'main_pid_monitor_enabled': {'type': 'boolean', 'description': '是否启用主 PID 发现/消失监控'},
+                    'release_command_enabled': {'type': 'boolean', 'description': '是否启用显存释放后自动执行指令队列'},
+                    'gpus': {
+                        'type': 'array',
+                        'items': {'type': 'integer'},
+                        'description': '要监控的 GPU index 列表，空列表表示自动检测全部',
+                    },
+                },
+                'required': [],
+            },
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
+            'name': 'add_release_command',
+            'description': '添加一条 GPU 显存释放后执行的 shell 指令，队列会按添加顺序一次执行一条。注意：此操作需要用户在 WebUI 确认后才真正生效。',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'command': {'type': 'string', 'description': '完整 shell 指令，可包含环境变量赋值和换行'},
+                    'note': {'type': 'string', 'description': '备注说明，可选'},
+                },
+                'required': ['command'],
+            },
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
+            'name': 'remove_release_command',
+            'description': '从释放指令队列移除一条未运行的指令，可按 id 或 1-based 序号指定。注意：此操作需要用户在 WebUI 确认后才真正生效。',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'command_id': {'type': 'string', 'description': '指令 ID，来自 list_release_commands'},
+                    'index': {'type': 'integer', 'description': '队列中的 1-based 序号'},
+                },
+                'required': [],
+            },
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
+            'name': 'clear_release_commands',
+            'description': '批量清理释放指令队列。scope=finished 清理成功/失败项，pending 清理待执行项，all 清理除正在运行外的全部。需要 WebUI 确认后生效。',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'scope': {
+                        'type': 'string',
+                        'enum': ['finished', 'pending', 'all'],
+                        'description': '清理范围，默认 finished',
+                    },
+                },
+                'required': [],
+            },
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
+            'name': 'requeue_release_command',
+            'description': '把一条已完成或失败的释放指令重新置为待执行，可按 id 或 1-based 序号指定。需要 WebUI 确认后生效。',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'command_id': {'type': 'string', 'description': '指令 ID，来自 list_release_commands'},
+                    'index': {'type': 'integer', 'description': '队列中的 1-based 序号'},
+                },
+                'required': [],
+            },
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
+            'name': 'test_notification',
+            'description': '发送当前通知渠道的标准测试通知。注意：此操作需要用户在 WebUI 确认后才真正发送。',
+            'parameters': {'type': 'object', 'properties': {}, 'required': []},
+        },
+    },
+    {
+        'type': 'function',
+        'function': {
+            'name': 'send_notification_message',
+            'description': '向已配置通知渠道发送用户指定标题和正文。注意：此操作需要用户在 WebUI 确认后才真正发送。',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'title': {'type': 'string', 'description': '通知标题'},
+                    'message': {'type': 'string', 'description': '通知正文'},
+                },
+                'required': ['title', 'message'],
             },
         },
     },
@@ -165,13 +291,14 @@ TOOL_SCHEMAS = [
 ]
 
 SYSTEM_PROMPT = """\
-你是 sserveros 的运维助手，可以查询 GPU / 进程 / 系统服务状态，并管理 sserveros 的 PID 监控列表；也可以查询登录历史和 sudo 操作记录进行安全审计。
+你是 sserveros 的运维助手，可以查询 GPU / 进程 / 系统服务状态，管理 sserveros 的 PID 监控列表、显存释放阈值/间隔/确认次数、显存释放后执行的指令队列，以及通知渠道测试和指定消息发送；也可以查询登录历史和 sudo 操作记录进行安全审计。
 
 规则：
 1. 闲聊或与工具无关的问题直接用自然语言回答，不要强行调用工具。
-2. 调用 add_watch_pid / remove_watch_pid 后，动作不会立即生效，需要用户在 WebUI 点击确认。请在回复中告知用户去 WebUI 确认。
+2. 调用 add_watch_pid / remove_watch_pid / set_monitor_settings / add_release_command / remove_release_command / clear_release_commands / requeue_release_command / test_notification / send_notification_message 后，动作不会立即生效，需要用户在 WebUI 点击确认。请在回复中告知用户去 WebUI 确认。
 3. 当 search_processes 命中多个进程时，列出所有候选，请用户说明选哪个，不要自行决定。
 4. 不要编造工具未返回的信息，如果工具返回错误直接如实告知。
 5. 回复尽量简洁，技术细节列表呈现。
 6. 当用户询问服务器安全风险、异常登录、可疑操作等安全相关问题时，主动调用 login_history 和 sudo_history 获取真实数据后再作判断，不要仅凭常识泛泛而谈。
+7. 当用户要求设置“120 秒轮询 3 次、低于 512 MiB”等监控参数时，调用 set_monitor_settings；当用户要求加入训练启动命令时，调用 add_release_command，并保留用户给出的完整 shell 命令。
 """

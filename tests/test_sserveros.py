@@ -77,6 +77,7 @@ def _prepare_project(tmp_path: Path):
     shutil.copy2(ROOT_DIR / 'notifier.py', project_dir / 'notifier.py')
     shutil.copy2(ROOT_DIR / 'config_bootstrap.py', project_dir / 'config_bootstrap.py')
     shutil.copy2(ROOT_DIR / 'storage.py', project_dir / 'storage.py')
+    shutil.copy2(ROOT_DIR / 'release_commands.py', project_dir / 'release_commands.py')
     (project_dir / 'runtime').mkdir()
     fakebin = project_dir / 'bin'
     fakebin.mkdir()
@@ -453,6 +454,59 @@ def test_sserveros_usr2_resets_gpu_alert_state_after_threshold_change(tmp_path):
         time.sleep(2.5)
         entries = _read_log_entries(log_path)
         assert not any(e['type'] == 'recover' for e in entries)
+    finally:
+        _stop_monitor(proc)
+
+
+def test_sserveros_runs_release_command_after_low_memory_alert(tmp_path):
+    project_dir, mock_state_path = _prepare_project(tmp_path)
+    ran_path = project_dir / 'ran_release_command.txt'
+    command = (
+        f'{sys.executable} -c "from pathlib import Path; '
+        f'Path({str(ran_path)!r}).write_text('
+        f'{repr("ok")})"'
+    )
+    _write_mock_state(
+        mock_state_path,
+        gpu_indices=[0],
+        gpus=[
+            {'index': 0, 'uuid': 'GPU-0', 'mem_used': 0, 'mem_total': 10000, 'name': 'GPU Zero'},
+        ],
+        apps=[],
+        alive_pids={},
+    )
+    proc = _start_monitor(project_dir, {
+        'check_interval': 1,
+        'confirm_times': 1,
+        'mem_threshold_mib': 512,
+        'gpu_mem_monitor_enabled': True,
+        'main_pid_monitor_enabled': False,
+        'release_command_enabled': True,
+        'release_commands': [{
+            'id': 'cmd_test',
+            'command': command,
+            'note': 'release job',
+            'status': 'pending',
+        }],
+        'gpus': [0],
+        'watch_pids': [],
+        'sendkey': 'SCTtest',
+    })
+
+    try:
+        _wait_until(lambda: ran_path.exists())
+        cfg = _wait_until(
+            lambda: _read_json(project_dir / 'config.json')
+            if _read_json(project_dir / 'config.json')['release_commands'][0]['status'] == 'success'
+            else None,
+            timeout=8.0,
+        )
+        item = cfg['release_commands'][0]
+        assert item['id'] == 'cmd_test'
+        assert item['exit_code'] == 0
+        assert item['trigger_gpu'] == 0
+        assert item['trigger_mem_mib'] == 0
+        assert (project_dir / 'runtime' / 'command_logs' / 'cmd_test.log').exists()
     finally:
         _stop_monitor(proc)
 

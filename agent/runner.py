@@ -121,6 +121,24 @@ def _summarize_result(name: str, result: dict) -> str:
     if name == 'gpu_state':
         gpus = result.get('state', {}).get('gpus', [])
         return f'{len(gpus)} 张 GPU'
+    if name == 'monitor_settings':
+        s = result.get('settings', {})
+        return (
+            f"阈值 {s.get('mem_threshold_mib')} MiB，"
+            f"间隔 {s.get('check_interval')}s，确认 {s.get('confirm_times')} 次"
+        )
+    if name == 'list_release_commands':
+        return f"{result.get('count', 0)} 条释放指令"
+    if name in (
+        'set_monitor_settings',
+        'add_release_command',
+        'remove_release_command',
+        'clear_release_commands',
+        'requeue_release_command',
+        'test_notification',
+        'send_notification_message',
+    ):
+        return result.get('message', '已暂存')
     out = result.get('stdout', result.get('output', ''))
     return (out[:100] + '...') if len(out) > 100 else out
 
@@ -134,7 +152,7 @@ class AgentRunner:
     def _call_tool(self, name: str, args: dict, pending: list, counter: list) -> str:
         if name in READ_ONLY_TOOLS:
             fn = READ_ONLY_TOOLS[name]
-            if name in ('list_watch_pids', 'gpu_state'):
+            if name in ('list_watch_pids', 'gpu_state', 'monitor_settings', 'list_release_commands'):
                 result = fn(self._script_dir)
             else:
                 result = fn(**args)

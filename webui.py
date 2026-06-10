@@ -12,6 +12,11 @@ from functools import wraps
 import notifier
 from agent.runner import AgentRunner, SessionStore
 from config_bootstrap import ensure_config
+from release_commands import (
+    TERMINAL_STATUSES,
+    make_release_command,
+    normalize_release_commands,
+)
 from storage import (
     config_path as _config_path,
     ensure_runtime_dir as _ensure_runtime_dir,
@@ -119,6 +124,8 @@ def create_app(script_dir: str = None):
             state['monitor_running'] = False
         state['watch_pids'] = _merge_watch_pids(state.get('watch_pids', []), cfg)
         state.setdefault('gpus', [])
+        state.setdefault('release_command_enabled', cfg.get('release_command_enabled', True))
+        state.setdefault('release_commands', normalize_release_commands(cfg.get('release_commands', [])))
         state.setdefault('hostname', socket.gethostname())
         return jsonify(state)
 
@@ -129,6 +136,8 @@ def create_app(script_dir: str = None):
         summary = notifier.channel_summary(cfg)
         cfg.pop('password_hash', None)
         cfg.pop('secret_key', None)
+        cfg['release_command_enabled'] = cfg.get('release_command_enabled', True)
+        cfg['release_commands'] = normalize_release_commands(cfg.get('release_commands', []))
         cfg['env_channel_summary'] = summary
         return jsonify(cfg)
 
@@ -254,6 +263,114 @@ def create_app(script_dir: str = None):
             pending_message=f'已从配置中移除 {len(dead_pids)} 个已消失的 PID，但监控脚本未运行；脚本下次启动时会使用新配置',
         )
         payload['removed_count'] = len(dead_pids)
+        return jsonify(payload), status
+
+    @app.route('/api/release-commands/add', methods=['POST'])
+    @require_auth
+    def api_release_commands_add():
+        data = request.get_json() or {}
+        try:
+            item = make_release_command(data.get('command', ''), data.get('note', ''))
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+        cfg = load_config_file(_config_path(script_dir))
+        queue = normalize_release_commands(cfg.get('release_commands', []))
+        queue.append(item)
+        cfg['release_commands'] = queue
+        cfg.setdefault('release_command_enabled', True)
+        save_config_file(_config_path(script_dir), cfg)
+        signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
+        payload, status = _runtime_feedback(
+            signal_result,
+            applied_message='释放指令已加入队列',
+            pending_message='释放指令已保存，但监控脚本未运行；脚本启动后才会使用新队列',
+        )
+        payload['command'] = item
+        return jsonify(payload), status
+
+    @app.route('/api/release-commands/remove', methods=['POST'])
+    @require_auth
+    def api_release_commands_remove():
+        data = request.get_json() or {}
+        command_id = str(data.get('id', '')).strip()
+        if not command_id:
+            return jsonify({'error': 'id required'}), 400
+        cfg = load_config_file(_config_path(script_dir))
+        queue = normalize_release_commands(cfg.get('release_commands', []))
+        target = next((item for item in queue if item.get('id') == command_id), None)
+        if not target:
+            return jsonify({'error': 'command not found'}), 404
+        if target.get('status') == 'running':
+            return jsonify({'error': '指令正在运行，不能从队列移除'}), 409
+        cfg['release_commands'] = [item for item in queue if item.get('id') != command_id]
+        save_config_file(_config_path(script_dir), cfg)
+        signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
+        payload, status = _runtime_feedback(
+            signal_result,
+            applied_message='释放指令已移除',
+            pending_message='释放指令已从配置中移除，但监控脚本未运行；脚本下次启动时会使用新配置',
+        )
+        return jsonify(payload), status
+
+    @app.route('/api/release-commands/clear', methods=['POST'])
+    @require_auth
+    def api_release_commands_clear():
+        data = request.get_json() or {}
+        scope = str(data.get('scope', 'finished')).strip()
+        if scope not in ('finished', 'pending', 'all'):
+            return jsonify({'error': 'invalid scope'}), 400
+        cfg = load_config_file(_config_path(script_dir))
+        queue = normalize_release_commands(cfg.get('release_commands', []))
+        if scope == 'finished':
+            should_remove = lambda item: item.get('status') in TERMINAL_STATUSES
+        elif scope == 'pending':
+            should_remove = lambda item: item.get('status') == 'pending'
+        else:
+            should_remove = lambda item: item.get('status') != 'running'
+        kept = [item for item in queue if not should_remove(item)]
+        removed_count = len(queue) - len(kept)
+        cfg['release_commands'] = kept
+        save_config_file(_config_path(script_dir), cfg)
+        signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
+        payload, status = _runtime_feedback(
+            signal_result,
+            applied_message=f'已清理 {removed_count} 条释放指令',
+            pending_message=f'已从配置中清理 {removed_count} 条释放指令，但监控脚本未运行；脚本下次启动时会使用新配置',
+        )
+        payload['removed_count'] = removed_count
+        return jsonify(payload), status
+
+    @app.route('/api/release-commands/requeue', methods=['POST'])
+    @require_auth
+    def api_release_commands_requeue():
+        data = request.get_json() or {}
+        command_id = str(data.get('id', '')).strip()
+        if not command_id:
+            return jsonify({'error': 'id required'}), 400
+        cfg = load_config_file(_config_path(script_dir))
+        queue = normalize_release_commands(cfg.get('release_commands', []))
+        target = next((item for item in queue if item.get('id') == command_id), None)
+        if not target:
+            return jsonify({'error': 'command not found'}), 404
+        if target.get('status') == 'running':
+            return jsonify({'error': '指令正在运行，不能重新排队'}), 409
+        target.update({
+            'status': 'pending',
+            'started_at': '',
+            'finished_at': '',
+            'pid': None,
+            'exit_code': None,
+            'trigger_gpu': None,
+            'trigger_mem_mib': None,
+        })
+        cfg['release_commands'] = queue
+        save_config_file(_config_path(script_dir), cfg)
+        signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
+        payload, status = _runtime_feedback(
+            signal_result,
+            applied_message='释放指令已重新排队',
+            pending_message='释放指令已重新排队，但监控脚本未运行；脚本启动后才会使用新队列',
+        )
         return jsonify(payload), status
 
     @app.route('/api/sysinfo')
@@ -510,6 +627,13 @@ def create_app(script_dir: str = None):
             if cfg.get('main_pid_monitor_enabled', True) != val:
                 runtime_reload_needed = True
             cfg['main_pid_monitor_enabled'] = val
+        if 'release_command_enabled' in data:
+            val = data['release_command_enabled']
+            if not isinstance(val, bool):
+                return jsonify({'error': 'invalid value for release_command_enabled'}), 400
+            if cfg.get('release_command_enabled', True) != val:
+                runtime_reload_needed = True
+            cfg['release_command_enabled'] = val
         if data.get('new_password'):
             if not check_password_hash(cfg.get('password_hash', ''),
                                        data.get('current_password', '')):
@@ -569,6 +693,162 @@ def create_app(script_dir: str = None):
             save_config_file(_config_path(script_dir), cfg)
             _signal_sserveros(script_dir, signal.SIGUSR2)
             return {'ok': True, 'message': f'PID {pid} 已移除监控'}
+        if atype == 'set_monitor_settings':
+            settings = action.get('settings', {})
+            if not isinstance(settings, dict) or not settings:
+                return {'ok': False, 'message': '监控参数为空'}
+            cfg = load_config_file(_config_path(script_dir))
+            numeric_keys = ('mem_threshold_mib', 'check_interval', 'confirm_times')
+            bool_keys = (
+                'gpu_mem_monitor_enabled',
+                'main_pid_monitor_enabled',
+                'release_command_enabled',
+            )
+            for key in numeric_keys:
+                if key not in settings:
+                    continue
+                val = settings[key]
+                if isinstance(val, bool) or not isinstance(val, int) or val <= 0:
+                    return {'ok': False, 'message': f'invalid value for {key}'}
+                cfg[key] = val
+            for key in bool_keys:
+                if key not in settings:
+                    continue
+                val = settings[key]
+                if not isinstance(val, bool):
+                    return {'ok': False, 'message': f'invalid value for {key}'}
+                cfg[key] = val
+            if 'gpus' in settings:
+                gpus = settings['gpus']
+                if (
+                    not isinstance(gpus, list)
+                    or not all(isinstance(g, int) and not isinstance(g, bool) and g >= 0 for g in gpus)
+                ):
+                    return {'ok': False, 'message': 'invalid gpus'}
+                cfg['gpus'] = gpus
+            save_config_file(_config_path(script_dir), cfg)
+            signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
+            payload, _status = _runtime_feedback(
+                signal_result,
+                applied_message='监控参数已更新并通知监控脚本重载',
+                pending_message='监控参数已保存，但监控脚本未运行；脚本启动后才会使用新配置',
+            )
+            return {'ok': True, 'message': payload.get('message') or payload.get('warning', '监控参数已更新')}
+        if atype == 'add_release_command':
+            try:
+                item = make_release_command(action.get('command', ''), action.get('note', ''))
+            except ValueError as e:
+                return {'ok': False, 'message': str(e)}
+            cfg = load_config_file(_config_path(script_dir))
+            queue = normalize_release_commands(cfg.get('release_commands', []))
+            queue.append(item)
+            cfg['release_commands'] = queue
+            cfg.setdefault('release_command_enabled', True)
+            save_config_file(_config_path(script_dir), cfg)
+            signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
+            payload, _status = _runtime_feedback(
+                signal_result,
+                applied_message='释放指令已加入队列',
+                pending_message='释放指令已保存，但监控脚本未运行；脚本启动后才会使用新队列',
+            )
+            return {'ok': True, 'message': payload.get('message') or payload.get('warning', '释放指令已加入队列')}
+        if atype in ('remove_release_command', 'requeue_release_command'):
+            cfg = load_config_file(_config_path(script_dir))
+            queue = normalize_release_commands(cfg.get('release_commands', []))
+            command_id = str(action.get('command_id') or '').strip()
+            idx = action.get('index')
+            target = None
+            if command_id:
+                target = next((item for item in queue if item.get('id') == command_id), None)
+            elif isinstance(idx, int) and 1 <= idx <= len(queue):
+                target = queue[idx - 1]
+                command_id = target.get('id', '')
+            if not target:
+                return {'ok': False, 'message': '释放指令不存在'}
+            if target.get('status') == 'running':
+                return {'ok': False, 'message': '释放指令正在运行，不能修改'}
+            if atype == 'remove_release_command':
+                cfg['release_commands'] = [item for item in queue if item.get('id') != command_id]
+                message = '释放指令已移除'
+            else:
+                target.update({
+                    'status': 'pending',
+                    'started_at': '',
+                    'finished_at': '',
+                    'pid': None,
+                    'exit_code': None,
+                    'trigger_gpu': None,
+                    'trigger_mem_mib': None,
+                })
+                cfg['release_commands'] = queue
+                message = '释放指令已重新排队'
+            save_config_file(_config_path(script_dir), cfg)
+            signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
+            payload, _status = _runtime_feedback(
+                signal_result,
+                applied_message=message,
+                pending_message=f'{message}，但监控脚本未运行；脚本下次启动时会使用新配置',
+            )
+            return {'ok': True, 'message': payload.get('message') or payload.get('warning', message)}
+        if atype == 'clear_release_commands':
+            scope = str(action.get('scope') or 'finished').strip()
+            if scope not in ('finished', 'pending', 'all'):
+                return {'ok': False, 'message': 'invalid scope'}
+            cfg = load_config_file(_config_path(script_dir))
+            queue = normalize_release_commands(cfg.get('release_commands', []))
+            if scope == 'finished':
+                should_remove = lambda item: item.get('status') in TERMINAL_STATUSES
+            elif scope == 'pending':
+                should_remove = lambda item: item.get('status') == 'pending'
+            else:
+                should_remove = lambda item: item.get('status') != 'running'
+            kept = [item for item in queue if not should_remove(item)]
+            removed_count = len(queue) - len(kept)
+            cfg['release_commands'] = kept
+            save_config_file(_config_path(script_dir), cfg)
+            signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
+            payload, _status = _runtime_feedback(
+                signal_result,
+                applied_message=f'已清理 {removed_count} 条释放指令',
+                pending_message=f'已清理 {removed_count} 条释放指令，但监控脚本未运行；脚本下次启动时会使用新配置',
+            )
+            return {'ok': True, 'message': payload.get('message') or payload.get('warning', f'已清理 {removed_count} 条释放指令')}
+        if atype == 'test_notification':
+            cfg = load_config_file(_config_path(script_dir))
+            notify_cfg = notifier.effective_channel_config(cfg)
+            if not notifier.has_any_channel(notify_cfg):
+                return {'ok': False, 'message': '未配置任何推送渠道'}
+            results = notifier.send_all(
+                notify_cfg,
+                'sserveros 测试通知',
+                _build_test_notify_content(cfg, notifier.channel_summary(cfg)),
+                log_file=_runtime_path(script_dir, 'log.json'),
+                event_type='info',
+            )
+            failed = [r['channel_hint'] for r in results if not r['send_success']]
+            if failed:
+                return {'ok': False, 'message': f'部分渠道发送失败：{", ".join(failed)}'}
+            return {'ok': True, 'message': f'测试通知已发送（共 {len(results)} 个渠道）'}
+        if atype == 'send_notification_message':
+            title = str(action.get('title') or '').strip()
+            message = str(action.get('message_text') or '').strip()
+            if not title or not message:
+                return {'ok': False, 'message': '通知标题和正文不能为空'}
+            cfg = load_config_file(_config_path(script_dir))
+            notify_cfg = notifier.effective_channel_config(cfg)
+            if not notifier.has_any_channel(notify_cfg):
+                return {'ok': False, 'message': '未配置任何推送渠道'}
+            results = notifier.send_all(
+                notify_cfg,
+                title,
+                message,
+                log_file=_runtime_path(script_dir, 'log.json'),
+                event_type='info',
+            )
+            failed = [r['channel_hint'] for r in results if not r['send_success']]
+            if failed:
+                return {'ok': False, 'message': f'部分渠道发送失败：{", ".join(failed)}'}
+            return {'ok': True, 'message': f'通知已发送（共 {len(results)} 个渠道）'}
         return {'ok': False, 'message': f'未知动作类型: {atype}'}
 
     @app.route('/api/agent/config', methods=['GET'])
@@ -693,6 +973,8 @@ def _empty_state(cfg: dict) -> dict:
         'monitor_running': False,
         'gpus': [],
         'watch_pids': _merge_watch_pids([], cfg),
+        'release_command_enabled': cfg.get('release_command_enabled', True),
+        'release_commands': normalize_release_commands(cfg.get('release_commands', [])),
         'hostname': socket.gethostname(),
     }
 

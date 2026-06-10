@@ -52,8 +52,17 @@ from agent.tools.monitor import (
     search_processes,
     list_watch_pids,
     gpu_state,
+    monitor_settings,
+    list_release_commands,
     add_watch_pid,
     remove_watch_pid,
+    set_monitor_settings,
+    add_release_command,
+    remove_release_command,
+    clear_release_commands,
+    requeue_release_command,
+    test_notification as stage_test_notification,
+    send_notification_message,
 )
 
 
@@ -125,6 +134,41 @@ class TestGpuState:
         assert r['state']['gpus'][0]['index'] == 0
 
 
+class TestMonitorSettingsAndReleaseCommands:
+    def test_monitor_settings_reads_config(self, tmp_path):
+        cfg = {
+            'mem_threshold_mib': 512,
+            'check_interval': 120,
+            'confirm_times': 3,
+            'gpu_mem_monitor_enabled': True,
+            'main_pid_monitor_enabled': False,
+            'release_command_enabled': True,
+            'gpus': [0],
+            'sendkey': 'SCTtest',
+        }
+        (tmp_path / 'config.json').write_text(json.dumps(cfg))
+        r = monitor_settings(str(tmp_path))
+        assert r['ok'] is True
+        assert r['settings']['mem_threshold_mib'] == 512
+        assert r['settings']['check_interval'] == 120
+        assert r['settings']['confirm_times'] == 3
+
+    def test_list_release_commands_reads_config(self, tmp_path):
+        cfg = {
+            'release_command_enabled': True,
+            'release_commands': [{
+                'id': 'cmd_1',
+                'command': 'python train.py',
+                'status': 'pending',
+            }],
+        }
+        (tmp_path / 'config.json').write_text(json.dumps(cfg))
+        r = list_release_commands(str(tmp_path))
+        assert r['ok'] is True
+        assert r['count'] == 1
+        assert r['commands'][0]['id'] == 'cmd_1'
+
+
 class TestWriteTools:
     def test_add_watch_pid_invalid(self):
         assert add_watch_pid(-1)['ok'] is False
@@ -160,6 +204,60 @@ class TestWriteTools:
         assert r['staged'] is True
         assert r['action'] == 'remove_watch_pid'
         assert r['pid'] == 12345
+
+    def test_set_monitor_settings_stages(self):
+        r = set_monitor_settings(mem_threshold_mib=512, check_interval=120, confirm_times=3,
+                                 release_command_enabled=True, gpus=[0])
+        assert r['ok'] is True
+        assert r['staged'] is True
+        assert r['action'] == 'set_monitor_settings'
+        assert r['settings']['mem_threshold_mib'] == 512
+        assert r['settings']['check_interval'] == 120
+        assert r['settings']['confirm_times'] == 3
+        assert r['settings']['gpus'] == [0]
+
+    def test_set_monitor_settings_rejects_invalid_values(self):
+        assert set_monitor_settings(check_interval=0)['ok'] is False
+        assert set_monitor_settings(release_command_enabled='yes')['ok'] is False
+        assert set_monitor_settings(gpus=[-1])['ok'] is False
+
+    def test_add_release_command_stages(self):
+        cmd = 'PYTORCH_ALLOC_CONF=expandable_segments:True python train.py'
+        r = add_release_command(cmd, note='train')
+        assert r['ok'] is True
+        assert r['staged'] is True
+        assert r['action'] == 'add_release_command'
+        assert r['command'] == cmd
+        assert r['note'] == 'train'
+
+    def test_add_release_command_rejects_empty(self):
+        assert add_release_command('   ')['ok'] is False
+
+    def test_remove_release_command_stages_by_id(self):
+        r = remove_release_command(command_id='cmd_1')
+        assert r['ok'] is True
+        assert r['action'] == 'remove_release_command'
+        assert r['command_id'] == 'cmd_1'
+
+    def test_release_command_index_validation(self):
+        assert remove_release_command(index=0)['ok'] is False
+        assert requeue_release_command(index=0)['ok'] is False
+
+    def test_clear_release_commands_stages(self):
+        r = clear_release_commands(scope='finished')
+        assert r['ok'] is True
+        assert r['action'] == 'clear_release_commands'
+        assert r['scope'] == 'finished'
+        assert clear_release_commands(scope='bad')['ok'] is False
+
+    def test_notification_tools_stage(self):
+        assert stage_test_notification()['action'] == 'test_notification'
+        r = send_notification_message('hello', 'world')
+        assert r['ok'] is True
+        assert r['action'] == 'send_notification_message'
+        assert r['title'] == 'hello'
+        assert r['message_text'] == 'world'
+        assert send_notification_message('', 'world')['ok'] is False
 
 
 # ── system tools ──────────────────────────────────────────────────────────────

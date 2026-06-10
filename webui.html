@@ -191,6 +191,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .notice-msg.success { color: #16a34a; }
 .notice-msg.warn { color: #d97706; }
 .notice-msg.error { color: #ef4444; }
+.cmd-row { padding: 14px 16px; border-bottom: 1px solid #f8fafc; display: flex; gap: 12px; align-items: flex-start; }
+.cmd-row:last-child { border-bottom: none; }
+.cmd-main { flex: 1; min-width: 0; }
+.cmd-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; font-weight: 600; color: #1e293b; }
+.cmd-status { font-size: 11px; padding: 2px 7px; border-radius: 999px; font-weight: 600; }
+.cmd-note { font-size: 12px; color: #64748b; margin-top: 4px; }
+.cmd-text { margin-top: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; max-height: 150px; overflow: auto; }
+.cmd-meta { margin-top: 7px; font-size: 11px; color: #94a3b8; line-height: 1.6; }
+.cmd-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }
 
 /* Log list */
 .log-row { padding: 12px 16px; border-bottom: 1px solid #f8fafc; display: flex; gap: 10px; align-items: flex-start; cursor: pointer; transition: background .1s; }
@@ -205,6 +214,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .tag-admin-stop { background: #fee2e2; color: #b91c1c; }
 .tag-stop { background: #ffedd5; color: #c2410c; }
 .tag-crash { background: #fecaca; color: #991b1b; }
+.tag-command { background: #e0f2fe; color: #0369a1; }
 .log-main { flex: 1; min-width: 0; }
 .log-title-text { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .log-time-text { font-size: 12px; color: #94a3b8; margin-top: 2px; }
@@ -468,10 +478,11 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 .dropdown-item:hover, .dropdown-segment-btn:hover { background: var(--bg-3); }
 .dropdown-section { border-color: var(--border-subtle); }
 .dropdown-segment-btn.active { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
-.proc-table td, .pid-row, .log-row, .archive-row, .setting-row { border-color: var(--border-subtle); }
+.proc-table td, .pid-row, .log-row, .archive-row, .setting-row, .cmd-row { border-color: var(--border-subtle); }
 .proc-cmd-cell, .meta-row, .detail-body-content, .msg-assistant, .agent-empty-sub { color: var(--fg-2); }
-.agent-empty-title { color: var(--fg-1); }
-.detail-body-content, .msg-assistant, .tool-step { background: var(--bg-2); border-color: var(--border-default); }
+.agent-empty-title, .cmd-title { color: var(--fg-1); }
+.cmd-note, .cmd-meta { color: var(--fg-3); }
+.detail-body-content, .msg-assistant, .tool-step, .cmd-text { background: var(--bg-2); border-color: var(--border-default); color: var(--fg-2); }
 .msg-user { background: var(--accent); color: var(--accent-fg); }
 .offline-banner { background: var(--danger-bg); color: var(--danger-fg); }
 .status-badge { background: var(--ok-bg); color: var(--ok-fg); }
@@ -983,6 +994,71 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
       </div>
     </div>
     <div class="card">
+      <div class="card-header">
+        <span>显存释放后执行队列</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:13px;color:#94a3b8;font-weight:400">{{ releaseCommands.length }} 条</span>
+          <button v-if="releaseCommands.some(c => c.status === 'success' || c.status === 'failed')"
+                  class="back-btn" @click="clearReleaseCommands('finished')">清理已完成</button>
+        </div>
+      </div>
+      <div class="setting-row setting-row-toggle">
+        <div>
+          <div class="setting-label" style="margin-bottom:2px">释放后自动执行</div>
+          <div style="font-size:12px;color:#94a3b8">当 GPU 显存连续低于阈值并触发释放告警时，按顺序启动下一条待执行指令</div>
+        </div>
+        <label class="toggle-switch" style="margin-left:16px">
+          <input type="checkbox" v-model="cfgReleaseCommandEnabled">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div v-if="!releaseCommands.length" style="padding:16px;color:#94a3b8;font-size:14px">暂无释放后执行指令</div>
+      <div v-for="(cmd, i) in releaseCommands" :key="cmd.id" class="cmd-row">
+        <div class="cmd-main">
+          <div class="cmd-title">
+            <span>#{{ i + 1 }}</span>
+            <span class="cmd-status" :style="releaseCommandStatusStyle(cmd.status)">
+              {{ releaseCommandStatusText(cmd.status) }}
+            </span>
+            <span style="font-family:monospace;font-size:12px;color:#94a3b8">{{ cmd.id }}</span>
+          </div>
+          <div v-if="cmd.note" class="cmd-note">{{ cmd.note }}</div>
+          <pre class="cmd-text">{{ cmd.command }}</pre>
+          <div class="cmd-meta">
+            <span v-if="cmd.pid">PID {{ cmd.pid }} · </span>
+            <span v-if="cmd.exit_code !== null && cmd.exit_code !== undefined">退出码 {{ cmd.exit_code }} · </span>
+            <span v-if="cmd.trigger_gpu !== null && cmd.trigger_gpu !== undefined">GPU {{ cmd.trigger_gpu }} / {{ cmd.trigger_mem_mib }} MiB · </span>
+            <span>{{ cmd.started_at || cmd.created_at || '未启动' }}</span>
+          </div>
+        </div>
+        <div class="cmd-actions">
+          <button v-if="cmd.status === 'success' || cmd.status === 'failed'"
+                  class="back-btn" @click="requeueReleaseCommand(cmd.id)">重新排队</button>
+          <button class="del-btn" :disabled="cmd.status === 'running'"
+                  :style="cmd.status === 'running' ? 'opacity:.35;cursor:not-allowed' : ''"
+                  @click="removeReleaseCommand(cmd.id)">×</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">新增指令</div>
+        <input class="setting-input" v-model="newReleaseCommandNote" placeholder="备注（可选）" style="margin-bottom:8px">
+        <textarea class="setting-input" v-model="newReleaseCommand" rows="5"
+                  placeholder="例：PYTORCH_ALLOC_CONF=expandable_segments:True /home/kzm/unsloth_env/bin/python gemma4_train_experiment.py --run_config launch_configs/lookloss_v04_improved_4bit_newf1_3.args"
+                  style="resize:vertical;font-family:monospace;font-size:13px;line-height:1.5"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <button class="add-btn" @click="addReleaseCommand()">添加指令</button>
+          <button v-if="releaseCommands.some(c => c.status === 'pending')"
+                  class="back-btn" @click="clearReleaseCommands('pending')">清空待执行</button>
+          <button v-if="releaseCommands.length"
+                  class="back-btn" style="color:#ef4444;border-color:#fecaca"
+                  @click="clearReleaseCommands('all')">清空队列</button>
+        </div>
+        <div v-if="releaseCommandMsg.text" class="notice-msg" :class="releaseCommandMsg.kind" style="text-align:left">
+          {{ releaseCommandMsg.text }}
+        </div>
+      </div>
+    </div>
+    <div class="card">
       <div class="card-header">通知渠道</div>
       <div class="setting-row">
         <div class="setting-label">Server Chan 密钥（每行一个，支持多个）</div>
@@ -1247,11 +1323,11 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 <script>
 const TAG_LABELS = {
   warn:'告警', found:'发现', recover:'恢复', pid:'PID消失', info:'信息',
-  admin_stop:'管理员停止', stop:'外部停止', crash:'异常退出'
+  admin_stop:'管理员停止', stop:'外部停止', crash:'异常退出', command:'指令'
 };
 const TAG_CLASSES = {
   warn:'tag-warn', found:'tag-found', recover:'tag-recover', pid:'tag-pid', info:'tag-info',
-  admin_stop:'tag-admin-stop', stop:'tag-stop', crash:'tag-crash'
+  admin_stop:'tag-admin-stop', stop:'tag-stop', crash:'tag-crash', command:'tag-command'
 };
 
 const { createApp } = Vue;
@@ -1313,6 +1389,11 @@ createApp({
       cfgLogMb: 10,
       cfgLogKeep: 5,
       cfgGpus: '',
+      cfgReleaseCommandEnabled: true,
+      releaseCommands: [],
+      newReleaseCommand: '',
+      newReleaseCommandNote: '',
+      releaseCommandMsg: {text:'', kind:''},
       cfgServerchanKeys: '',
       barkConfigs: [],
       saveMsg: {text:'', kind:''},
@@ -1512,6 +1593,10 @@ createApp({
         this.gpus = data.gpus || [];
         if (data.hostname) this.hostname = data.hostname;
         if (this.currentTab === 'pids') this.pidData = data.watch_pids || [];
+        if (this.currentTab === 'settings') {
+          this.cfgReleaseCommandEnabled = data.release_command_enabled !== false;
+          this.releaseCommands = data.release_commands || this.releaseCommands;
+        }
         this.monitorRunning = !!data.monitor_running;
         this.updateAgentPaneHeight();
       } catch(e) {}
@@ -1666,6 +1751,8 @@ createApp({
       this.cfgGpus = (cfg.gpus || []).join(',');
       this.cfgMemMonitor = cfg.gpu_mem_monitor_enabled !== false;
       this.cfgMainPidMonitor = cfg.main_pid_monitor_enabled !== false;
+      this.cfgReleaseCommandEnabled = cfg.release_command_enabled !== false;
+      this.releaseCommands = cfg.release_commands || [];
       const envScKeys = env.env_serverchan_keys || [];
       const envBarkConfigs = env.env_bark_configs || [];
       const scKeys = [...(cfg.serverchan_keys || [])];
@@ -1729,6 +1816,7 @@ createApp({
           gpus,
           gpu_mem_monitor_enabled: this.cfgMemMonitor,
           main_pid_monitor_enabled: this.cfgMainPidMonitor,
+          release_command_enabled: this.cfgReleaseCommandEnabled,
           sendkey: '', serverchan_keys, bark_configs,
         };
       } catch(err) {
@@ -1746,6 +1834,94 @@ createApp({
       } else {
         this.saveMsg = {text: payload.error||'保存失败', kind:'error'};
       }
+    },
+
+    // ── Release Commands ─────────────────────────────
+    releaseCommandStatusText(status) {
+      return {
+        pending: '待执行',
+        running: '运行中',
+        success: '成功',
+        failed: '失败',
+      }[status] || status || '未知';
+    },
+
+    releaseCommandStatusStyle(status) {
+      if (status === 'running') return 'background:#dbeafe;color:#2563eb';
+      if (status === 'success') return 'background:#dcfce7;color:#16a34a';
+      if (status === 'failed') return 'background:#fee2e2;color:#ef4444';
+      return 'background:#fef3c7;color:#d97706';
+    },
+
+    async refreshReleaseCommands() {
+      const r = await this.api('/api/config');
+      if (!r.ok) return;
+      const cfg = await r.json();
+      this.cfgReleaseCommandEnabled = cfg.release_command_enabled !== false;
+      this.releaseCommands = cfg.release_commands || [];
+    },
+
+    async addReleaseCommand() {
+      const command = this.newReleaseCommand.trim();
+      if (!command) {
+        this.releaseCommandMsg = {text:'指令不能为空', kind:'error'};
+        return;
+      }
+      const r = await this.api('/api/release-commands/add', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({command, note: this.newReleaseCommandNote.trim()}),
+      });
+      const payload = await r.json().catch(() => ({}));
+      if (r.ok) {
+        this.newReleaseCommand = '';
+        this.newReleaseCommandNote = '';
+        this.releaseCommandMsg = {text: payload.warning||payload.message||'指令已加入队列', kind: payload.warning?'warn':'success'};
+        await this.refreshReleaseCommands();
+        return;
+      }
+      this.releaseCommandMsg = {text: payload.error||'添加失败', kind:'error'};
+    },
+
+    async removeReleaseCommand(id) {
+      if (!id) return;
+      const r = await this.api('/api/release-commands/remove', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({id}),
+      });
+      const payload = await r.json().catch(() => ({}));
+      this.releaseCommandMsg = {
+        text: payload.warning||payload.message||(r.ok?'指令已移除':'移除失败'),
+        kind: r.ok ? (payload.warning?'warn':'success') : 'error',
+      };
+      await this.refreshReleaseCommands();
+    },
+
+    async clearReleaseCommands(scope) {
+      const label = scope === 'pending' ? '待执行指令' : (scope === 'all' ? '全部非运行指令' : '已完成指令');
+      if (!confirm(`确认清理${label}？`)) return;
+      const r = await this.api('/api/release-commands/clear', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({scope}),
+      });
+      const payload = await r.json().catch(() => ({}));
+      this.releaseCommandMsg = {
+        text: payload.warning||payload.message||(r.ok?'已清理':'清理失败'),
+        kind: r.ok ? (payload.warning?'warn':'success') : 'error',
+      };
+      await this.refreshReleaseCommands();
+    },
+
+    async requeueReleaseCommand(id) {
+      const r = await this.api('/api/release-commands/requeue', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({id}),
+      });
+      const payload = await r.json().catch(() => ({}));
+      this.releaseCommandMsg = {
+        text: payload.warning||payload.message||(r.ok?'已重新排队':'重新排队失败'),
+        kind: r.ok ? (payload.warning?'warn':'success') : 'error',
+      };
+      await this.refreshReleaseCommands();
     },
 
     // ── Agent Config ──────────────────────────────────
@@ -1967,7 +2143,10 @@ createApp({
           m.pendingActions = [];
           m.confirmResult = `✓ 已执行 ${succeeded} 项操作${rejected.length ? '，' + rejected.length + ' 项已忽略' : ''}`;
         }
-        if (d.executed?.some(e => e.ok)) this.fetchState();
+        if (d.executed?.some(e => e.ok)) {
+          this.fetchState();
+          if (this.currentTab === 'settings') this.loadSettings();
+        }
       } catch(e) {
         this.showToast('确认失败：' + e.message, false);
       }
@@ -2053,7 +2232,25 @@ createApp({
       const note = a.note ? ' · ' + this.escHtml(a.note) : '';
       if (a.action === 'add_watch_pid')
         return `添加监控 <code>PID ${a.pid}</code>${note}`;
-      return `移除监控 <code>PID ${a.pid}</code>`;
+      if (a.action === 'remove_watch_pid')
+        return `移除监控 <code>PID ${a.pid}</code>`;
+      if (a.action === 'set_monitor_settings')
+        return `更新监控参数 <code>${this.escHtml(JSON.stringify(a.settings || {}))}</code>`;
+      if (a.action === 'add_release_command') {
+        const cmd = this.escHtml((a.command || '').slice(0, 120));
+        return `添加释放指令 <code>${cmd}${(a.command || '').length > 120 ? '…' : ''}</code>${note}`;
+      }
+      if (a.action === 'remove_release_command')
+        return `移除释放指令 <code>${this.escHtml(a.command_id || ('#' + a.index))}</code>`;
+      if (a.action === 'clear_release_commands')
+        return `清理释放指令 <code>${this.escHtml(a.scope || 'finished')}</code>`;
+      if (a.action === 'requeue_release_command')
+        return `重新排队释放指令 <code>${this.escHtml(a.command_id || ('#' + a.index))}</code>`;
+      if (a.action === 'test_notification')
+        return '发送测试通知';
+      if (a.action === 'send_notification_message')
+        return `发送通知 <code>${this.escHtml(a.title || '')}</code>`;
+      return this.escHtml(a.action || '未知操作');
     },
 
     // ── Util ──────────────────────────────────────────

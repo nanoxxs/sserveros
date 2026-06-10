@@ -15,6 +15,8 @@ DEFAULT_CONFIG = {
     'log_archive_keep': 5,
     'gpu_mem_monitor_enabled': True,
     'main_pid_monitor_enabled': True,
+    'release_command_enabled': True,
+    'release_commands': [],
     'gpus': [],
     'watch_pids': [],
     'webui_host': '0.0.0.0',

@@ -407,6 +407,93 @@ def test_clear_dead_pids_noop_when_no_dead_entries(auth_client, tmp_config, monk
     assert signal_called['value'] is False
 
 
+# ── Release command queue ───────────────────────────────
+
+def test_release_command_add_persists_to_config(auth_client, tmp_config, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+    r = auth_client.post('/api/release-commands/add', json={
+        'command': 'PYTORCH_ALLOC_CONF=expandable_segments:True python train.py',
+        'note': 'train job',
+    }, content_type='application/json')
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+
+    assert r.status_code == 200
+    assert len(cfg['release_commands']) == 1
+    assert cfg['release_commands'][0]['status'] == 'pending'
+    assert cfg['release_commands'][0]['note'] == 'train job'
+
+
+def test_release_command_add_rejects_empty_command(auth_client, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+    r = auth_client.post('/api/release-commands/add', json={'command': '   '},
+                         content_type='application/json')
+    assert r.status_code == 400
+
+
+def test_release_command_remove_rejects_running(auth_client, tmp_config, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    cfg['release_commands'] = [{
+        'id': 'cmd_running',
+        'command': 'python train.py',
+        'status': 'running',
+        'pid': 12345,
+    }]
+    (tmp_config / 'config.json').write_text(json.dumps(cfg))
+
+    r = auth_client.post('/api/release-commands/remove', json={'id': 'cmd_running'},
+                         content_type='application/json')
+
+    assert r.status_code == 409
+
+
+def test_release_command_requeue_resets_status(auth_client, tmp_config, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    cfg['release_commands'] = [{
+        'id': 'cmd_failed',
+        'command': 'python train.py',
+        'status': 'failed',
+        'started_at': '2026-04-12 10:00:00',
+        'finished_at': '2026-04-12 10:01:00',
+        'pid': 12345,
+        'exit_code': 1,
+        'trigger_gpu': 0,
+        'trigger_mem_mib': 0,
+    }]
+    (tmp_config / 'config.json').write_text(json.dumps(cfg))
+
+    r = auth_client.post('/api/release-commands/requeue', json={'id': 'cmd_failed'},
+                         content_type='application/json')
+    cfg2 = json.loads((tmp_config / 'config.json').read_text())
+    item = cfg2['release_commands'][0]
+
+    assert r.status_code == 200
+    assert item['status'] == 'pending'
+    assert item['pid'] is None
+    assert item['exit_code'] is None
+    assert item['trigger_gpu'] is None
+
+
+def test_release_command_clear_finished(auth_client, tmp_config, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    cfg['release_commands'] = [
+        {'id': 'cmd_pending', 'command': 'python pending.py', 'status': 'pending'},
+        {'id': 'cmd_success', 'command': 'python done.py', 'status': 'success'},
+        {'id': 'cmd_failed', 'command': 'python failed.py', 'status': 'failed'},
+    ]
+    (tmp_config / 'config.json').write_text(json.dumps(cfg))
+
+    r = auth_client.post('/api/release-commands/clear', json={'scope': 'finished'},
+                         content_type='application/json')
+    cfg2 = json.loads((tmp_config / 'config.json').read_text())
+
+    assert r.status_code == 200
+    assert r.get_json()['removed_count'] == 2
+    assert [item['id'] for item in cfg2['release_commands']] == ['cmd_pending']
+
+
 # ── Settings ────────────────────────────────────────────
 
 def test_save_settings_updates_config(auth_client, tmp_config, monkeypatch):
@@ -415,12 +502,14 @@ def test_save_settings_updates_config(auth_client, tmp_config, monkeypatch):
         'mem_threshold_mib': 8192, 'check_interval': 10,
         'confirm_times': 3, 'log_max_size_mb': 5, 'log_archive_keep': 2,
         'gpu_mem_monitor_enabled': False, 'main_pid_monitor_enabled': False,
+        'release_command_enabled': False,
     }, content_type='application/json')
     cfg = json.loads((tmp_config / 'config.json').read_text())
     assert cfg['mem_threshold_mib'] == 8192
     assert cfg['check_interval'] == 10
     assert cfg['gpu_mem_monitor_enabled'] is False
     assert cfg['main_pid_monitor_enabled'] is False
+    assert cfg['release_command_enabled'] is False
 
 
 def test_save_settings_updates_gpus(auth_client, tmp_config, monkeypatch):
