@@ -179,12 +179,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .settings-sections { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .settings-section { scroll-margin-top: 104px; }
 .setting-inline-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.setting-inline-grid.four { grid-template-columns: 120px repeat(3, minmax(0, 1fr)); align-items: end; }
 @media (max-width: 820px) {
   .settings-layout { grid-template-columns: 1fr; }
   .settings-nav { top: 86px; z-index: 8; flex-direction: row; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 6px; border-radius: 10px; }
   .settings-nav-btn { width: auto; flex: 0 0 auto; white-space: nowrap; text-align: center; padding: 8px 12px; }
   .settings-section { scroll-margin-top: 134px; }
-  .setting-inline-grid { grid-template-columns: 1fr; }
+  .setting-inline-grid, .setting-inline-grid.four { grid-template-columns: 1fr; }
 }
 .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }
@@ -214,6 +215,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .cmd-text { margin-top: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; max-height: 150px; overflow: auto; }
 .cmd-meta { margin-top: 7px; font-size: 11px; color: #94a3b8; line-height: 1.6; }
 .cmd-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }
+.release-section-toggle { width: 100%; border: none; background: #f8fafc; color: #1e293b; padding: 11px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; font-size: 13px; font-weight: 700; text-align: left; border-bottom: 1px solid #e2e8f0; }
+.release-section-toggle:hover { background: #f1f5f9; }
+.release-section-title { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.release-section-meta { color: #64748b; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.release-preset-row { padding: 12px 16px; border-bottom: 1px solid #f8fafc; }
+.release-group { border-bottom: 1px solid #e2e8f0; }
+.release-group:last-child { border-bottom: none; }
+.release-group-head { width: 100%; border: none; background: #fff; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; text-align: left; }
+.release-group-head:hover { background: #f8fafc; }
+.release-group-title { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; font-size: 14px; font-weight: 700; color: #1e293b; }
+.release-group-stats { color: #64748b; font-size: 12px; white-space: nowrap; }
+.release-group-settings { font-size: 11px; color: #94a3b8; margin-top: 3px; }
+.release-empty { padding: 14px 16px; color: #94a3b8; font-size: 13px; }
 
 /* Log list */
 .log-row { padding: 12px 16px; border-bottom: 1px solid #f8fafc; display: flex; gap: 10px; align-items: flex-start; cursor: pointer; transition: background .1s; }
@@ -416,7 +430,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 }
 html { background: var(--bg-0); }
 body { font-family: var(--font-sans); background: var(--bg-0); color: var(--fg-1); -webkit-font-smoothing: antialiased; }
-body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, .dropdown-menu, .agent-layout, .agent-bottom, .app-footer-card {
+body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, .dropdown-menu, .agent-layout, .agent-bottom, .app-footer-card, .release-section-toggle, .release-group-head {
   transition: background .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease;
 }
 .login-card, .card, .sysinfo-card, .gpu-card, .app-footer-card, .agent-layout, .settings-nav {
@@ -457,12 +471,12 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   .brand-host-text { max-width: 112px; }
   .status-badge { padding-left: 8px; padding-right: 8px; }
 }
-.card-header, .detail-header, .detail-meta, .gpu-stat-row, .agent-bottom { border-color: var(--border-subtle); }
+.card-header, .detail-header, .detail-meta, .gpu-stat-row, .agent-bottom, .release-section-toggle, .release-preset-row, .release-group, .cmd-row { border-color: var(--border-subtle); }
 .sysinfo-label, .sysinfo-section-title, .gpu-stat-label, .detail-body-label, .setting-label, .proc-table th {
   color: var(--fg-3);
   letter-spacing: .06em;
 }
-.sysinfo-value, .gpu-name, .gpu-stat-value, .proc-pid-cell, .pid-num, .log-title-text, .detail-title-text, .meta-value { color: var(--fg-1); }
+.sysinfo-value, .gpu-name, .gpu-stat-value, .proc-pid-cell, .pid-num, .log-title-text, .detail-title-text, .meta-value, .release-section-toggle, .release-group-title { color: var(--fg-1); }
 .gpu-card:hover, .sysinfo-card-link:hover { border-color: var(--border-strong); background: var(--bg-2); box-shadow: none; }
 .bar-bg { background: var(--bg-3); height: 6px; }
 .bar-fill { background: var(--ok-fg); }
@@ -488,6 +502,10 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   color: var(--fg-2);
 }
 .dropdown-menu, .modal-box { background: var(--bg-1); border-color: var(--border-default); box-shadow: var(--shadow-lg); }
+.release-section-toggle { background: var(--bg-2); }
+.release-section-toggle:hover, .release-group-head:hover { background: var(--bg-3); }
+.release-group-head { background: var(--bg-1); }
+.release-section-meta, .release-group-stats, .release-group-settings, .release-empty, .cmd-meta { color: var(--fg-3); }
 .dropdown-item, .dropdown-segment-btn { color: var(--fg-1); border-color: var(--border-subtle); }
 .dropdown-item:hover, .dropdown-segment-btn:hover { background: var(--bg-3); }
 .settings-nav-btn { color: var(--fg-2); }
@@ -1032,75 +1050,150 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
                   class="back-btn" @click="clearReleaseCommands('finished')">清理已完成</button>
         </div>
       </div>
-      <div class="setting-row setting-row-toggle">
-        <div>
-          <div class="setting-label" style="margin-bottom:2px">释放后自动执行</div>
-          <div style="font-size:12px;color:#94a3b8">当 GPU 显存连续低于阈值并触发释放告警时，按顺序启动下一条待执行指令</div>
-        </div>
-        <label class="toggle-switch" style="margin-left:16px">
-          <input type="checkbox" v-model="cfgReleaseCommandEnabled">
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <div class="setting-row setting-row-toggle">
-        <div>
-          <div class="setting-label" style="margin-bottom:2px">释放队列通知</div>
-          <div style="font-size:12px;color:#94a3b8">检测到释放、启动指令、指令结束时推送消息</div>
-        </div>
-        <label class="toggle-switch" style="margin-left:16px">
-          <input type="checkbox" v-model="cfgReleaseCommandNotify">
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <div class="setting-row">
-        <div class="setting-label">释放队列监控 GPU（逗号分隔，留空自动检测）</div>
-        <input class="setting-input" v-model="cfgReleaseCommandGpus" placeholder="例：0">
-      </div>
-      <div class="setting-row">
-        <div class="setting-inline-grid">
+      <button class="release-section-toggle" @click="toggleReleasePanel('defaults')">
+        <span class="release-section-title">
+          <span>{{ releasePanelOpen.defaults ? '▾' : '▸' }}</span>
+          <span>全局默认</span>
+        </span>
+        <span class="release-section-meta">{{ cfgReleaseCommandThreshold }} MiB / {{ cfgReleaseCommandInterval }} 秒 / {{ cfgReleaseCommandConfirm }} 次</span>
+      </button>
+      <div v-show="releasePanelOpen.defaults">
+        <div class="setting-row setting-row-toggle">
           <div>
-            <div class="setting-label">释放阈值 (MiB)</div>
-            <input class="setting-input" v-model.number="cfgReleaseCommandThreshold" type="number">
+            <div class="setting-label" style="margin-bottom:2px">释放后自动执行</div>
+            <div style="font-size:12px;color:#94a3b8">当 GPU 显存连续低于阈值并触发释放告警时，按顺序启动下一条待执行指令</div>
           </div>
+          <label class="toggle-switch" style="margin-left:16px">
+            <input type="checkbox" v-model="cfgReleaseCommandEnabled">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="setting-row setting-row-toggle">
           <div>
-            <div class="setting-label">释放检测间隔 (秒)</div>
-            <input class="setting-input" v-model.number="cfgReleaseCommandInterval" type="number">
+            <div class="setting-label" style="margin-bottom:2px">释放队列通知</div>
+            <div style="font-size:12px;color:#94a3b8">检测到释放、启动指令、指令结束时推送消息</div>
           </div>
-          <div>
-            <div class="setting-label">释放确认次数</div>
-            <input class="setting-input" v-model.number="cfgReleaseCommandConfirm" type="number">
+          <label class="toggle-switch" style="margin-left:16px">
+            <input type="checkbox" v-model="cfgReleaseCommandNotify">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">释放队列监控 GPU（逗号分隔，留空自动检测）</div>
+          <input class="setting-input" v-model="cfgReleaseCommandGpus" placeholder="例：0,1">
+        </div>
+        <div class="setting-row">
+          <div class="setting-inline-grid">
+            <div>
+              <div class="setting-label">释放阈值 (MiB)</div>
+              <input class="setting-input" v-model.number="cfgReleaseCommandThreshold" type="number">
+            </div>
+            <div>
+              <div class="setting-label">释放检测间隔 (秒)</div>
+              <input class="setting-input" v-model.number="cfgReleaseCommandInterval" type="number">
+            </div>
+            <div>
+              <div class="setting-label">释放确认次数</div>
+              <input class="setting-input" v-model.number="cfgReleaseCommandConfirm" type="number">
+            </div>
           </div>
         </div>
       </div>
-      <div v-if="!releaseCommands.length" style="padding:16px;color:#94a3b8;font-size:14px">暂无释放后执行指令</div>
-      <div v-for="(cmd, i) in releaseCommands" :key="cmd.id" class="cmd-row">
-        <div class="cmd-main">
-          <div class="cmd-title">
-            <span>#{{ i + 1 }}</span>
-            <span class="cmd-status" :style="releaseCommandStatusStyle(cmd.status)">
-              {{ releaseCommandStatusText(cmd.status) }}
-            </span>
-            <span style="font-family:monospace;font-size:12px;color:#94a3b8">{{ cmd.id }}</span>
+      <button class="release-section-toggle" @click="toggleReleasePanel('presets')">
+        <span class="release-section-title">
+          <span>{{ releasePanelOpen.presets ? '▾' : '▸' }}</span>
+          <span>GPU 预设</span>
+        </span>
+        <span class="release-section-meta">{{ releaseGpuPresets.length }} 张 GPU</span>
+      </button>
+      <div v-show="releasePanelOpen.presets">
+        <div v-if="!releaseGpuPresets.length" class="release-empty">暂无 GPU 预设</div>
+        <div v-for="(preset, i) in releaseGpuPresets" :key="preset.key" class="release-preset-row">
+          <div class="setting-inline-grid four">
+            <div>
+              <div class="setting-label">GPU</div>
+              <input class="setting-input" v-model="preset.gpu" placeholder="0">
+            </div>
+            <div>
+              <div class="setting-label">释放阈值 (MiB)</div>
+              <input class="setting-input" v-model.number="preset.mem_threshold_mib" type="number">
+            </div>
+            <div>
+              <div class="setting-label">检测间隔 (秒)</div>
+              <input class="setting-input" v-model.number="preset.check_interval" type="number">
+            </div>
+            <div>
+              <div class="setting-label">确认次数</div>
+              <input class="setting-input" v-model.number="preset.confirm_times" type="number">
+            </div>
           </div>
-          <div v-if="cmd.note" class="cmd-note">{{ cmd.note }}</div>
-          <pre class="cmd-text">{{ cmd.command }}</pre>
-          <div class="cmd-meta">
-            <span v-if="cmd.pid">PID {{ cmd.pid }} · </span>
-            <span v-if="cmd.exit_code !== null && cmd.exit_code !== undefined">退出码 {{ cmd.exit_code }} · </span>
-            <span v-if="cmd.trigger_gpu !== null && cmd.trigger_gpu !== undefined">GPU {{ cmd.trigger_gpu }} / {{ cmd.trigger_mem_mib }} MiB · </span>
-            <span>{{ cmd.started_at || cmd.created_at || '未启动' }}</span>
+          <div style="display:flex;justify-content:flex-end;margin-top:8px">
+            <button class="back-btn" style="color:#ef4444;border-color:#fecaca"
+                    @click="removeReleaseGpuPreset(i)">移除预设</button>
           </div>
         </div>
-        <div class="cmd-actions">
-          <button v-if="cmd.status === 'success' || cmd.status === 'failed'"
-                  class="back-btn" @click="requeueReleaseCommand(cmd.id)">重新排队</button>
-          <button class="del-btn" :disabled="cmd.status === 'running'"
-                  :style="cmd.status === 'running' ? 'opacity:.35;cursor:not-allowed' : ''"
-                  @click="removeReleaseCommand(cmd.id)">×</button>
+        <div class="setting-row">
+          <button class="back-btn" @click="addReleaseGpuPreset()">新增 GPU 预设</button>
+        </div>
+      </div>
+      <button class="release-section-toggle" @click="toggleReleasePanel('queue')">
+        <span class="release-section-title">
+          <span>{{ releasePanelOpen.queue ? '▾' : '▸' }}</span>
+          <span>任务队列</span>
+        </span>
+        <span class="release-section-meta">{{ releaseCommands.length }} 条</span>
+      </button>
+      <div v-show="releasePanelOpen.queue">
+        <div v-if="!releaseCommandGroups.length" class="release-empty">暂无释放后执行指令</div>
+        <div v-for="group in releaseCommandGroups" :key="group.key" class="release-group">
+          <button class="release-group-head" @click="toggleReleaseGroup(group.key)">
+            <div>
+              <div class="release-group-title">
+                <span>{{ isReleaseGroupOpen(group.key) ? '▾' : '▸' }}</span>
+                <span>{{ group.label }}</span>
+                <span class="cmd-status" style="background:#f1f5f9;color:#64748b">{{ group.commands.length }} 条</span>
+              </div>
+              <div class="release-group-settings">{{ group.settingsText }}</div>
+            </div>
+            <span class="release-group-stats">待 {{ group.pending }} / 运行 {{ group.running }} / 完成 {{ group.done }}</span>
+          </button>
+          <div v-show="isReleaseGroupOpen(group.key)">
+            <div v-if="!group.commands.length" class="release-empty">暂无指令</div>
+            <div v-for="(cmd, i) in group.commands" :key="cmd.id" class="cmd-row">
+              <div class="cmd-main">
+                <div class="cmd-title">
+                  <span>#{{ i + 1 }}</span>
+                  <span class="cmd-status" :style="releaseCommandStatusStyle(cmd.status)">
+                    {{ releaseCommandStatusText(cmd.status) }}
+                  </span>
+                  <span style="font-family:monospace;font-size:12px;color:#94a3b8">{{ cmd.id }}</span>
+                </div>
+                <div v-if="cmd.note" class="cmd-note">{{ cmd.note }}</div>
+                <pre class="cmd-text">{{ cmd.command }}</pre>
+                <div class="cmd-meta">
+                  <span>目标 {{ releaseCommandTargetLabel(cmd.target_gpus) }} · </span>
+                  <span v-if="cmd.pid">PID {{ cmd.pid }} · </span>
+                  <span v-if="cmd.exit_code !== null && cmd.exit_code !== undefined">退出码 {{ cmd.exit_code }} · </span>
+                  <span v-if="cmd.trigger_gpu !== null && cmd.trigger_gpu !== undefined">GPU {{ cmd.trigger_gpu }} / {{ cmd.trigger_mem_mib }} MiB · </span>
+                  <span>{{ cmd.started_at || cmd.created_at || '未启动' }}</span>
+                </div>
+              </div>
+              <div class="cmd-actions">
+                <button v-if="cmd.status === 'success' || cmd.status === 'failed'"
+                        class="back-btn" @click="requeueReleaseCommand(cmd.id)">重新排队</button>
+                <button class="del-btn" :disabled="cmd.status === 'running'"
+                        :style="cmd.status === 'running' ? 'opacity:.35;cursor:not-allowed' : ''"
+                        @click="removeReleaseCommand(cmd.id)">×</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="setting-row">
         <div class="setting-label">新增指令</div>
+        <input class="setting-input" v-model="newReleaseCommandGpus"
+               placeholder="目标 GPU，例：0；留空表示任意 GPU"
+               style="margin-bottom:8px">
         <input class="setting-input" v-model="newReleaseCommandNote" placeholder="备注（可选）" style="margin-bottom:8px">
         <textarea class="setting-input" v-model="newReleaseCommand" rows="5"
                   placeholder="例：PYTORCH_ALLOC_CONF=expandable_segments:True /home/kzm/unsloth_env/bin/python gemma4_train_experiment.py --run_config launch_configs/lookloss_v04_improved_4bit_newf1_3.args"
@@ -1457,7 +1550,11 @@ createApp({
       cfgReleaseCommandThreshold: 10240,
       cfgReleaseCommandInterval: 60,
       cfgReleaseCommandConfirm: 2,
+      releaseGpuPresets: [],
+      releasePanelOpen: {defaults:true, presets:true, queue:true},
+      releaseGroupOpen: {},
       releaseCommands: [],
+      newReleaseCommandGpus: '',
       newReleaseCommand: '',
       newReleaseCommandNote: '',
       releaseCommandMsg: {text:'', kind:''},
@@ -1530,6 +1627,58 @@ createApp({
     },
     logDetail() {
       return this.logDetailIdx !== null ? this.logEntries[this.logDetailIdx] : null;
+    },
+    releaseCommandGpuNumbers() {
+      return this.parseReleaseGpuListLoose(this.cfgReleaseCommandGpus);
+    },
+    releaseCommandPresetMap() {
+      const out = {};
+      for (const preset of this.releaseGpuPresets) {
+        const gpu = String(preset.gpu ?? '').trim();
+        if (/^\d+$/.test(gpu)) out[gpu] = preset;
+      }
+      return out;
+    },
+    releaseCommandGroups() {
+      const groups = new Map();
+      const ensure = (gpus) => {
+        const key = this.releaseCommandGroupKey(gpus);
+        if (!groups.has(key)) {
+          const settings = this.releaseSettingsForGroup(gpus);
+          groups.set(key, {
+            key,
+            label: this.releaseCommandTargetLabel(gpus),
+            target_gpus: gpus,
+            commands: [],
+            pending: 0,
+            running: 0,
+            done: 0,
+            settingsText: `${settings.mem_threshold_mib} MiB / ${settings.check_interval} 秒 / ${settings.confirm_times} 次`,
+          });
+        }
+        return groups.get(key);
+      };
+      for (const gpu of this.releaseCommandGpuNumbers) ensure([gpu]);
+      for (const preset of this.releaseGpuPresets) {
+        const gpu = Number(String(preset.gpu ?? '').trim());
+        if (Number.isInteger(gpu) && gpu >= 0) ensure([gpu]);
+      }
+      for (const cmd of this.releaseCommands) {
+        const gpus = this.releaseCommandTargetGpus(cmd.target_gpus);
+        const group = ensure(gpus);
+        group.commands.push(cmd);
+        if (cmd.status === 'pending') group.pending += 1;
+        else if (cmd.status === 'running') group.running += 1;
+        else if (cmd.status === 'success' || cmd.status === 'failed') group.done += 1;
+      }
+      const sorted = [...groups.values()].sort((a, b) => {
+        if (a.key === 'any') return -1;
+        if (b.key === 'any') return 1;
+        const ag = a.target_gpus[0] ?? 999999;
+        const bg = b.target_gpus[0] ?? 999999;
+        return ag - bg || a.key.localeCompare(b.key);
+      });
+      return sorted.filter(group => group.commands.length || group.key !== 'any');
     },
     deadPidCount() {
       return this.pidData.filter(p => !p.alive).length;
@@ -1842,6 +1991,16 @@ createApp({
       this.cfgReleaseCommandThreshold = cfg.release_command_mem_threshold_mib ?? (cfg.mem_threshold_mib ?? 10240);
       this.cfgReleaseCommandInterval = cfg.release_command_check_interval ?? (cfg.check_interval ?? 60);
       this.cfgReleaseCommandConfirm = cfg.release_command_confirm_times ?? (cfg.confirm_times ?? 2);
+      const gpuSettings = cfg.release_command_gpu_settings || {};
+      this.releaseGpuPresets = Object.keys(gpuSettings)
+        .sort((a, b) => Number(a) - Number(b))
+        .map(gpu => ({
+          key: 'preset_' + gpu,
+          gpu,
+          mem_threshold_mib: gpuSettings[gpu].mem_threshold_mib ?? this.cfgReleaseCommandThreshold,
+          check_interval: gpuSettings[gpu].check_interval ?? this.cfgReleaseCommandInterval,
+          confirm_times: gpuSettings[gpu].confirm_times ?? this.cfgReleaseCommandConfirm,
+        }));
       this.releaseCommands = cfg.release_commands || [];
       const envScKeys = env.env_serverchan_keys || [];
       const envBarkConfigs = env.env_bark_configs || [];
@@ -1901,6 +2060,20 @@ createApp({
       try {
         const gpus = parseGpuList(this.cfgGpus, 'GPU 索引');
         const release_command_gpus = parseGpuList(this.cfgReleaseCommandGpus, '释放队列 GPU 索引');
+        const release_command_gpu_settings = {};
+        const presetSeen = new Set();
+        for (const preset of this.releaseGpuPresets) {
+          const gpuText = String(preset.gpu ?? '').trim();
+          if (!gpuText) throw new Error('GPU 预设索引不能为空');
+          if (!/^\d+$/.test(gpuText)) throw new Error('GPU 预设索引格式错误');
+          if (presetSeen.has(gpuText)) throw new Error('GPU 预设索引不能重复');
+          presetSeen.add(gpuText);
+          release_command_gpu_settings[gpuText] = {
+            mem_threshold_mib: parsePos(preset.mem_threshold_mib, `GPU ${gpuText} 释放阈值`),
+            check_interval: parsePos(preset.check_interval, `GPU ${gpuText} 检测间隔`),
+            confirm_times: parsePos(preset.confirm_times, `GPU ${gpuText} 确认次数`),
+          };
+        }
         body = {
           mem_threshold_mib: parsePos(this.cfgThreshold, '显存告警阈值'),
           check_interval: parsePos(this.cfgInterval, '检测间隔'),
@@ -1912,6 +2085,7 @@ createApp({
           log_archive_keep: parsePos(this.cfgLogKeep, '历史存档保留数量'),
           gpus,
           release_command_gpus,
+          release_command_gpu_settings,
           gpu_mem_monitor_enabled: this.cfgMemMonitor,
           main_pid_monitor_enabled: this.cfgMainPidMonitor,
           release_command_enabled: this.cfgReleaseCommandEnabled,
@@ -1936,6 +2110,91 @@ createApp({
     },
 
     // ── Release Commands ─────────────────────────────
+    toggleReleasePanel(key) {
+      this.releasePanelOpen = {...this.releasePanelOpen, [key]: !this.releasePanelOpen[key]};
+    },
+
+    toggleReleaseGroup(key) {
+      this.releaseGroupOpen = {...this.releaseGroupOpen, [key]: !this.isReleaseGroupOpen(key)};
+    },
+
+    isReleaseGroupOpen(key) {
+      return this.releaseGroupOpen[key] !== false;
+    },
+
+    addReleaseGpuPreset() {
+      const existing = new Set(this.releaseGpuPresets.map(p => String(p.gpu ?? '').trim()).filter(Boolean));
+      let gpu = 0;
+      while (existing.has(String(gpu))) gpu += 1;
+      this.releaseGpuPresets.push({
+        key: 'preset_' + Math.random().toString(36).slice(2) + Date.now(),
+        gpu: String(gpu),
+        mem_threshold_mib: this.cfgReleaseCommandThreshold,
+        check_interval: this.cfgReleaseCommandInterval,
+        confirm_times: this.cfgReleaseCommandConfirm,
+      });
+    },
+
+    removeReleaseGpuPreset(index) {
+      this.releaseGpuPresets.splice(index, 1);
+    },
+
+    parseReleaseGpuListLoose(text) {
+      const raw = String(text || '').trim();
+      if (!raw) return [];
+      const out = [];
+      const seen = new Set();
+      for (const part of raw.split(',')) {
+        const token = part.trim();
+        if (!/^\d+$/.test(token)) continue;
+        const gpu = Number(token);
+        if (!seen.has(gpu)) {
+          seen.add(gpu);
+          out.push(gpu);
+        }
+      }
+      return out;
+    },
+
+    releaseCommandTargetGpus(value) {
+      if (!Array.isArray(value)) return [];
+      const out = [];
+      const seen = new Set();
+      for (const item of value) {
+        if (!Number.isInteger(item) || item < 0 || seen.has(item)) continue;
+        seen.add(item);
+        out.push(item);
+      }
+      return out;
+    },
+
+    releaseCommandGroupKey(gpus) {
+      const normalized = this.releaseCommandTargetGpus(gpus);
+      return normalized.length ? 'gpu:' + normalized.join(',') : 'any';
+    },
+
+    releaseCommandTargetLabel(gpus) {
+      const normalized = this.releaseCommandTargetGpus(gpus);
+      return normalized.length ? 'GPU ' + normalized.join(',') : '任意 GPU';
+    },
+
+    releaseSettingsForGroup(gpus) {
+      const defaults = {
+        mem_threshold_mib: this.cfgReleaseCommandThreshold,
+        check_interval: this.cfgReleaseCommandInterval,
+        confirm_times: this.cfgReleaseCommandConfirm,
+      };
+      const normalized = this.releaseCommandTargetGpus(gpus);
+      if (normalized.length !== 1) return defaults;
+      const preset = this.releaseCommandPresetMap[String(normalized[0])];
+      if (!preset) return defaults;
+      return {
+        mem_threshold_mib: preset.mem_threshold_mib || defaults.mem_threshold_mib,
+        check_interval: preset.check_interval || defaults.check_interval,
+        confirm_times: preset.confirm_times || defaults.confirm_times,
+      };
+    },
+
     releaseCommandStatusText(status) {
       return {
         pending: '待执行',
@@ -1965,13 +2224,36 @@ createApp({
         this.releaseCommandMsg = {text:'指令不能为空', kind:'error'};
         return;
       }
+      let target_gpus;
+      try {
+        const parseGpuList = (text, label) => {
+          const gpusStr = String(text || '').trim();
+          const gpus = [];
+          if (!gpusStr) return gpus;
+          const seen = new Set();
+          for (const raw of gpusStr.split(',')) {
+            const token = raw.trim();
+            if (!token) continue;
+            if (!/^\d+$/.test(token)) throw new Error(label + '格式错误，请输入如 0,1');
+            const v = Number(token);
+            if (seen.has(v)) throw new Error(label + '不能重复');
+            seen.add(v); gpus.push(v);
+          }
+          return gpus;
+        };
+        target_gpus = parseGpuList(this.newReleaseCommandGpus, '目标 GPU');
+      } catch(err) {
+        this.releaseCommandMsg = {text: err.message||'目标 GPU 不合法', kind:'error'};
+        return;
+      }
       const r = await this.api('/api/release-commands/add', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({command, note: this.newReleaseCommandNote.trim()}),
+        body: JSON.stringify({command, note: this.newReleaseCommandNote.trim(), target_gpus}),
       });
       const payload = await r.json().catch(() => ({}));
       if (r.ok) {
         this.newReleaseCommand = '';
+        this.newReleaseCommandGpus = '';
         this.newReleaseCommandNote = '';
         this.releaseCommandMsg = {text: payload.warning||payload.message||'指令已加入队列', kind: payload.warning?'warn':'success'};
         await this.refreshReleaseCommands();
@@ -2336,7 +2618,8 @@ createApp({
         return `更新监控参数 <code>${this.escHtml(JSON.stringify(a.settings || {}))}</code>`;
       if (a.action === 'add_release_command') {
         const cmd = this.escHtml((a.command || '').slice(0, 120));
-        return `添加释放指令 <code>${cmd}${(a.command || '').length > 120 ? '…' : ''}</code>${note}`;
+        const target = this.releaseCommandTargetLabel(a.target_gpus || []);
+        return `添加释放指令 <code>${cmd}${(a.command || '').length > 120 ? '…' : ''}</code> · ${this.escHtml(target)}${note}`;
       }
       if (a.action === 'remove_release_command')
         return `移除释放指令 <code>${this.escHtml(a.command_id || ('#' + a.index))}</code>`;

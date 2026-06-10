@@ -182,6 +182,14 @@ python monitor.py             # 启动监控守护进程
 | `gpus` | int[] | `[]` | 是 | 监控的 GPU 索引列表，空数组自动检测全部 |
 | `gpu_mem_monitor_enabled` | bool | `true` | 是 | 显存阈值监控开关 |
 | `main_pid_monitor_enabled` | bool | `true` | 是 | 主 PID 发现/消失告警开关 |
+| `release_command_enabled` | bool | `true` | 是 | 显存释放后执行队列开关 |
+| `release_command_notify_enabled` | bool | `true` | 是 | 释放队列通知开关 |
+| `release_command_gpus` | int[] | `[]` | 是 | 释放队列监控 GPU，空数组自动检测全部 |
+| `release_command_mem_threshold_mib` | int | `10240` | 是 | 释放队列默认阈值 |
+| `release_command_check_interval` | int | `60` | 是 | 释放队列默认检测间隔 |
+| `release_command_confirm_times` | int | `2` | 是 | 释放队列默认确认次数 |
+| `release_command_gpu_settings` | object | `{}` | 是 | 每 GPU 覆盖释放队列阈值、间隔和确认次数 |
+| `release_commands` | object[] | `[]` | 是 | 释放后执行任务队列，`target_gpus` 控制触发 GPU |
 | `watch_pids` | object[] | `[]` | 是（PIDs 页） | `[{"pid":N,"note":"..."}]` |
 | `webui_host` | string | `"0.0.0.0"` | 否（重启生效） | WebUI 绑定地址 |
 | `webui_port` | int | `6777` | 否（重启生效） | WebUI 监听端口 |

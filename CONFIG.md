@@ -19,6 +19,14 @@
 | `gpus` | int[] | `[]` | 是 | 否 | 监控的 GPU 索引列表，空数组表示自动检测全部 |
 | `main_pid_monitor_enabled` | bool | `true` | 是 | 否 | 主 PID 发现/消失告警开关；关闭后恢复高占用告警不附带主 PID 重识别，概览仍显示当前 top PID |
 | `gpu_mem_monitor_enabled` | bool | `true` | 是 | 否 | 显存阈值告警开关，关闭后不影响主 PID 和指定 PID 监控 |
+| `release_command_enabled` | bool | `true` | 是 | 否 | 是否启用显存释放后执行队列 |
+| `release_command_notify_enabled` | bool | `true` | 是 | 否 | 是否推送释放队列检测、启动和结束通知 |
+| `release_command_gpus` | int[] | `[]` | 是 | 否 | 释放队列监控的 GPU 索引列表，空数组表示自动检测全部 |
+| `release_command_mem_threshold_mib` | int | `10240` | 是 | 否 | 释放队列默认显存阈值（MiB） |
+| `release_command_check_interval` | int | `60` | 是 | 否 | 释放队列默认检测间隔（秒） |
+| `release_command_confirm_times` | int | `2` | 是 | 否 | 释放队列默认确认次数 |
+| `release_command_gpu_settings` | object | `{}` | 是 | 否 | 每 GPU 释放队列预设，键为 GPU index，值可覆盖阈值、间隔和确认次数 |
+| `release_commands` | object[] | `[]` | 是 | 否 | 释放后执行任务队列；每项可用 `target_gpus` 指定触发 GPU，空数组表示任意 GPU |
 | `watch_pids` | object[] | `[]` | 是（PIDs 页） | 否 | 持久化的监控 PID 列表，格式：`[{"pid": 1234, "note": "备注"}]` |
 | `webui_host` | string | `"0.0.0.0"` | 否 | 否 | WebUI 绑定地址，修改需重启 |
 | `webui_port` | int | `6777` | 否 | 否 | WebUI 监听端口，修改需重启 |

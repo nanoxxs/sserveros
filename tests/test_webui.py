@@ -436,6 +436,19 @@ def test_release_command_add_persists_to_config(auth_client, tmp_config, monkeyp
     assert cfg['release_commands'][0]['note'] == 'train job'
 
 
+def test_release_command_add_persists_target_gpus(auth_client, tmp_config, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+    r = auth_client.post('/api/release-commands/add', json={
+        'command': 'python train_gpu1.py',
+        'note': 'gpu 1 train job',
+        'target_gpus': [1],
+    }, content_type='application/json')
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+
+    assert r.status_code == 200
+    assert cfg['release_commands'][0]['target_gpus'] == [1]
+
+
 def test_release_command_add_rejects_empty_command(auth_client, monkeypatch):
     monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
     r = auth_client.post('/api/release-commands/add', json={'command': '   '},
@@ -521,6 +534,9 @@ def test_save_settings_updates_config(auth_client, tmp_config, monkeypatch):
         'release_command_mem_threshold_mib': 512,
         'release_command_check_interval': 120,
         'release_command_confirm_times': 3,
+        'release_command_gpu_settings': {
+            '0': {'mem_threshold_mib': 256, 'check_interval': 30, 'confirm_times': 1},
+        },
     }, content_type='application/json')
     cfg = json.loads((tmp_config / 'config.json').read_text())
     assert cfg['mem_threshold_mib'] == 8192
@@ -533,6 +549,9 @@ def test_save_settings_updates_config(auth_client, tmp_config, monkeypatch):
     assert cfg['release_command_mem_threshold_mib'] == 512
     assert cfg['release_command_check_interval'] == 120
     assert cfg['release_command_confirm_times'] == 3
+    assert cfg['release_command_gpu_settings'] == {
+        '0': {'mem_threshold_mib': 256, 'check_interval': 30, 'confirm_times': 1},
+    }
 
 
 def test_save_settings_updates_gpus(auth_client, tmp_config, monkeypatch):

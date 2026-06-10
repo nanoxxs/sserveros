@@ -148,6 +148,9 @@ class TestMonitorSettingsAndReleaseCommands:
             'release_command_mem_threshold_mib': 512,
             'release_command_check_interval': 120,
             'release_command_confirm_times': 3,
+            'release_command_gpu_settings': {
+                '0': {'mem_threshold_mib': 256, 'check_interval': 30, 'confirm_times': 1},
+            },
             'gpus': [0],
             'sendkey': 'SCTtest',
         }
@@ -162,6 +165,9 @@ class TestMonitorSettingsAndReleaseCommands:
         assert r['settings']['release_command_mem_threshold_mib'] == 512
         assert r['settings']['release_command_check_interval'] == 120
         assert r['settings']['release_command_confirm_times'] == 3
+        assert r['settings']['release_command_gpu_settings'] == {
+            '0': {'mem_threshold_mib': 256, 'check_interval': 30, 'confirm_times': 1},
+        }
 
     def test_list_release_commands_reads_config(self, tmp_path):
         cfg = {
@@ -222,7 +228,10 @@ class TestWriteTools:
                                  release_command_mem_threshold_mib=512,
                                  release_command_check_interval=120,
                                  release_command_confirm_times=3,
-                                 gpus=[0], release_command_gpus=[0])
+                                 gpus=[0], release_command_gpus=[0],
+                                 release_command_gpu_settings={
+                                     '0': {'mem_threshold_mib': 256, 'check_interval': 30, 'confirm_times': 1},
+                                 })
         assert r['ok'] is True
         assert r['staged'] is True
         assert r['action'] == 'set_monitor_settings'
@@ -235,21 +244,26 @@ class TestWriteTools:
         assert r['settings']['release_command_check_interval'] == 120
         assert r['settings']['release_command_confirm_times'] == 3
         assert r['settings']['release_command_gpus'] == [0]
+        assert r['settings']['release_command_gpu_settings'] == {
+            '0': {'mem_threshold_mib': 256, 'check_interval': 30, 'confirm_times': 1},
+        }
 
     def test_set_monitor_settings_rejects_invalid_values(self):
         assert set_monitor_settings(check_interval=0)['ok'] is False
         assert set_monitor_settings(release_command_enabled='yes')['ok'] is False
         assert set_monitor_settings(gpus=[-1])['ok'] is False
         assert set_monitor_settings(release_command_gpus=[-1])['ok'] is False
+        assert set_monitor_settings(release_command_gpu_settings={'0': {'check_interval': 0}})['ok'] is False
 
     def test_add_release_command_stages(self):
         cmd = 'PYTORCH_ALLOC_CONF=expandable_segments:True python train.py'
-        r = add_release_command(cmd, note='train')
+        r = add_release_command(cmd, note='train', target_gpus=[1])
         assert r['ok'] is True
         assert r['staged'] is True
         assert r['action'] == 'add_release_command'
         assert r['command'] == cmd
         assert r['note'] == 'train'
+        assert r['target_gpus'] == [1]
 
     def test_add_release_command_rejects_empty(self):
         assert add_release_command('   ')['ok'] is False

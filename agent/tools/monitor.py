@@ -5,7 +5,13 @@ import re
 import psutil
 
 import notifier
-from release_commands import make_release_command, normalize_release_commands
+from release_commands import (
+    make_release_command,
+    normalize_release_command_gpu_settings,
+    normalize_release_commands,
+    validate_gpu_list,
+    validate_release_command_gpu_settings,
+)
 
 _NOTE_MAX = 200
 _MESSAGE_MAX = 4000
@@ -115,6 +121,9 @@ def monitor_settings(script_dir: str) -> dict:
                 'release_command_confirm_times',
                 cfg.get('confirm_times', 2),
             ),
+            'release_command_gpu_settings': normalize_release_command_gpu_settings(
+                cfg.get('release_command_gpu_settings', {})
+            ),
             'gpus': cfg.get('gpus', []),
         },
         'notification_summary': notifier.channel_summary(cfg),
@@ -190,6 +199,7 @@ def set_monitor_settings(
     release_command_confirm_times=None,
     gpus=None,
     release_command_gpus=None,
+    release_command_gpu_settings=None,
 ) -> dict:
     """Stage monitor setting changes (requires WebUI confirmation)."""
     settings = {}
@@ -241,6 +251,13 @@ def set_monitor_settings(
         ):
             return {'ok': False, 'error': 'release_command_gpus must be a list of non-negative integers'}
         settings['release_command_gpus'] = release_command_gpus
+    if release_command_gpu_settings is not None:
+        try:
+            settings['release_command_gpu_settings'] = validate_release_command_gpu_settings(
+                release_command_gpu_settings
+            )
+        except ValueError as e:
+            return {'ok': False, 'error': str(e)}
 
     if not settings:
         return {'ok': False, 'error': 'no settings provided'}
@@ -253,10 +270,14 @@ def set_monitor_settings(
     }
 
 
-def add_release_command(command: str, note: str = '') -> dict:
+def add_release_command(command: str, note: str = '', target_gpus=None) -> dict:
     """Stage adding a command that runs after the next GPU-memory release event."""
     try:
-        item = make_release_command(command, note)
+        item = make_release_command(command, note, target_gpus)
+    except ValueError as e:
+        return {'ok': False, 'error': str(e)}
+    try:
+        normalized_targets = validate_gpu_list(target_gpus, 'target_gpus')
     except ValueError as e:
         return {'ok': False, 'error': str(e)}
     return {
@@ -265,6 +286,7 @@ def add_release_command(command: str, note: str = '') -> dict:
         'action': 'add_release_command',
         'command': item['command'],
         'note': item['note'],
+        'target_gpus': normalized_targets,
         'message': '已暂存：添加显存释放后执行的指令，等待用户在 WebUI 确认后生效。',
     }
 

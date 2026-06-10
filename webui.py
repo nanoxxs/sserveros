@@ -15,7 +15,9 @@ from config_bootstrap import ensure_config
 from release_commands import (
     TERMINAL_STATUSES,
     make_release_command,
+    normalize_release_command_gpu_settings,
     normalize_release_commands,
+    validate_release_command_gpu_settings,
 )
 from storage import (
     config_path as _config_path,
@@ -144,6 +146,10 @@ def create_app(script_dir: str = None):
             'release_command_confirm_times',
             cfg.get('release_command_confirm_times', cfg.get('confirm_times', 2)),
         )
+        state.setdefault(
+            'release_command_gpu_settings',
+            normalize_release_command_gpu_settings(cfg.get('release_command_gpu_settings', {})),
+        )
         state.setdefault('release_commands', normalize_release_commands(cfg.get('release_commands', [])))
         state.setdefault('hostname', socket.gethostname())
         return jsonify(state)
@@ -169,6 +175,9 @@ def create_app(script_dir: str = None):
         cfg['release_command_confirm_times'] = cfg.get(
             'release_command_confirm_times',
             cfg.get('confirm_times', 2),
+        )
+        cfg['release_command_gpu_settings'] = normalize_release_command_gpu_settings(
+            cfg.get('release_command_gpu_settings', {})
         )
         cfg['release_commands'] = normalize_release_commands(cfg.get('release_commands', []))
         cfg['env_channel_summary'] = summary
@@ -303,7 +312,11 @@ def create_app(script_dir: str = None):
     def api_release_commands_add():
         data = request.get_json() or {}
         try:
-            item = make_release_command(data.get('command', ''), data.get('note', ''))
+            item = make_release_command(
+                data.get('command', ''),
+                data.get('note', ''),
+                data.get('target_gpus', []),
+            )
         except ValueError as e:
             return jsonify({'error': str(e)}), 400
         cfg = load_config_file(_config_path(script_dir))
@@ -689,6 +702,14 @@ def create_app(script_dir: str = None):
             if cfg.get('release_command_gpus', []) != gpus:
                 runtime_reload_needed = True
             cfg['release_command_gpus'] = gpus
+        if 'release_command_gpu_settings' in data:
+            try:
+                gpu_settings = validate_release_command_gpu_settings(data['release_command_gpu_settings'])
+            except ValueError as e:
+                return jsonify({'error': str(e)}), 400
+            if normalize_release_command_gpu_settings(cfg.get('release_command_gpu_settings', {})) != gpu_settings:
+                runtime_reload_needed = True
+            cfg['release_command_gpu_settings'] = gpu_settings
         if data.get('new_password'):
             if not check_password_hash(cfg.get('password_hash', ''),
                                        data.get('current_password', '')):
@@ -797,6 +818,13 @@ def create_app(script_dir: str = None):
                 ):
                     return {'ok': False, 'message': 'invalid release_command_gpus'}
                 cfg['release_command_gpus'] = gpus
+            if 'release_command_gpu_settings' in settings:
+                try:
+                    cfg['release_command_gpu_settings'] = validate_release_command_gpu_settings(
+                        settings['release_command_gpu_settings']
+                    )
+                except ValueError as e:
+                    return {'ok': False, 'message': str(e)}
             save_config_file(_config_path(script_dir), cfg)
             signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
             payload, _status = _runtime_feedback(
@@ -807,7 +835,11 @@ def create_app(script_dir: str = None):
             return {'ok': True, 'message': payload.get('message') or payload.get('warning', '监控参数已更新')}
         if atype == 'add_release_command':
             try:
-                item = make_release_command(action.get('command', ''), action.get('note', ''))
+                item = make_release_command(
+                    action.get('command', ''),
+                    action.get('note', ''),
+                    action.get('target_gpus', []),
+                )
             except ValueError as e:
                 return {'ok': False, 'message': str(e)}
             cfg = load_config_file(_config_path(script_dir))
@@ -1058,6 +1090,9 @@ def _empty_state(cfg: dict) -> dict:
         'release_command_confirm_times': cfg.get(
             'release_command_confirm_times',
             cfg.get('confirm_times', 2),
+        ),
+        'release_command_gpu_settings': normalize_release_command_gpu_settings(
+            cfg.get('release_command_gpu_settings', {})
         ),
         'release_commands': normalize_release_commands(cfg.get('release_commands', [])),
         'hostname': socket.gethostname(),

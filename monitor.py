@@ -16,7 +16,13 @@ from datetime import datetime
 
 import notifier
 from config_bootstrap import ensure_config
-from release_commands import normalize_release_commands, now_text
+from release_commands import (
+    normalize_release_command_gpu_settings,
+    normalize_release_commands,
+    release_command_matches_gpu,
+    release_command_settings_for_gpu,
+    now_text,
+)
 from storage import (
     config_path as _config_path,
     ensure_runtime_dir,
@@ -82,6 +88,7 @@ class Monitor:
         self.release_command_mem_threshold_mib = 10240
         self.release_command_check_interval = 60
         self.release_command_confirm_times = 2
+        self.release_command_gpu_settings: dict[str, dict] = {}
         self.release_commands: list[dict] = []
         self.gpus: list[int] = []
         self.sendkey = ''
@@ -100,6 +107,7 @@ class Monitor:
         # 释放指令队列的独立显存检测状态
         self.release_gpu_low_count: dict[int, int] = {}
         self.release_gpu_low_alerted: dict[int, bool] = {}
+        self.release_gpu_next_check: dict[int, float] = {}
 
         # GPU 进程状态
         self.pid_seen_notified: dict[int, bool] = {}
@@ -166,17 +174,31 @@ class Monitor:
         for gpu in gpus:
             self.release_gpu_low_count.setdefault(gpu, 0)
             self.release_gpu_low_alerted.setdefault(gpu, False)
+            self.release_gpu_next_check.setdefault(gpu, 0.0)
             self.gpu_mem_total.setdefault(gpu, 0)
             self.gpu_name.setdefault(gpu, '')
         for gpu in list(self.release_gpu_low_count):
             if gpu not in gpus:
                 self.release_gpu_low_count.pop(gpu, None)
                 self.release_gpu_low_alerted.pop(gpu, None)
+                self.release_gpu_next_check.pop(gpu, None)
 
     def _reset_release_command_alert_state(self):
         for gpu in self._release_target_gpus():
             self.release_gpu_low_count[gpu] = 0
             self.release_gpu_low_alerted[gpu] = False
+            self.release_gpu_next_check[gpu] = 0.0
+
+    def _release_command_cfg(self) -> dict:
+        return {
+            'release_command_mem_threshold_mib': self.release_command_mem_threshold_mib,
+            'release_command_check_interval': self.release_command_check_interval,
+            'release_command_confirm_times': self.release_command_confirm_times,
+            'release_command_gpu_settings': self.release_command_gpu_settings,
+        }
+
+    def _release_settings_for_gpu(self, gpu: int) -> dict:
+        return release_command_settings_for_gpu(self._release_command_cfg(), gpu)
 
     def load_config(self):
         if not os.path.exists(self.config_file):
@@ -202,6 +224,9 @@ class Monitor:
         self.release_command_confirm_times = cfg.get(
             'release_command_confirm_times',
             cfg.get('confirm_times', self.release_command_confirm_times),
+        )
+        self.release_command_gpu_settings = normalize_release_command_gpu_settings(
+            cfg.get('release_command_gpu_settings', {})
         )
         self.release_commands = normalize_release_commands(cfg.get('release_commands', []))
         raw_gpus = cfg.get('gpus', [])
@@ -277,6 +302,7 @@ class Monitor:
             prev_release_mem_threshold = self.release_command_mem_threshold_mib
             prev_release_check_interval = self.release_command_check_interval
             prev_release_confirm_times = self.release_command_confirm_times
+            prev_release_gpu_settings = dict(self.release_command_gpu_settings)
             prev_gpus = list(self.gpus)
             self.mem_threshold_mib = cfg.get('mem_threshold_mib', self.mem_threshold_mib)
             self.check_interval = cfg.get('check_interval', self.check_interval)
@@ -298,6 +324,9 @@ class Monitor:
             self.release_command_confirm_times = cfg.get(
                 'release_command_confirm_times',
                 cfg.get('confirm_times', self.release_command_confirm_times),
+            )
+            self.release_command_gpu_settings = normalize_release_command_gpu_settings(
+                cfg.get('release_command_gpu_settings', {})
             )
             self.release_commands = normalize_release_commands(cfg.get('release_commands', []))
             raw_gpus = cfg.get('gpus', [])
@@ -326,6 +355,7 @@ class Monitor:
                 or prev_release_mem_threshold != self.release_command_mem_threshold_mib
                 or prev_release_confirm_times != self.release_command_confirm_times
                 or prev_release_check_interval != self.release_command_check_interval
+                or prev_release_gpu_settings != self.release_command_gpu_settings
             ):
                 self._reset_release_command_alert_state()
             if prev_main_pid_enabled != self.main_pid_monitor_enabled or prev_gpus != self.gpus:
@@ -341,6 +371,7 @@ class Monitor:
                 f'释放阈值={self.release_command_mem_threshold_mib} '
                 f'释放间隔={self.release_command_check_interval} '
                 f'释放确认={self.release_command_confirm_times} '
+                f'释放GPU预设={len(self.release_command_gpu_settings)} '
                 f'释放通知={self.release_command_notify_enabled}',
                 flush=True,
             )
@@ -568,11 +599,15 @@ class Monitor:
             self._reconcile_release_commands_locked()
             cfg = load_config_file(self.config_file)
             queue = normalize_release_commands(cfg.get('release_commands', []))
-            if any(item.get('status') == 'running' for item in queue):
+            if any(
+                item.get('status') == 'running' and release_command_matches_gpu(item, gpu)
+                for item in queue
+            ):
                 return 'running'
 
             idx = next((i for i, item in enumerate(queue)
-                        if item.get('status', 'pending') == 'pending'), None)
+                        if item.get('status', 'pending') == 'pending'
+                        and release_command_matches_gpu(item, gpu)), None)
             if idx is None:
                 self.release_commands = queue
                 return 'no_pending'
@@ -580,6 +615,7 @@ class Monitor:
             item = queue[idx]
             command_id = item['id']
             command_text = item['command']
+            settings = self._release_settings_for_gpu(gpu)
             log_path = self._release_command_log_path(command_id)
             started_at = now_text()
             try:
@@ -643,8 +679,8 @@ class Monitor:
             f'- 进程 PID: `{proc.pid}`\n'
             f'- 触发 GPU: `{gpu}`\n'
             f'- 当前显存: `{used_mib} MiB`\n'
-            f'- 阈值: `{self.release_command_mem_threshold_mib} MiB`\n'
-            f'- 判定: 连续 {self.release_command_confirm_times} 次低于阈值\n'
+            f'- 阈值: `{settings["mem_threshold_mib"]} MiB`\n'
+            f'- 判定: 连续 {settings["confirm_times"]} 次低于阈值\n'
             f'- 检测时间: `{detected_at}`\n'
             f'- 日志文件: `{log_path}`\n\n'
             f'### 启动命令\n```\n{command_text}\n```'
@@ -774,6 +810,7 @@ class Monitor:
             'release_command_mem_threshold_mib': self.release_command_mem_threshold_mib,
             'release_command_check_interval': self.release_command_check_interval,
             'release_command_confirm_times': self.release_command_confirm_times,
+            'release_command_gpu_settings': self.release_command_gpu_settings,
             'release_commands': self.release_commands,
         }
         tmp = self.state_file + '.tmp'
@@ -807,17 +844,28 @@ class Monitor:
         if not target_gpus:
             return
         self._sync_release_gpu_state_arrays(target_gpus)
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        _uuid_to_gpu, gpu_mem_used = self.query_gpu_info(target_gpus)
-
+        now_mono = time.monotonic()
+        due_gpus = []
         for gpu in target_gpus:
+            settings = self._release_settings_for_gpu(gpu)
+            if now_mono < self.release_gpu_next_check.get(gpu, 0.0):
+                continue
+            due_gpus.append(gpu)
+            self.release_gpu_next_check[gpu] = now_mono + max(1, int(settings['check_interval']))
+        if not due_gpus:
+            return
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        _uuid_to_gpu, gpu_mem_used = self.query_gpu_info(due_gpus)
+
+        for gpu in due_gpus:
+            settings = self._release_settings_for_gpu(gpu)
             used = gpu_mem_used.get(gpu, 0)
-            if used < self.release_command_mem_threshold_mib:
+            if used < settings['mem_threshold_mib']:
                 self.release_gpu_low_count[gpu] = self.release_gpu_low_count.get(gpu, 0) + 1
                 low = self.release_gpu_low_count[gpu]
                 if self.release_gpu_low_alerted.get(gpu):
                     continue
-                if low < self.release_command_confirm_times:
+                if low < settings['confirm_times']:
                     continue
 
                 result = self._start_next_release_command(gpu, used, now)
@@ -1133,7 +1181,8 @@ class Monitor:
         print(
             f'释放队列: enabled={self.release_command_enabled} notify={self.release_command_notify_enabled} '
             f'GPUs={release_gpu_text} interval={self.release_command_check_interval}s '
-            f'confirm={self.release_command_confirm_times} threshold={self.release_command_mem_threshold_mib}MiB',
+            f'confirm={self.release_command_confirm_times} threshold={self.release_command_mem_threshold_mib}MiB '
+            f'gpu_presets={len(self.release_command_gpu_settings)}',
             flush=True,
         )
 
@@ -1157,7 +1206,7 @@ class Monitor:
                 next_main_check = time.monotonic() + max(1, int(self.check_interval))
             if now_mono >= next_release_check:
                 self.check_release_commands_once()
-                next_release_check = time.monotonic() + max(1, int(self.release_command_check_interval))
+                next_release_check = time.monotonic() + 1
 
             now_mono = time.monotonic()
             sleep_for = min(

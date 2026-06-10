@@ -81,7 +81,7 @@ TOOL_SCHEMAS = [
         'type': 'function',
         'function': {
             'name': 'set_monitor_settings',
-            'description': '修改显存检测阈值、检测间隔、确认次数、监控 GPU、监控开关或释放指令开关。注意：此操作需要用户在 WebUI 确认后才真正生效。',
+            'description': '修改显存检测阈值、检测间隔、确认次数、监控 GPU、监控开关、释放指令开关或释放队列每 GPU 预设。注意：此操作需要用户在 WebUI 确认后才真正生效。',
             'parameters': {
                 'type': 'object',
                 'properties': {
@@ -105,6 +105,18 @@ TOOL_SCHEMAS = [
                         'items': {'type': 'integer'},
                         'description': '释放队列独立监控的 GPU index 列表，空列表表示自动检测全部',
                     },
+                    'release_command_gpu_settings': {
+                        'type': 'object',
+                        'description': '释放队列每 GPU 预设，键是 GPU index 字符串，值可包含 mem_threshold_mib、check_interval、confirm_times 正整数',
+                        'additionalProperties': {
+                            'type': 'object',
+                            'properties': {
+                                'mem_threshold_mib': {'type': 'integer'},
+                                'check_interval': {'type': 'integer'},
+                                'confirm_times': {'type': 'integer'},
+                            },
+                        },
+                    },
                 },
                 'required': [],
             },
@@ -114,12 +126,17 @@ TOOL_SCHEMAS = [
         'type': 'function',
         'function': {
             'name': 'add_release_command',
-            'description': '添加一条 GPU 显存释放后执行的 shell 指令，队列会按添加顺序一次执行一条。注意：此操作需要用户在 WebUI 确认后才真正生效。',
+            'description': '添加一条 GPU 显存释放后执行的 shell 指令。target_gpus 为空表示任意 GPU 释放都可触发；指定 GPU 后只会被对应 GPU 队列触发。注意：此操作需要用户在 WebUI 确认后才真正生效。',
             'parameters': {
                 'type': 'object',
                 'properties': {
                     'command': {'type': 'string', 'description': '完整 shell 指令，可包含环境变量赋值和换行'},
                     'note': {'type': 'string', 'description': '备注说明，可选'},
+                    'target_gpus': {
+                        'type': 'array',
+                        'items': {'type': 'integer'},
+                        'description': '目标 GPU index 列表，例如 [0]；空列表或省略表示任意 GPU',
+                    },
                 },
                 'required': ['command'],
             },

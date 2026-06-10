@@ -21,6 +21,7 @@ DEFAULT_CONFIG = {
     'release_command_mem_threshold_mib': 10240,
     'release_command_check_interval': 60,
     'release_command_confirm_times': 2,
+    'release_command_gpu_settings': {},
     'release_commands': [],
     'gpus': [],
     'watch_pids': [],

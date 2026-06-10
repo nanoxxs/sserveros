@@ -516,6 +516,82 @@ def test_sserveros_runs_release_command_after_low_memory_alert(tmp_path):
         _stop_monitor(proc)
 
 
+def test_sserveros_runs_release_commands_for_matching_gpu_queues(tmp_path):
+    project_dir, mock_state_path = _prepare_project(tmp_path)
+    ran_zero = project_dir / 'ran_release_gpu0.txt'
+    ran_one = project_dir / 'ran_release_gpu1.txt'
+    command_zero = (
+        f'{sys.executable} -c "from pathlib import Path; '
+        f'Path({str(ran_zero)!r}).write_text('
+        f'{repr("gpu0")})"'
+    )
+    command_one = (
+        f'{sys.executable} -c "from pathlib import Path; '
+        f'Path({str(ran_one)!r}).write_text('
+        f'{repr("gpu1")})"'
+    )
+    _write_mock_state(
+        mock_state_path,
+        gpu_indices=[0, 1],
+        gpus=[
+            {'index': 0, 'uuid': 'GPU-0', 'mem_used': 0, 'mem_total': 10000, 'name': 'GPU Zero'},
+            {'index': 1, 'uuid': 'GPU-1', 'mem_used': 0, 'mem_total': 10000, 'name': 'GPU One'},
+        ],
+        apps=[],
+        alive_pids={},
+    )
+    proc = _start_monitor(project_dir, {
+        'check_interval': 1,
+        'confirm_times': 1,
+        'mem_threshold_mib': 512,
+        'gpu_mem_monitor_enabled': True,
+        'main_pid_monitor_enabled': False,
+        'release_command_enabled': True,
+        'release_command_notify_enabled': False,
+        'release_command_gpus': [0, 1],
+        'release_command_mem_threshold_mib': 512,
+        'release_command_check_interval': 1,
+        'release_command_confirm_times': 1,
+        'release_command_gpu_settings': {
+            '0': {'mem_threshold_mib': 512, 'check_interval': 1, 'confirm_times': 1},
+            '1': {'mem_threshold_mib': 512, 'check_interval': 1, 'confirm_times': 1},
+        },
+        'release_commands': [
+            {
+                'id': 'cmd_gpu1',
+                'command': command_one,
+                'note': 'gpu one job',
+                'target_gpus': [1],
+                'status': 'pending',
+            },
+            {
+                'id': 'cmd_gpu0',
+                'command': command_zero,
+                'note': 'gpu zero job',
+                'target_gpus': [0],
+                'status': 'pending',
+            },
+        ],
+        'gpus': [0, 1],
+        'watch_pids': [],
+        'sendkey': 'SCTtest',
+    })
+
+    try:
+        _wait_until(lambda: ran_zero.exists() and ran_one.exists(), timeout=8.0)
+        cfg = _wait_until(
+            lambda: _read_json(project_dir / 'config.json')
+            if all(item['status'] == 'success' for item in _read_json(project_dir / 'config.json')['release_commands'])
+            else None,
+            timeout=8.0,
+        )
+        by_id = {item['id']: item for item in cfg['release_commands']}
+        assert by_id['cmd_gpu0']['trigger_gpu'] == 0
+        assert by_id['cmd_gpu1']['trigger_gpu'] == 1
+    finally:
+        _stop_monitor(proc)
+
+
 def test_sserveros_bootstraps_config_when_missing(tmp_path):
     project_dir, mock_state_path = _prepare_project(tmp_path)
     _write_mock_state(

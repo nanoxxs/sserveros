@@ -157,6 +157,10 @@ python monitor.py add <pid>
 # 或通过 WebUI → PIDs 标签页添加
 ```
 
+## 显存释放后执行队列
+
+WebUI → 设置 → 释放队列 支持按 GPU 设置队列任务。每条任务可以指定 `target_gpus`，例如只由 GPU 0 触发；留空则表示任意释放队列 GPU 都可触发。释放检测的阈值、检测间隔和确认次数可以使用全局默认值，也可以通过 GPU 预设为不同 GPU 单独覆盖。
+
 ## Agent
 
 Agent 默认关闭。开启后，它可以调用只读工具查询当前 GPU 快照、监控 PID、进程、systemd 服务、端口、磁盘和系统信息；涉及写操作的 `add_watch_pid` / `remove_watch_pid` 会先进入待确认状态，需要在 WebUI 中确认后才会真正写入配置并通知 `monitor.py`。
