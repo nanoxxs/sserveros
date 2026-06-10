@@ -91,10 +91,19 @@ TOOL_SCHEMAS = [
                     'gpu_mem_monitor_enabled': {'type': 'boolean', 'description': '是否启用显存阈值监控'},
                     'main_pid_monitor_enabled': {'type': 'boolean', 'description': '是否启用主 PID 发现/消失监控'},
                     'release_command_enabled': {'type': 'boolean', 'description': '是否启用显存释放后自动执行指令队列'},
+                    'release_command_notify_enabled': {'type': 'boolean', 'description': '是否启用释放队列检测、启动、结束通知'},
+                    'release_command_mem_threshold_mib': {'type': 'integer', 'description': '释放队列独立显存阈值 MiB，例如 512'},
+                    'release_command_check_interval': {'type': 'integer', 'description': '释放队列独立检测间隔秒数，例如 120'},
+                    'release_command_confirm_times': {'type': 'integer', 'description': '释放队列独立确认次数，例如 3'},
                     'gpus': {
                         'type': 'array',
                         'items': {'type': 'integer'},
-                        'description': '要监控的 GPU index 列表，空列表表示自动检测全部',
+                        'description': '普通监控的 GPU index 列表，空列表表示自动检测全部',
+                    },
+                    'release_command_gpus': {
+                        'type': 'array',
+                        'items': {'type': 'integer'},
+                        'description': '释放队列独立监控的 GPU index 列表，空列表表示自动检测全部',
                     },
                 },
                 'required': [],
@@ -300,5 +309,5 @@ SYSTEM_PROMPT = """\
 4. 不要编造工具未返回的信息，如果工具返回错误直接如实告知。
 5. 回复尽量简洁，技术细节列表呈现。
 6. 当用户询问服务器安全风险、异常登录、可疑操作等安全相关问题时，主动调用 login_history 和 sudo_history 获取真实数据后再作判断，不要仅凭常识泛泛而谈。
-7. 当用户要求设置“120 秒轮询 3 次、低于 512 MiB”等监控参数时，调用 set_monitor_settings；当用户要求加入训练启动命令时，调用 add_release_command，并保留用户给出的完整 shell 命令。
+7. 当用户要求设置“释放队列/GPU 空闲后执行/120 秒轮询 3 次、低于 512 MiB”等参数时，使用 release_command_* 字段调用 set_monitor_settings；当用户要求加入训练启动命令时，调用 add_release_command，并保留用户给出的完整 shell 命令。
 """

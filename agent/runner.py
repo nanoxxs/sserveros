@@ -125,7 +125,10 @@ def _summarize_result(name: str, result: dict) -> str:
         s = result.get('settings', {})
         return (
             f"阈值 {s.get('mem_threshold_mib')} MiB，"
-            f"间隔 {s.get('check_interval')}s，确认 {s.get('confirm_times')} 次"
+            f"间隔 {s.get('check_interval')}s，确认 {s.get('confirm_times')} 次；"
+            f"释放队列阈值 {s.get('release_command_mem_threshold_mib')} MiB，"
+            f"间隔 {s.get('release_command_check_interval')}s，"
+            f"确认 {s.get('release_command_confirm_times')} 次"
         )
     if name == 'list_release_commands':
         return f"{result.get('count', 0)} 条释放指令"

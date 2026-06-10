@@ -101,6 +101,20 @@ def monitor_settings(script_dir: str) -> dict:
             'gpu_mem_monitor_enabled': cfg.get('gpu_mem_monitor_enabled', True),
             'main_pid_monitor_enabled': cfg.get('main_pid_monitor_enabled', True),
             'release_command_enabled': cfg.get('release_command_enabled', True),
+            'release_command_notify_enabled': cfg.get('release_command_notify_enabled', True),
+            'release_command_gpus': cfg.get('release_command_gpus', []),
+            'release_command_mem_threshold_mib': cfg.get(
+                'release_command_mem_threshold_mib',
+                cfg.get('mem_threshold_mib', 10240),
+            ),
+            'release_command_check_interval': cfg.get(
+                'release_command_check_interval',
+                cfg.get('check_interval', 60),
+            ),
+            'release_command_confirm_times': cfg.get(
+                'release_command_confirm_times',
+                cfg.get('confirm_times', 2),
+            ),
             'gpus': cfg.get('gpus', []),
         },
         'notification_summary': notifier.channel_summary(cfg),
@@ -170,13 +184,33 @@ def set_monitor_settings(
     gpu_mem_monitor_enabled=None,
     main_pid_monitor_enabled=None,
     release_command_enabled=None,
+    release_command_notify_enabled=None,
+    release_command_mem_threshold_mib=None,
+    release_command_check_interval=None,
+    release_command_confirm_times=None,
     gpus=None,
+    release_command_gpus=None,
 ) -> dict:
     """Stage monitor setting changes (requires WebUI confirmation)."""
     settings = {}
     _optional_positive_int(mem_threshold_mib, 'mem_threshold_mib', settings)
     _optional_positive_int(check_interval, 'check_interval', settings)
     _optional_positive_int(confirm_times, 'confirm_times', settings)
+    _optional_positive_int(
+        release_command_mem_threshold_mib,
+        'release_command_mem_threshold_mib',
+        settings,
+    )
+    _optional_positive_int(
+        release_command_check_interval,
+        'release_command_check_interval',
+        settings,
+    )
+    _optional_positive_int(
+        release_command_confirm_times,
+        'release_command_confirm_times',
+        settings,
+    )
     if 'error' in settings:
         return {'ok': False, 'error': settings['error']}
 
@@ -184,6 +218,7 @@ def set_monitor_settings(
         'gpu_mem_monitor_enabled': gpu_mem_monitor_enabled,
         'main_pid_monitor_enabled': main_pid_monitor_enabled,
         'release_command_enabled': release_command_enabled,
+        'release_command_notify_enabled': release_command_notify_enabled,
     }
     for key, value in bool_values.items():
         if value is None:
@@ -199,6 +234,13 @@ def set_monitor_settings(
         ):
             return {'ok': False, 'error': 'gpus must be a list of non-negative integers'}
         settings['gpus'] = gpus
+    if release_command_gpus is not None:
+        if (
+            not isinstance(release_command_gpus, list)
+            or not all(isinstance(g, int) and not isinstance(g, bool) and g >= 0 for g in release_command_gpus)
+        ):
+            return {'ok': False, 'error': 'release_command_gpus must be a list of non-negative integers'}
+        settings['release_command_gpus'] = release_command_gpus
 
     if not settings:
         return {'ok': False, 'error': 'no settings provided'}

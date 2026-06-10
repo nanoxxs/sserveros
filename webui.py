@@ -31,6 +31,11 @@ from flask import Flask, Response, jsonify, request, send_file, session, stream_
 from werkzeug.security import check_password_hash, generate_password_hash
 
 _MONITOR_NUMERIC_SETTINGS = ('mem_threshold_mib', 'check_interval', 'confirm_times')
+_RELEASE_COMMAND_NUMERIC_SETTINGS = (
+    'release_command_mem_threshold_mib',
+    'release_command_check_interval',
+    'release_command_confirm_times',
+)
 _WEBUI_NUMERIC_SETTINGS = ('log_max_size_mb', 'log_archive_keep')
 _ENV_CHANNEL_KEYS = ('SERVERCHAN_KEYS', 'BARK_CONFIGS', 'SENDKEY')
 
@@ -125,6 +130,20 @@ def create_app(script_dir: str = None):
         state['watch_pids'] = _merge_watch_pids(state.get('watch_pids', []), cfg)
         state.setdefault('gpus', [])
         state.setdefault('release_command_enabled', cfg.get('release_command_enabled', True))
+        state.setdefault('release_command_notify_enabled', cfg.get('release_command_notify_enabled', True))
+        state.setdefault('release_command_gpus', cfg.get('release_command_gpus', []))
+        state.setdefault(
+            'release_command_mem_threshold_mib',
+            cfg.get('release_command_mem_threshold_mib', cfg.get('mem_threshold_mib', 10240)),
+        )
+        state.setdefault(
+            'release_command_check_interval',
+            cfg.get('release_command_check_interval', cfg.get('check_interval', 60)),
+        )
+        state.setdefault(
+            'release_command_confirm_times',
+            cfg.get('release_command_confirm_times', cfg.get('confirm_times', 2)),
+        )
         state.setdefault('release_commands', normalize_release_commands(cfg.get('release_commands', [])))
         state.setdefault('hostname', socket.gethostname())
         return jsonify(state)
@@ -137,6 +156,20 @@ def create_app(script_dir: str = None):
         cfg.pop('password_hash', None)
         cfg.pop('secret_key', None)
         cfg['release_command_enabled'] = cfg.get('release_command_enabled', True)
+        cfg['release_command_notify_enabled'] = cfg.get('release_command_notify_enabled', True)
+        cfg['release_command_gpus'] = cfg.get('release_command_gpus', [])
+        cfg['release_command_mem_threshold_mib'] = cfg.get(
+            'release_command_mem_threshold_mib',
+            cfg.get('mem_threshold_mib', 10240),
+        )
+        cfg['release_command_check_interval'] = cfg.get(
+            'release_command_check_interval',
+            cfg.get('check_interval', 60),
+        )
+        cfg['release_command_confirm_times'] = cfg.get(
+            'release_command_confirm_times',
+            cfg.get('confirm_times', 2),
+        )
         cfg['release_commands'] = normalize_release_commands(cfg.get('release_commands', []))
         cfg['env_channel_summary'] = summary
         return jsonify(cfg)
@@ -573,6 +606,14 @@ def create_app(script_dir: str = None):
                 if cfg.get(key) != val:
                     runtime_reload_needed = True
                 cfg[key] = val
+        for key in _RELEASE_COMMAND_NUMERIC_SETTINGS:
+            if key in data:
+                val = data[key]
+                if isinstance(val, bool) or not isinstance(val, (int, float)) or val <= 0:
+                    return jsonify({'error': f'invalid value for {key}'}), 400
+                if cfg.get(key) != val:
+                    runtime_reload_needed = True
+                cfg[key] = val
         for key in _WEBUI_NUMERIC_SETTINGS:
             if key in data:
                 val = data[key]
@@ -634,6 +675,20 @@ def create_app(script_dir: str = None):
             if cfg.get('release_command_enabled', True) != val:
                 runtime_reload_needed = True
             cfg['release_command_enabled'] = val
+        if 'release_command_notify_enabled' in data:
+            val = data['release_command_notify_enabled']
+            if not isinstance(val, bool):
+                return jsonify({'error': 'invalid value for release_command_notify_enabled'}), 400
+            if cfg.get('release_command_notify_enabled', True) != val:
+                runtime_reload_needed = True
+            cfg['release_command_notify_enabled'] = val
+        if 'release_command_gpus' in data:
+            gpus = data['release_command_gpus']
+            if not isinstance(gpus, list) or not all(isinstance(g, int) and not isinstance(g, bool) and g >= 0 for g in gpus):
+                return jsonify({'error': 'invalid release_command_gpus'}), 400
+            if cfg.get('release_command_gpus', []) != gpus:
+                runtime_reload_needed = True
+            cfg['release_command_gpus'] = gpus
         if data.get('new_password'):
             if not check_password_hash(cfg.get('password_hash', ''),
                                        data.get('current_password', '')):
@@ -698,11 +753,19 @@ def create_app(script_dir: str = None):
             if not isinstance(settings, dict) or not settings:
                 return {'ok': False, 'message': '监控参数为空'}
             cfg = load_config_file(_config_path(script_dir))
-            numeric_keys = ('mem_threshold_mib', 'check_interval', 'confirm_times')
+            numeric_keys = (
+                'mem_threshold_mib',
+                'check_interval',
+                'confirm_times',
+                'release_command_mem_threshold_mib',
+                'release_command_check_interval',
+                'release_command_confirm_times',
+            )
             bool_keys = (
                 'gpu_mem_monitor_enabled',
                 'main_pid_monitor_enabled',
                 'release_command_enabled',
+                'release_command_notify_enabled',
             )
             for key in numeric_keys:
                 if key not in settings:
@@ -726,6 +789,14 @@ def create_app(script_dir: str = None):
                 ):
                     return {'ok': False, 'message': 'invalid gpus'}
                 cfg['gpus'] = gpus
+            if 'release_command_gpus' in settings:
+                gpus = settings['release_command_gpus']
+                if (
+                    not isinstance(gpus, list)
+                    or not all(isinstance(g, int) and not isinstance(g, bool) and g >= 0 for g in gpus)
+                ):
+                    return {'ok': False, 'message': 'invalid release_command_gpus'}
+                cfg['release_command_gpus'] = gpus
             save_config_file(_config_path(script_dir), cfg)
             signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
             payload, _status = _runtime_feedback(
@@ -974,6 +1045,20 @@ def _empty_state(cfg: dict) -> dict:
         'gpus': [],
         'watch_pids': _merge_watch_pids([], cfg),
         'release_command_enabled': cfg.get('release_command_enabled', True),
+        'release_command_notify_enabled': cfg.get('release_command_notify_enabled', True),
+        'release_command_gpus': cfg.get('release_command_gpus', []),
+        'release_command_mem_threshold_mib': cfg.get(
+            'release_command_mem_threshold_mib',
+            cfg.get('mem_threshold_mib', 10240),
+        ),
+        'release_command_check_interval': cfg.get(
+            'release_command_check_interval',
+            cfg.get('check_interval', 60),
+        ),
+        'release_command_confirm_times': cfg.get(
+            'release_command_confirm_times',
+            cfg.get('confirm_times', 2),
+        ),
         'release_commands': normalize_release_commands(cfg.get('release_commands', [])),
         'hostname': socket.gethostname(),
     }
@@ -1012,6 +1097,11 @@ def _build_test_notify_content(cfg: dict, summary: dict) -> str:
         f'- 检测间隔: {cfg.get("check_interval", 60)} 秒\n'
         f'- 确认次数: {cfg.get("confirm_times", 2)}\n'
         f'- 监控 GPU: {gpu_text}\n'
+        f'- 释放队列: {"开启" if cfg.get("release_command_enabled", True) else "关闭"}\n'
+        f'- 释放队列通知: {"开启" if cfg.get("release_command_notify_enabled", True) else "关闭"}\n'
+        f'- 释放队列阈值: {cfg.get("release_command_mem_threshold_mib", cfg.get("mem_threshold_mib", 10240))} MiB\n'
+        f'- 释放队列检测间隔: {cfg.get("release_command_check_interval", cfg.get("check_interval", 60))} 秒\n'
+        f'- 释放队列确认次数: {cfg.get("release_command_confirm_times", cfg.get("confirm_times", 2))}\n'
         f'- 日志压缩触发大小: {cfg.get("log_max_size_mb", 10)} MB\n'
         f'- 历史存档保留数量: {cfg.get("log_archive_keep", 5)}\n\n'
         '## 本次测试使用的通知渠道\n'

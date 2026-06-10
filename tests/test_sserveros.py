@@ -482,6 +482,11 @@ def test_sserveros_runs_release_command_after_low_memory_alert(tmp_path):
         'gpu_mem_monitor_enabled': True,
         'main_pid_monitor_enabled': False,
         'release_command_enabled': True,
+        'release_command_notify_enabled': True,
+        'release_command_gpus': [0],
+        'release_command_mem_threshold_mib': 512,
+        'release_command_check_interval': 1,
+        'release_command_confirm_times': 1,
         'release_commands': [{
             'id': 'cmd_test',
             'command': command,

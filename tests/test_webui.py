@@ -149,6 +149,19 @@ def test_index_contains_agent_empty_welcome(client):
     assert '你可以向我提问' in text
 
 
+def test_index_contains_settings_side_nav_and_release_settings(client):
+    r = client.get('/')
+    text = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert 'settings-nav' in text
+    assert 'settingsSections' in text
+    assert 'cfgReleaseCommandGpus' in text
+    assert 'cfgReleaseCommandThreshold' in text
+    assert 'cfgReleaseCommandInterval' in text
+    assert 'cfgReleaseCommandConfirm' in text
+    assert 'cfgReleaseCommandNotify' in text
+
+
 # ── State / Config ──────────────────────────────────────
 
 def test_state_no_file(auth_client):
@@ -503,6 +516,11 @@ def test_save_settings_updates_config(auth_client, tmp_config, monkeypatch):
         'confirm_times': 3, 'log_max_size_mb': 5, 'log_archive_keep': 2,
         'gpu_mem_monitor_enabled': False, 'main_pid_monitor_enabled': False,
         'release_command_enabled': False,
+        'release_command_notify_enabled': False,
+        'release_command_gpus': [0],
+        'release_command_mem_threshold_mib': 512,
+        'release_command_check_interval': 120,
+        'release_command_confirm_times': 3,
     }, content_type='application/json')
     cfg = json.loads((tmp_config / 'config.json').read_text())
     assert cfg['mem_threshold_mib'] == 8192
@@ -510,6 +528,11 @@ def test_save_settings_updates_config(auth_client, tmp_config, monkeypatch):
     assert cfg['gpu_mem_monitor_enabled'] is False
     assert cfg['main_pid_monitor_enabled'] is False
     assert cfg['release_command_enabled'] is False
+    assert cfg['release_command_notify_enabled'] is False
+    assert cfg['release_command_gpus'] == [0]
+    assert cfg['release_command_mem_threshold_mib'] == 512
+    assert cfg['release_command_check_interval'] == 120
+    assert cfg['release_command_confirm_times'] == 3
 
 
 def test_save_settings_updates_gpus(auth_client, tmp_config, monkeypatch):

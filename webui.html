@@ -172,6 +172,20 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .setting-input { width: 100%; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; font-size: 14px; outline: none; }
 .setting-input:focus { border-color: #2563eb; }
 .setting-row-toggle { display: flex; justify-content: space-between; align-items: center; }
+.settings-layout { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 14px; align-items: start; }
+.settings-nav { position: sticky; top: 100px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.settings-nav-btn { width: 100%; border: none; background: transparent; color: #64748b; border-radius: 8px; padding: 9px 10px; font-size: 13px; text-align: left; cursor: pointer; }
+.settings-nav-btn:hover, .settings-nav-btn.active { background: #f1f5f9; color: #2563eb; }
+.settings-sections { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.settings-section { scroll-margin-top: 104px; }
+.setting-inline-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 820px) {
+  .settings-layout { grid-template-columns: 1fr; }
+  .settings-nav { top: 86px; z-index: 8; flex-direction: row; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 6px; border-radius: 10px; }
+  .settings-nav-btn { width: auto; flex: 0 0 auto; white-space: nowrap; text-align: center; padding: 8px 12px; }
+  .settings-section { scroll-margin-top: 134px; }
+  .setting-inline-grid { grid-template-columns: 1fr; }
+}
 .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }
 .toggle-slider { position: absolute; inset: 0; background: #e2e8f0; border-radius: 24px; cursor: pointer; transition: background .2s; }
@@ -405,7 +419,7 @@ body { font-family: var(--font-sans); background: var(--bg-0); color: var(--fg-1
 body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, .dropdown-menu, .agent-layout, .agent-bottom, .app-footer-card {
   transition: background .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease;
 }
-.login-card, .card, .sysinfo-card, .gpu-card, .app-footer-card, .agent-layout {
+.login-card, .card, .sysinfo-card, .gpu-card, .app-footer-card, .agent-layout, .settings-nav {
   background: var(--bg-1);
   border-color: var(--border-default);
   border-radius: var(--radius-lg);
@@ -476,6 +490,8 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 .dropdown-menu, .modal-box { background: var(--bg-1); border-color: var(--border-default); box-shadow: var(--shadow-lg); }
 .dropdown-item, .dropdown-segment-btn { color: var(--fg-1); border-color: var(--border-subtle); }
 .dropdown-item:hover, .dropdown-segment-btn:hover { background: var(--bg-3); }
+.settings-nav-btn { color: var(--fg-2); }
+.settings-nav-btn:hover, .settings-nav-btn.active { background: var(--bg-2); color: var(--accent); }
 .dropdown-section { border-color: var(--border-subtle); }
 .dropdown-segment-btn.active { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
 .proc-table td, .pid-row, .log-row, .archive-row, .setting-row, .cmd-row { border-color: var(--border-subtle); }
@@ -518,6 +534,12 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border-color: color-mix(in oklab, var(--fg-1) 12%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in oklab, white 42%, transparent), 0 8px 32px color-mix(in oklab, black 10%, transparent);
+}
+[data-glass="on"] .settings-nav {
+  background: color-mix(in oklab, var(--bg-1) 58%, transparent);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-color: color-mix(in oklab, var(--fg-1) 12%, transparent);
 }
 [data-glass="on"] .login-input, [data-glass="on"] .modal-input, [data-glass="on"] .add-input, [data-glass="on"] .setting-input, [data-glass="on"] .agent-input, [data-glass="on"] .dropdown-segment-btn {
   background: color-mix(in oklab, var(--bg-1) 55%, transparent);
@@ -907,7 +929,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 
   <!-- ── PIDs pane ── -->
   <div class="pane" :class="{active: currentTab === 'pids'}" id="panePids">
-    <div class="card">
+    <div class="card settings-section" ref="settingsRelease">
       <div class="card-header">
         <span>监控 PID 列表</span>
         <div style="display:flex;align-items:center;gap:10px">
@@ -946,7 +968,15 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 
   <!-- ── Settings pane ── -->
   <div class="pane" :class="{active: currentTab === 'settings'}" id="paneSettings">
-    <div class="card">
+    <div class="settings-layout">
+      <nav class="settings-nav" aria-label="设置导航">
+        <button v-for="s in settingsSections" :key="s.id"
+                class="settings-nav-btn"
+                :class="{active: activeSettingsSection === s.id}"
+                @click="scrollSettingSection(s.id)">{{ s.label }}</button>
+      </nav>
+      <div class="settings-sections">
+    <div class="card settings-section" ref="settingsMonitor">
       <div class="card-header">监控参数</div>
       <div class="setting-row setting-row-toggle">
         <div>
@@ -993,7 +1023,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
         <input class="setting-input" v-model="cfgGpus" placeholder="例：0,1,2">
       </div>
     </div>
-    <div class="card">
+    <div class="card settings-section" ref="settingsRelease">
       <div class="card-header">
         <span>显存释放后执行队列</span>
         <div style="display:flex;align-items:center;gap:8px">
@@ -1011,6 +1041,36 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
           <input type="checkbox" v-model="cfgReleaseCommandEnabled">
           <span class="toggle-slider"></span>
         </label>
+      </div>
+      <div class="setting-row setting-row-toggle">
+        <div>
+          <div class="setting-label" style="margin-bottom:2px">释放队列通知</div>
+          <div style="font-size:12px;color:#94a3b8">检测到释放、启动指令、指令结束时推送消息</div>
+        </div>
+        <label class="toggle-switch" style="margin-left:16px">
+          <input type="checkbox" v-model="cfgReleaseCommandNotify">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">释放队列监控 GPU（逗号分隔，留空自动检测）</div>
+        <input class="setting-input" v-model="cfgReleaseCommandGpus" placeholder="例：0">
+      </div>
+      <div class="setting-row">
+        <div class="setting-inline-grid">
+          <div>
+            <div class="setting-label">释放阈值 (MiB)</div>
+            <input class="setting-input" v-model.number="cfgReleaseCommandThreshold" type="number">
+          </div>
+          <div>
+            <div class="setting-label">释放检测间隔 (秒)</div>
+            <input class="setting-input" v-model.number="cfgReleaseCommandInterval" type="number">
+          </div>
+          <div>
+            <div class="setting-label">释放确认次数</div>
+            <input class="setting-input" v-model.number="cfgReleaseCommandConfirm" type="number">
+          </div>
+        </div>
       </div>
       <div v-if="!releaseCommands.length" style="padding:16px;color:#94a3b8;font-size:14px">暂无释放后执行指令</div>
       <div v-for="(cmd, i) in releaseCommands" :key="cmd.id" class="cmd-row">
@@ -1058,7 +1118,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
         </div>
       </div>
     </div>
-    <div class="card">
+    <div class="card settings-section" ref="settingsNotify">
       <div class="card-header">通知渠道</div>
       <div class="setting-row">
         <div class="setting-label">Server Chan 密钥（每行一个，支持多个）</div>
@@ -1084,7 +1144,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     <div v-if="saveMsg.text" class="notice-msg" :class="saveMsg.kind" style="display:block">{{ saveMsg.text }}</div>
 
     <!-- Agent config -->
-    <div class="card">
+    <div class="card settings-section" ref="settingsAgent">
       <div class="card-header">Agent · LLM 配置</div>
       <div class="setting-row setting-row-toggle">
         <div>
@@ -1134,6 +1194,8 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     </div>
     <button class="save-btn" @click="saveAgentConfig()" style="margin-top:0">保存 Agent 配置</button>
     <div v-if="agentSaveMsg.text" class="notice-msg" :class="agentSaveMsg.kind" style="display:block">{{ agentSaveMsg.text }}</div>
+      </div>
+    </div>
   </div>
 
   <!-- ── Log pane ── -->
@@ -1390,6 +1452,11 @@ createApp({
       cfgLogKeep: 5,
       cfgGpus: '',
       cfgReleaseCommandEnabled: true,
+      cfgReleaseCommandNotify: true,
+      cfgReleaseCommandGpus: '',
+      cfgReleaseCommandThreshold: 10240,
+      cfgReleaseCommandInterval: 60,
+      cfgReleaseCommandConfirm: 2,
       releaseCommands: [],
       newReleaseCommand: '',
       newReleaseCommandNote: '',
@@ -1399,6 +1466,13 @@ createApp({
       saveMsg: {text:'', kind:''},
       envChannelMsg: {text:'', kind:''},
       // Agent config
+      settingsSections: [
+        {id:'monitor', label:'监控参数'},
+        {id:'release', label:'释放队列'},
+        {id:'notify', label:'通知渠道'},
+        {id:'agent', label:'Agent'},
+      ],
+      activeSettingsSection: 'monitor',
       cfgAgentEnabled: false,
       cfgLlmBaseUrl: '',
       cfgLlmApiKey: '',
@@ -1594,7 +1668,6 @@ createApp({
         if (data.hostname) this.hostname = data.hostname;
         if (this.currentTab === 'pids') this.pidData = data.watch_pids || [];
         if (this.currentTab === 'settings') {
-          this.cfgReleaseCommandEnabled = data.release_command_enabled !== false;
           this.releaseCommands = data.release_commands || this.releaseCommands;
         }
         this.monitorRunning = !!data.monitor_running;
@@ -1738,6 +1811,18 @@ createApp({
     },
 
     // ── Settings ──────────────────────────────────────
+    scrollSettingSection(id) {
+      this.activeSettingsSection = id;
+      const refMap = {
+        monitor: 'settingsMonitor',
+        release: 'settingsRelease',
+        notify: 'settingsNotify',
+        agent: 'settingsAgent',
+      };
+      const el = this.$refs[refMap[id]];
+      if (el && el.scrollIntoView) el.scrollIntoView({behavior:'smooth', block:'start'});
+    },
+
     async loadSettings() {
       const r = await this.api('/api/config');
       if (!r.ok) return;
@@ -1752,6 +1837,11 @@ createApp({
       this.cfgMemMonitor = cfg.gpu_mem_monitor_enabled !== false;
       this.cfgMainPidMonitor = cfg.main_pid_monitor_enabled !== false;
       this.cfgReleaseCommandEnabled = cfg.release_command_enabled !== false;
+      this.cfgReleaseCommandNotify = cfg.release_command_notify_enabled !== false;
+      this.cfgReleaseCommandGpus = (cfg.release_command_gpus || []).join(',');
+      this.cfgReleaseCommandThreshold = cfg.release_command_mem_threshold_mib ?? (cfg.mem_threshold_mib ?? 10240);
+      this.cfgReleaseCommandInterval = cfg.release_command_check_interval ?? (cfg.check_interval ?? 60);
+      this.cfgReleaseCommandConfirm = cfg.release_command_confirm_times ?? (cfg.confirm_times ?? 2);
       this.releaseCommands = cfg.release_commands || [];
       const envScKeys = env.env_serverchan_keys || [];
       const envBarkConfigs = env.env_bark_configs || [];
@@ -1785,19 +1875,21 @@ createApp({
         if (!Number.isInteger(v) || v <= 0) throw new Error(label + '必须是正整数');
         return v;
       };
-      const gpusStr = this.cfgGpus.trim();
-      const gpus = [];
-      if (gpusStr) {
+      const parseGpuList = (text, label) => {
+        const gpusStr = String(text || '').trim();
+        const gpus = [];
+        if (!gpusStr) return gpus;
         const seen = new Set();
         for (const raw of gpusStr.split(',')) {
           const token = raw.trim();
           if (!token) continue;
-          if (!/^\d+$/.test(token)) { this.saveMsg={text:'GPU 索引格式错误，请输入如 0,1,2',kind:'error'}; return; }
+          if (!/^\d+$/.test(token)) throw new Error(label + '格式错误，请输入如 0,1,2');
           const v = Number(token);
-          if (seen.has(v)) { this.saveMsg={text:'GPU 索引不能重复',kind:'error'}; return; }
+          if (seen.has(v)) throw new Error(label + '不能重复');
           seen.add(v); gpus.push(v);
         }
-      }
+        return gpus;
+      };
       const serverchan_keys = this.cfgServerchanKeys.split('\n').map(s=>s.trim()).filter(Boolean);
       const bark_configs = [];
       for (const b of this.barkConfigs) {
@@ -1807,16 +1899,23 @@ createApp({
       }
       let body;
       try {
+        const gpus = parseGpuList(this.cfgGpus, 'GPU 索引');
+        const release_command_gpus = parseGpuList(this.cfgReleaseCommandGpus, '释放队列 GPU 索引');
         body = {
           mem_threshold_mib: parsePos(this.cfgThreshold, '显存告警阈值'),
           check_interval: parsePos(this.cfgInterval, '检测间隔'),
           confirm_times: parsePos(this.cfgConfirm, '确认次数'),
+          release_command_mem_threshold_mib: parsePos(this.cfgReleaseCommandThreshold, '释放阈值'),
+          release_command_check_interval: parsePos(this.cfgReleaseCommandInterval, '释放检测间隔'),
+          release_command_confirm_times: parsePos(this.cfgReleaseCommandConfirm, '释放确认次数'),
           log_max_size_mb: parsePos(this.cfgLogMb, '日志压缩触发大小'),
           log_archive_keep: parsePos(this.cfgLogKeep, '历史存档保留数量'),
           gpus,
+          release_command_gpus,
           gpu_mem_monitor_enabled: this.cfgMemMonitor,
           main_pid_monitor_enabled: this.cfgMainPidMonitor,
           release_command_enabled: this.cfgReleaseCommandEnabled,
+          release_command_notify_enabled: this.cfgReleaseCommandNotify,
           sendkey: '', serverchan_keys, bark_configs,
         };
       } catch(err) {
@@ -1857,7 +1956,6 @@ createApp({
       const r = await this.api('/api/config');
       if (!r.ok) return;
       const cfg = await r.json();
-      this.cfgReleaseCommandEnabled = cfg.release_command_enabled !== false;
       this.releaseCommands = cfg.release_commands || [];
     },
 
