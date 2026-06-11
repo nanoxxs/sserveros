@@ -509,6 +509,8 @@ def test_sserveros_runs_release_command_after_low_memory_alert(tmp_path):
         item = cfg['release_commands'][0]
         assert item['id'] == 'cmd_test'
         assert item['exit_code'] == 0
+        assert item['launcher'] == 'detached'
+        assert isinstance(item['pgid'], int)
         assert item['trigger_gpu'] == 0
         assert item['trigger_mem_mib'] == 0
         assert (project_dir / 'runtime' / 'command_logs' / 'cmd_test.log').exists()

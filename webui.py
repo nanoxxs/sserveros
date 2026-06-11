@@ -328,8 +328,8 @@ def create_app(script_dir: str = None):
         signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
         payload, status = _runtime_feedback(
             signal_result,
-            applied_message='释放指令已加入队列',
-            pending_message='释放指令已保存，但监控脚本未运行；脚本启动后才会使用新队列',
+            applied_message='任务已加入队列',
+            pending_message='任务已保存，但监控脚本未运行；脚本启动后才会使用新队列',
         )
         payload['command'] = item
         return jsonify(payload), status
@@ -347,14 +347,14 @@ def create_app(script_dir: str = None):
         if not target:
             return jsonify({'error': 'command not found'}), 404
         if target.get('status') == 'running':
-            return jsonify({'error': '指令正在运行，不能从队列移除'}), 409
+            return jsonify({'error': '任务正在运行，不能从队列移除'}), 409
         cfg['release_commands'] = [item for item in queue if item.get('id') != command_id]
         save_config_file(_config_path(script_dir), cfg)
         signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
         payload, status = _runtime_feedback(
             signal_result,
-            applied_message='释放指令已移除',
-            pending_message='释放指令已从配置中移除，但监控脚本未运行；脚本下次启动时会使用新配置',
+            applied_message='任务已移除',
+            pending_message='任务已从配置中移除，但监控脚本未运行；脚本下次启动时会使用新配置',
         )
         return jsonify(payload), status
 
@@ -380,8 +380,8 @@ def create_app(script_dir: str = None):
         signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
         payload, status = _runtime_feedback(
             signal_result,
-            applied_message=f'已清理 {removed_count} 条释放指令',
-            pending_message=f'已从配置中清理 {removed_count} 条释放指令，但监控脚本未运行；脚本下次启动时会使用新配置',
+            applied_message=f'已清理 {removed_count} 条任务',
+            pending_message=f'已从配置中清理 {removed_count} 条任务，但监控脚本未运行；脚本下次启动时会使用新配置',
         )
         payload['removed_count'] = removed_count
         return jsonify(payload), status
@@ -399,12 +399,15 @@ def create_app(script_dir: str = None):
         if not target:
             return jsonify({'error': 'command not found'}), 404
         if target.get('status') == 'running':
-            return jsonify({'error': '指令正在运行，不能重新排队'}), 409
+            return jsonify({'error': '任务正在运行，不能重新排队'}), 409
         target.update({
             'status': 'pending',
             'started_at': '',
             'finished_at': '',
             'pid': None,
+            'pgid': None,
+            'tmux_session': '',
+            'tmux_pane': '',
             'exit_code': None,
             'trigger_gpu': None,
             'trigger_mem_mib': None,
@@ -414,8 +417,8 @@ def create_app(script_dir: str = None):
         signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
         payload, status = _runtime_feedback(
             signal_result,
-            applied_message='释放指令已重新排队',
-            pending_message='释放指令已重新排队，但监控脚本未运行；脚本启动后才会使用新队列',
+            applied_message='任务已重新排队',
+            pending_message='任务已重新排队，但监控脚本未运行；脚本启动后才会使用新队列',
         )
         return jsonify(payload), status
 
@@ -851,10 +854,10 @@ def create_app(script_dir: str = None):
             signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
             payload, _status = _runtime_feedback(
                 signal_result,
-                applied_message='释放指令已加入队列',
-                pending_message='释放指令已保存，但监控脚本未运行；脚本启动后才会使用新队列',
+                applied_message='任务已加入队列',
+                pending_message='任务已保存，但监控脚本未运行；脚本启动后才会使用新队列',
             )
-            return {'ok': True, 'message': payload.get('message') or payload.get('warning', '释放指令已加入队列')}
+            return {'ok': True, 'message': payload.get('message') or payload.get('warning', '任务已加入队列')}
         if atype in ('remove_release_command', 'requeue_release_command'):
             cfg = load_config_file(_config_path(script_dir))
             queue = normalize_release_commands(cfg.get('release_commands', []))
@@ -867,24 +870,27 @@ def create_app(script_dir: str = None):
                 target = queue[idx - 1]
                 command_id = target.get('id', '')
             if not target:
-                return {'ok': False, 'message': '释放指令不存在'}
+                return {'ok': False, 'message': '任务不存在'}
             if target.get('status') == 'running':
-                return {'ok': False, 'message': '释放指令正在运行，不能修改'}
+                return {'ok': False, 'message': '任务正在运行，不能修改'}
             if atype == 'remove_release_command':
                 cfg['release_commands'] = [item for item in queue if item.get('id') != command_id]
-                message = '释放指令已移除'
+                message = '任务已移除'
             else:
                 target.update({
                     'status': 'pending',
                     'started_at': '',
                     'finished_at': '',
                     'pid': None,
+                    'pgid': None,
+                    'tmux_session': '',
+                    'tmux_pane': '',
                     'exit_code': None,
                     'trigger_gpu': None,
                     'trigger_mem_mib': None,
                 })
                 cfg['release_commands'] = queue
-                message = '释放指令已重新排队'
+                message = '任务已重新排队'
             save_config_file(_config_path(script_dir), cfg)
             signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
             payload, _status = _runtime_feedback(
@@ -912,10 +918,10 @@ def create_app(script_dir: str = None):
             signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
             payload, _status = _runtime_feedback(
                 signal_result,
-                applied_message=f'已清理 {removed_count} 条释放指令',
-                pending_message=f'已清理 {removed_count} 条释放指令，但监控脚本未运行；脚本下次启动时会使用新配置',
+                applied_message=f'已清理 {removed_count} 条任务',
+                pending_message=f'已清理 {removed_count} 条任务，但监控脚本未运行；脚本下次启动时会使用新配置',
             )
-            return {'ok': True, 'message': payload.get('message') or payload.get('warning', f'已清理 {removed_count} 条释放指令')}
+            return {'ok': True, 'message': payload.get('message') or payload.get('warning', f'已清理 {removed_count} 条任务')}
         if atype == 'test_notification':
             cfg = load_config_file(_config_path(script_dir))
             notify_cfg = notifier.effective_channel_config(cfg)
@@ -1132,11 +1138,11 @@ def _build_test_notify_content(cfg: dict, summary: dict) -> str:
         f'- 检测间隔: {cfg.get("check_interval", 60)} 秒\n'
         f'- 确认次数: {cfg.get("confirm_times", 2)}\n'
         f'- 监控 GPU: {gpu_text}\n'
-        f'- 释放队列: {"开启" if cfg.get("release_command_enabled", True) else "关闭"}\n'
-        f'- 释放队列通知: {"开启" if cfg.get("release_command_notify_enabled", True) else "关闭"}\n'
-        f'- 释放队列阈值: {cfg.get("release_command_mem_threshold_mib", cfg.get("mem_threshold_mib", 10240))} MiB\n'
-        f'- 释放队列检测间隔: {cfg.get("release_command_check_interval", cfg.get("check_interval", 60))} 秒\n'
-        f'- 释放队列确认次数: {cfg.get("release_command_confirm_times", cfg.get("confirm_times", 2))}\n'
+        f'- 任务队列: {"开启" if cfg.get("release_command_enabled", True) else "关闭"}\n'
+        f'- 任务队列通知: {"开启" if cfg.get("release_command_notify_enabled", True) else "关闭"}\n'
+        f'- 空闲判定阈值: {cfg.get("release_command_mem_threshold_mib", cfg.get("mem_threshold_mib", 10240))} MiB\n'
+        f'- 任务队列检测间隔: {cfg.get("release_command_check_interval", cfg.get("check_interval", 60))} 秒\n'
+        f'- 连续空闲确认次数: {cfg.get("release_command_confirm_times", cfg.get("confirm_times", 2))}\n'
         f'- 日志压缩触发大小: {cfg.get("log_max_size_mb", 10)} MB\n'
         f'- 历史存档保留数量: {cfg.get("log_archive_keep", 5)}\n\n'
         '## 本次测试使用的通知渠道\n'

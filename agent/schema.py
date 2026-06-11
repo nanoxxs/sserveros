@@ -44,7 +44,7 @@ TOOL_SCHEMAS = [
         'type': 'function',
         'function': {
             'name': 'list_release_commands',
-            'description': '列出“GPU 显存释放后按顺序执行”的指令队列及每条指令状态。',
+            'description': '列出“GPU 空闲后按顺序执行”的任务队列及每条任务状态。',
             'parameters': {'type': 'object', 'properties': {}, 'required': []},
         },
     },
@@ -81,20 +81,20 @@ TOOL_SCHEMAS = [
         'type': 'function',
         'function': {
             'name': 'set_monitor_settings',
-            'description': '修改显存检测阈值、检测间隔、确认次数、监控 GPU、监控开关、释放指令开关或释放队列每 GPU 预设。注意：此操作需要用户在 WebUI 确认后才真正生效。',
+            'description': '修改显存检测阈值、检测间隔、确认次数、监控 GPU、监控开关、任务队列开关或任务队列每 GPU 预设。注意：此操作需要用户在 WebUI 确认后才真正生效。',
             'parameters': {
                 'type': 'object',
                 'properties': {
-                    'mem_threshold_mib': {'type': 'integer', 'description': '显存释放阈值 MiB，例如 512'},
+                    'mem_threshold_mib': {'type': 'integer', 'description': '显存告警阈值 MiB，例如 512'},
                     'check_interval': {'type': 'integer', 'description': '检测间隔秒数，例如 120'},
                     'confirm_times': {'type': 'integer', 'description': '连续满足条件的确认次数，例如 3'},
                     'gpu_mem_monitor_enabled': {'type': 'boolean', 'description': '是否启用显存阈值监控'},
                     'main_pid_monitor_enabled': {'type': 'boolean', 'description': '是否启用主 PID 发现/消失监控'},
-                    'release_command_enabled': {'type': 'boolean', 'description': '是否启用显存释放后自动执行指令队列'},
-                    'release_command_notify_enabled': {'type': 'boolean', 'description': '是否启用释放队列检测、启动、结束通知'},
-                    'release_command_mem_threshold_mib': {'type': 'integer', 'description': '释放队列独立显存阈值 MiB，例如 512'},
-                    'release_command_check_interval': {'type': 'integer', 'description': '释放队列独立检测间隔秒数，例如 120'},
-                    'release_command_confirm_times': {'type': 'integer', 'description': '释放队列独立确认次数，例如 3'},
+                    'release_command_enabled': {'type': 'boolean', 'description': '是否启用 GPU 空闲后自动执行任务队列'},
+                    'release_command_notify_enabled': {'type': 'boolean', 'description': '是否启用任务队列检测、启动、结束通知'},
+                    'release_command_mem_threshold_mib': {'type': 'integer', 'description': '任务队列独立空闲判定阈值 MiB，例如 512'},
+                    'release_command_check_interval': {'type': 'integer', 'description': '任务队列独立检测间隔秒数，例如 120'},
+                    'release_command_confirm_times': {'type': 'integer', 'description': '任务队列独立连续空闲确认次数，例如 3'},
                     'gpus': {
                         'type': 'array',
                         'items': {'type': 'integer'},
@@ -103,11 +103,11 @@ TOOL_SCHEMAS = [
                     'release_command_gpus': {
                         'type': 'array',
                         'items': {'type': 'integer'},
-                        'description': '释放队列独立监控的 GPU index 列表，空列表表示自动检测全部',
+                        'description': '任务队列独立监控的 GPU index 列表，空列表表示自动检测全部',
                     },
                     'release_command_gpu_settings': {
                         'type': 'object',
-                        'description': '释放队列每 GPU 预设，键是 GPU index 字符串，值可包含 mem_threshold_mib、check_interval、confirm_times 正整数',
+                        'description': '任务队列每 GPU 预设，键是 GPU index 字符串，值可包含 mem_threshold_mib、check_interval、confirm_times 正整数',
                         'additionalProperties': {
                             'type': 'object',
                             'properties': {
@@ -126,7 +126,7 @@ TOOL_SCHEMAS = [
         'type': 'function',
         'function': {
             'name': 'add_release_command',
-            'description': '添加一条 GPU 显存释放后执行的 shell 指令。target_gpus 为空表示任意 GPU 释放都可触发；指定 GPU 后只会被对应 GPU 队列触发。注意：此操作需要用户在 WebUI 确认后才真正生效。',
+            'description': '添加一条 GPU 空闲后执行的 shell 任务。target_gpus 为空表示任意 GPU 空闲都可触发；指定 GPU 后只会被对应 GPU 队列触发。注意：此操作需要用户在 WebUI 确认后才真正生效。',
             'parameters': {
                 'type': 'object',
                 'properties': {
@@ -146,11 +146,11 @@ TOOL_SCHEMAS = [
         'type': 'function',
         'function': {
             'name': 'remove_release_command',
-            'description': '从释放指令队列移除一条未运行的指令，可按 id 或 1-based 序号指定。注意：此操作需要用户在 WebUI 确认后才真正生效。',
+            'description': '从任务队列移除一条未运行的任务，可按 id 或 1-based 序号指定。注意：此操作需要用户在 WebUI 确认后才真正生效。',
             'parameters': {
                 'type': 'object',
                 'properties': {
-                    'command_id': {'type': 'string', 'description': '指令 ID，来自 list_release_commands'},
+                    'command_id': {'type': 'string', 'description': '任务 ID，来自 list_release_commands'},
                     'index': {'type': 'integer', 'description': '队列中的 1-based 序号'},
                 },
                 'required': [],
@@ -161,7 +161,7 @@ TOOL_SCHEMAS = [
         'type': 'function',
         'function': {
             'name': 'clear_release_commands',
-            'description': '批量清理释放指令队列。scope=finished 清理成功/失败项，pending 清理待执行项，all 清理除正在运行外的全部。需要 WebUI 确认后生效。',
+            'description': '批量清理任务队列。scope=finished 清理成功/失败项，pending 清理待执行项，all 清理除正在运行外的全部。需要 WebUI 确认后生效。',
             'parameters': {
                 'type': 'object',
                 'properties': {
@@ -179,11 +179,11 @@ TOOL_SCHEMAS = [
         'type': 'function',
         'function': {
             'name': 'requeue_release_command',
-            'description': '把一条已完成或失败的释放指令重新置为待执行，可按 id 或 1-based 序号指定。需要 WebUI 确认后生效。',
+            'description': '把一条已完成或失败的任务重新置为待执行，可按 id 或 1-based 序号指定。需要 WebUI 确认后生效。',
             'parameters': {
                 'type': 'object',
                 'properties': {
-                    'command_id': {'type': 'string', 'description': '指令 ID，来自 list_release_commands'},
+                    'command_id': {'type': 'string', 'description': '任务 ID，来自 list_release_commands'},
                     'index': {'type': 'integer', 'description': '队列中的 1-based 序号'},
                 },
                 'required': [],
@@ -317,7 +317,7 @@ TOOL_SCHEMAS = [
 ]
 
 SYSTEM_PROMPT = """\
-你是 sserveros 的运维助手，可以查询 GPU / 进程 / 系统服务状态，管理 sserveros 的 PID 监控列表、显存释放阈值/间隔/确认次数、显存释放后执行的指令队列，以及通知渠道测试和指定消息发送；也可以查询登录历史和 sudo 操作记录进行安全审计。
+你是 sserveros 的运维助手，可以查询 GPU / 进程 / 系统服务状态，管理 sserveros 的 PID 监控列表、显存阈值/间隔/确认次数、GPU 空闲后执行的任务队列，以及通知渠道测试和指定消息发送；也可以查询登录历史和 sudo 操作记录进行安全审计。
 
 规则：
 1. 闲聊或与工具无关的问题直接用自然语言回答，不要强行调用工具。
@@ -326,5 +326,5 @@ SYSTEM_PROMPT = """\
 4. 不要编造工具未返回的信息，如果工具返回错误直接如实告知。
 5. 回复尽量简洁，技术细节列表呈现。
 6. 当用户询问服务器安全风险、异常登录、可疑操作等安全相关问题时，主动调用 login_history 和 sudo_history 获取真实数据后再作判断，不要仅凭常识泛泛而谈。
-7. 当用户要求设置“释放队列/GPU 空闲后执行/120 秒轮询 3 次、低于 512 MiB”等参数时，使用 release_command_* 字段调用 set_monitor_settings；当用户要求加入训练启动命令时，调用 add_release_command，并保留用户给出的完整 shell 命令。
+7. 当用户要求设置“任务队列/GPU 空闲后执行/120 秒轮询 3 次、低于 512 MiB”等参数时，使用 release_command_* 字段调用 set_monitor_settings；当用户要求加入训练启动命令时，调用 add_release_command，并保留用户给出的完整 shell 命令。
 """

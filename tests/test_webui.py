@@ -486,6 +486,7 @@ def test_release_command_requeue_resets_status(auth_client, tmp_config, monkeypa
         'started_at': '2026-04-12 10:00:00',
         'finished_at': '2026-04-12 10:01:00',
         'pid': 12345,
+        'pgid': 12345,
         'exit_code': 1,
         'trigger_gpu': 0,
         'trigger_mem_mib': 0,
@@ -500,6 +501,7 @@ def test_release_command_requeue_resets_status(auth_client, tmp_config, monkeypa
     assert r.status_code == 200
     assert item['status'] == 'pending'
     assert item['pid'] is None
+    assert item['pgid'] is None
     assert item['exit_code'] is None
     assert item['trigger_gpu'] is None
 

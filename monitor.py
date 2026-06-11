@@ -104,7 +104,7 @@ class Monitor:
         self.gpu_mem_total: dict[int, int] = {}
         self.gpu_name: dict[str, str] = {}
 
-        # 释放指令队列的独立显存检测状态
+        # 任务队列的独立显存检测状态
         self.release_gpu_low_count: dict[int, int] = {}
         self.release_gpu_low_alerted: dict[int, bool] = {}
         self.release_gpu_next_check: dict[int, float] = {}
@@ -367,17 +367,17 @@ class Monitor:
                 f'[{ts}] 已重新加载配置: GPUs={self.gpus} 阈值={self.mem_threshold_mib} '
                 f'间隔={self.check_interval} 确认={self.confirm_times} '
                 f'显存监控={self.gpu_mem_monitor_enabled} 主PID监控={self.main_pid_monitor_enabled} '
-                f'释放命令={self.release_command_enabled} 释放GPU={release_gpu_text} '
-                f'释放阈值={self.release_command_mem_threshold_mib} '
-                f'释放间隔={self.release_command_check_interval} '
-                f'释放确认={self.release_command_confirm_times} '
-                f'释放GPU预设={len(self.release_command_gpu_settings)} '
-                f'释放通知={self.release_command_notify_enabled}',
+                f'任务队列={self.release_command_enabled} 任务GPU={release_gpu_text} '
+                f'空闲阈值={self.release_command_mem_threshold_mib} '
+                f'任务间隔={self.release_command_check_interval} '
+                f'空闲确认={self.release_command_confirm_times} '
+                f'任务GPU预设={len(self.release_command_gpu_settings)} '
+                f'任务通知={self.release_command_notify_enabled}',
                 flush=True,
             )
             if prev_release_command_enabled != self.release_command_enabled:
                 print(
-                    f'[{ts}] 释放命令队列已{"启用" if self.release_command_enabled else "停用"}',
+                    f'[{ts}] 任务队列已{"启用" if self.release_command_enabled else "停用"}',
                     flush=True,
                 )
 
@@ -509,7 +509,7 @@ class Monitor:
             log_file=self.log_file, event_type=event_type,
         )
 
-    # ── 显存释放命令队列 ────────────────────────────────────────────────────
+    # ── GPU 空闲任务队列 ────────────────────────────────────────────────────
 
     def _release_command_log_path(self, command_id: str) -> str:
         safe_id = re.sub(r'[^a-zA-Z0-9_.-]+', '_', command_id).strip('._-') or 'command'
@@ -554,11 +554,15 @@ class Monitor:
         exit_code = proc.wait()
         finished_at = now_text()
         status = 'success' if exit_code == 0 else 'failed'
+        pgid = None
+        launcher = 'detached'
         with self._release_command_lock:
             cfg = load_config_file(self.config_file)
             queue = normalize_release_commands(cfg.get('release_commands', []))
             for item in queue:
                 if item.get('id') == command_id:
+                    pgid = item.get('pgid')
+                    launcher = item.get('launcher') or launcher
                     item['status'] = status
                     item['exit_code'] = exit_code
                     item['finished_at'] = finished_at
@@ -569,9 +573,11 @@ class Monitor:
 
         tail = self._tail_file(log_path)
         content = (
-            f'## 显存释放后执行指令已结束 — {HOSTNAME_TAG}\n\n'
-            f'- 指令 ID: `{command_id}`\n'
+            f'## GPU 空闲任务已结束 — {HOSTNAME_TAG}\n\n'
+            f'- 任务 ID: `{command_id}`\n'
+            f'- 启动方式: `{"tmux" if launcher == "tmux" else "后台日志模式"}`\n'
             f'- 进程 PID: `{proc.pid}`\n'
+            f'- 进程组 PGID: `{pgid if pgid is not None else "未知"}`\n'
             f'- 退出码: `{exit_code}`\n'
             f'- 结束时间: `{finished_at}`\n'
             f'- 状态: `{"成功" if status == "success" else "失败"}`\n'
@@ -582,12 +588,12 @@ class Monitor:
             content += f'\n\n### 日志尾部\n```\n{tail}\n```'
         if self.release_command_notify_enabled:
             self.send_notification(
-                f'{TITLE_PREFIX} - 释放指令{"完成" if status == "success" else "失败"} [{HOSTNAME_TAG}]',
+                f'{TITLE_PREFIX} - 任务{"完成" if status == "success" else "失败"} [{HOSTNAME_TAG}]',
                 content,
                 'command',
             )
         print(
-            f'[{finished_at}] 释放指令结束: id={command_id} pid={proc.pid} exit={exit_code}',
+            f'[{finished_at}] 任务结束: id={command_id} pid={proc.pid} exit={exit_code}',
             flush=True,
         )
 
@@ -633,10 +639,15 @@ class Monitor:
                         stderr=subprocess.STDOUT,
                         start_new_session=True,
                     )
+                    try:
+                        pgid = os.getpgid(proc.pid)
+                    except OSError:
+                        pgid = None
             except Exception as exc:
                 item['status'] = 'failed'
                 item['started_at'] = started_at
                 item['finished_at'] = now_text()
+                item['launcher'] = 'detached'
                 item['exit_code'] = None
                 item['trigger_gpu'] = gpu
                 item['trigger_mem_mib'] = used_mib
@@ -645,8 +656,8 @@ class Monitor:
                 save_config_file(self.config_file, cfg)
                 self.release_commands = queue
                 content = (
-                    f'## 显存释放后执行指令启动失败 — {HOSTNAME_TAG}\n\n'
-                    f'- 指令 ID: `{command_id}`\n'
+                    f'## GPU 空闲任务启动失败 — {HOSTNAME_TAG}\n\n'
+                    f'- 任务 ID: `{command_id}`\n'
                     f'- GPU: `{gpu}`\n'
                     f'- 当前显存: `{used_mib} MiB`\n'
                     f'- 检测时间: `{detected_at}`\n\n'
@@ -655,7 +666,7 @@ class Monitor:
                 )
                 if self.release_command_notify_enabled:
                     self.send_notification(
-                        f'{TITLE_PREFIX} - 释放指令启动失败 [{HOSTNAME_TAG}]',
+                        f'{TITLE_PREFIX} - 任务启动失败 [{HOSTNAME_TAG}]',
                         content,
                         'command',
                     )
@@ -664,7 +675,9 @@ class Monitor:
             item['status'] = 'running'
             item['started_at'] = started_at
             item['finished_at'] = ''
+            item['launcher'] = 'detached'
             item['pid'] = proc.pid
+            item['pgid'] = pgid
             item['exit_code'] = None
             item['trigger_gpu'] = gpu
             item['trigger_mem_mib'] = used_mib
@@ -674,9 +687,11 @@ class Monitor:
             self.release_commands = queue
 
         content = (
-            f'## 显存释放后执行指令已启动 — {HOSTNAME_TAG}\n\n'
-            f'- 指令 ID: `{command_id}`\n'
+            f'## GPU 空闲任务已启动 — {HOSTNAME_TAG}\n\n'
+            f'- 任务 ID: `{command_id}`\n'
+            f'- 启动方式: `后台日志模式`\n'
             f'- 进程 PID: `{proc.pid}`\n'
+            f'- 进程组 PGID: `{pgid if pgid is not None else "未知"}`\n'
             f'- 触发 GPU: `{gpu}`\n'
             f'- 当前显存: `{used_mib} MiB`\n'
             f'- 阈值: `{settings["mem_threshold_mib"]} MiB`\n'
@@ -687,12 +702,13 @@ class Monitor:
         )
         if self.release_command_notify_enabled:
             self.send_notification(
-                f'{TITLE_PREFIX} - 释放指令已启动 [{HOSTNAME_TAG}]',
+                f'{TITLE_PREFIX} - 任务已启动 [{HOSTNAME_TAG}]',
                 content,
                 'command',
             )
         print(
-            f'[{started_at}] 释放指令启动: id={command_id} gpu={gpu} pid={proc.pid}',
+            f'[{started_at}] 任务启动: id={command_id} gpu={gpu} '
+            f'pid={proc.pid} pgid={pgid}',
             flush=True,
         )
         t = threading.Thread(
@@ -872,7 +888,7 @@ class Monitor:
                 if result != 'no_pending':
                     self.release_gpu_low_alerted[gpu] = True
                     print(
-                        f'[{now}] 释放队列触发: gpu={gpu} used={used}MiB result={result}',
+                        f'[{now}] 任务队列触发: gpu={gpu} used={used}MiB result={result}',
                         flush=True,
                     )
             else:
@@ -1179,7 +1195,7 @@ class Monitor:
         )
         release_gpu_text = self.release_command_gpus if self.release_command_gpus else '全部'
         print(
-            f'释放队列: enabled={self.release_command_enabled} notify={self.release_command_notify_enabled} '
+            f'任务队列: enabled={self.release_command_enabled} notify={self.release_command_notify_enabled} '
             f'GPUs={release_gpu_text} interval={self.release_command_check_interval}s '
             f'confirm={self.release_command_confirm_times} threshold={self.release_command_mem_threshold_mib}MiB '
             f'gpu_presets={len(self.release_command_gpu_settings)}',

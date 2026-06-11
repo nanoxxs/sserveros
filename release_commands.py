@@ -130,7 +130,11 @@ def make_release_command(command: str, note: str = '', target_gpus=None) -> dict
         'created_at': now_text(),
         'started_at': '',
         'finished_at': '',
+        'launcher': 'detached',
         'pid': None,
+        'pgid': None,
+        'tmux_session': '',
+        'tmux_pane': '',
         'exit_code': None,
         'trigger_gpu': None,
         'trigger_mem_mib': None,
@@ -147,6 +151,9 @@ def normalize_release_command(entry: dict, index: int = 0) -> dict | None:
     status = str(entry.get('status') or 'pending').strip()
     if status not in VALID_STATUSES:
         status = 'pending'
+    launcher = str(entry.get('launcher') or 'detached').strip()
+    if launcher not in ('detached', 'tmux'):
+        launcher = 'detached'
 
     def int_or_none(value):
         return value if isinstance(value, int) and not isinstance(value, bool) else None
@@ -166,7 +173,11 @@ def normalize_release_command(entry: dict, index: int = 0) -> dict | None:
         'created_at': str(entry.get('created_at', '') or ''),
         'started_at': str(entry.get('started_at', '') or ''),
         'finished_at': str(entry.get('finished_at', '') or ''),
+        'launcher': launcher,
         'pid': int_or_none(entry.get('pid')),
+        'pgid': int_or_none(entry.get('pgid')),
+        'tmux_session': str(entry.get('tmux_session', '') or ''),
+        'tmux_pane': str(entry.get('tmux_pane', '') or ''),
         'exit_code': int_or_none(entry.get('exit_code')),
         'trigger_gpu': int_or_none(entry.get('trigger_gpu')),
         'trigger_mem_mib': int_or_none(entry.get('trigger_mem_mib')),
