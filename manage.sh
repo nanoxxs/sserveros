@@ -384,7 +384,12 @@ start_backend() {
 
   load_env_exports
   ensure_runtime_dir
-  nohup "${PYTHON_BIN:-python3}" "${SCRIPT_DIR}/monitor.py" >> "${MONITOR_LOG_FILE}" 2>&1 &
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "${PYTHON_BIN:-python3}" "${SCRIPT_DIR}/monitor.py" >> "${MONITOR_LOG_FILE}" 2>&1 < /dev/null &
+  else
+    echo "警告：未找到 setsid，使用 nohup 回退；Ctrl-C 隔离效果会弱一些。"
+    nohup "${PYTHON_BIN:-python3}" "${SCRIPT_DIR}/monitor.py" >> "${MONITOR_LOG_FILE}" 2>&1 < /dev/null &
+  fi
   wait_for_service "${BACKEND_PID_FILE}" "monitor.py" "${MONITOR_LOG_FILE}"
 }
 

@@ -19,6 +19,7 @@ from datetime import datetime
 import notifier
 from config_bootstrap import ensure_config
 from release_commands import (
+    normalize_release_command_launcher,
     normalize_release_command_gpu_settings,
     normalize_release_commands,
     release_command_matches_gpu,
@@ -38,6 +39,22 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TITLE_PREFIX = 'GPU监控提醒'
 HOSTNAME_TAG = socket.gethostname()
 
+
+def release_terminal_session_name(command_id: str) -> str:
+    safe_id = re.sub(r'[^a-zA-Z0-9_.-]+', '_', str(command_id)).strip('._-') or 'command'
+    return f'sserveros_{safe_id}'
+
+
+def tmux_release_session_name(command_id: str) -> str:
+    return release_terminal_session_name(command_id)
+
+
+def _kdl_string(value: str) -> str:
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def _release_launcher_label(launcher: str) -> str:
+    return {'tmux': 'tmux', 'zellij': 'zellij'}.get(launcher, '后台日志模式')
 
 
 def _run(cmd, **kwargs):
@@ -86,6 +103,7 @@ class Monitor:
         self.main_pid_monitor_enabled = True
         self.release_command_enabled = True
         self.release_command_notify_enabled = True
+        self.release_command_launcher = 'detached'
         self.release_command_tmux_enabled = False
         self.release_command_gpus: list[int] = []
         self.release_command_mem_threshold_mib = 10240
@@ -214,7 +232,8 @@ class Monitor:
         self.main_pid_monitor_enabled = cfg.get('main_pid_monitor_enabled', True)
         self.release_command_enabled = cfg.get('release_command_enabled', True)
         self.release_command_notify_enabled = cfg.get('release_command_notify_enabled', True)
-        self.release_command_tmux_enabled = cfg.get('release_command_tmux_enabled', False)
+        self.release_command_launcher = normalize_release_command_launcher(cfg)
+        self.release_command_tmux_enabled = self.release_command_launcher == 'tmux'
         raw_release_gpus = cfg.get('release_command_gpus', [])
         self.release_command_gpus = [int(g) for g in raw_release_gpus] if raw_release_gpus else []
         self.release_command_mem_threshold_mib = cfg.get(
@@ -302,12 +321,14 @@ class Monitor:
             prev_main_pid_enabled = self.main_pid_monitor_enabled
             prev_release_command_enabled = self.release_command_enabled
             prev_release_notify_enabled = self.release_command_notify_enabled
+            prev_release_launcher = self.release_command_launcher
             prev_release_tmux_enabled = self.release_command_tmux_enabled
             prev_release_gpus = list(self.release_command_gpus)
             prev_release_mem_threshold = self.release_command_mem_threshold_mib
             prev_release_check_interval = self.release_command_check_interval
             prev_release_confirm_times = self.release_command_confirm_times
             prev_release_gpu_settings = dict(self.release_command_gpu_settings)
+            prev_release_commands = list(self.release_commands)
             prev_gpus = list(self.gpus)
             self.mem_threshold_mib = cfg.get('mem_threshold_mib', self.mem_threshold_mib)
             self.check_interval = cfg.get('check_interval', self.check_interval)
@@ -316,7 +337,8 @@ class Monitor:
             self.main_pid_monitor_enabled = cfg.get('main_pid_monitor_enabled', True)
             self.release_command_enabled = cfg.get('release_command_enabled', True)
             self.release_command_notify_enabled = cfg.get('release_command_notify_enabled', True)
-            self.release_command_tmux_enabled = cfg.get('release_command_tmux_enabled', False)
+            self.release_command_launcher = normalize_release_command_launcher(cfg)
+            self.release_command_tmux_enabled = self.release_command_launcher == 'tmux'
             raw_release_gpus = cfg.get('release_command_gpus', [])
             self.release_command_gpus = [int(g) for g in raw_release_gpus] if raw_release_gpus else []
             self.release_command_mem_threshold_mib = cfg.get(
@@ -357,12 +379,14 @@ class Monitor:
             if (
                 prev_release_command_enabled != self.release_command_enabled
                 or prev_release_notify_enabled != self.release_command_notify_enabled
+                or prev_release_launcher != self.release_command_launcher
                 or prev_release_tmux_enabled != self.release_command_tmux_enabled
                 or prev_release_gpus != self.release_command_gpus
                 or prev_release_mem_threshold != self.release_command_mem_threshold_mib
                 or prev_release_confirm_times != self.release_command_confirm_times
                 or prev_release_check_interval != self.release_command_check_interval
                 or prev_release_gpu_settings != self.release_command_gpu_settings
+                or prev_release_commands != self.release_commands
             ):
                 self._reset_release_command_alert_state()
             if prev_main_pid_enabled != self.main_pid_monitor_enabled or prev_gpus != self.gpus:
@@ -375,7 +399,7 @@ class Monitor:
                 f'间隔={self.check_interval} 确认={self.confirm_times} '
                 f'显存监控={self.gpu_mem_monitor_enabled} 主PID监控={self.main_pid_monitor_enabled} '
                 f'任务队列={self.release_command_enabled} 任务GPU={release_gpu_text} '
-                f'tmux={self.release_command_tmux_enabled} '
+                f'启动器={self.release_command_launcher} tmux={self.release_command_tmux_enabled} '
                 f'空闲阈值={self.release_command_mem_threshold_mib} '
                 f'任务间隔={self.release_command_check_interval} '
                 f'空闲确认={self.release_command_confirm_times} '
@@ -572,8 +596,12 @@ class Monitor:
             'pid': proc.pid,
             'pgid': pgid,
             'launcher': 'detached',
+            'terminal_session': '',
+            'terminal_pane': '',
             'tmux_session': '',
             'tmux_pane': '',
+            'zellij_session': '',
+            'zellij_pane': '',
             'exit_code_file': '',
         }
 
@@ -583,8 +611,8 @@ class Monitor:
         if not tmux:
             raise FileNotFoundError('tmux not found')
 
-        safe_id = re.sub(r'[^a-zA-Z0-9_.-]+', '_', command_id).strip('._-') or 'command'
-        session = f'sserveros_{safe_id}'
+        session = release_terminal_session_name(command_id)
+        safe_id = session.removeprefix('sserveros_')
         channel = f'sserveros_done_{safe_id}_{int(time.time())}'
         pid_file = self._release_command_aux_path(command_id, '.pid')
         pgid_file = self._release_command_aux_path(command_id, '.pgid')
@@ -666,8 +694,110 @@ exit "$code"
             'pid': pid,
             'pgid': pgid,
             'launcher': 'tmux',
+            'terminal_session': session,
+            'terminal_pane': pane,
             'tmux_session': session,
             'tmux_pane': pane,
+            'zellij_session': '',
+            'zellij_pane': '',
+            'exit_code_file': exit_code_file,
+        }
+
+    def _start_zellij_release_command(self, command_id: str, command_text: str, log_path: str,
+                                      started_at: str, gpu: int, used_mib: int) -> dict:
+        zellij = shutil.which('zellij')
+        if not zellij:
+            raise FileNotFoundError('zellij not found')
+
+        session = release_terminal_session_name(command_id)
+        pid_file = self._release_command_aux_path(command_id, '.pid')
+        pgid_file = self._release_command_aux_path(command_id, '.pgid')
+        exit_code_file = self._release_command_aux_path(command_id, '.exit')
+        layout_file = self._release_command_aux_path(command_id, '.zellij.kdl')
+        for path in (pid_file, pgid_file, exit_code_file, layout_file):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+        wrapper = f"""
+set -u
+LOG={shlex.quote(log_path)}
+PID_FILE={shlex.quote(pid_file)}
+PGID_FILE={shlex.quote(pgid_file)}
+EXIT_FILE={shlex.quote(exit_code_file)}
+COMMAND={shlex.quote(command_text)}
+cd {shlex.quote(self.script_dir)}
+exec > >(tee -a "$LOG") 2>&1
+echo
+echo "===== sserveros task start {started_at} ====="
+echo "launcher=zellij host={HOSTNAME_TAG} gpu={gpu} used_mib={used_mib}"
+echo "$COMMAND"
+echo
+/bin/bash -lc "$COMMAND" &
+child=$!
+echo "$child" > "$PID_FILE"
+pgid="$(ps -o pgid= -p "$child" 2>/dev/null | tr -d '[:space:]' || true)"
+if [ -n "$pgid" ]; then echo "$pgid" > "$PGID_FILE"; fi
+wait "$child"
+code=$?
+echo "$code" > "$EXIT_FILE"
+exit "$code"
+""".strip()
+        layout = (
+            'layout {\n'
+            f'  pane command="/bin/bash" name={_kdl_string(command_id)} close_on_exit=true {{\n'
+            f'    cwd {_kdl_string(self.script_dir)}\n'
+            f'    args "-lc" {_kdl_string(wrapper)}\n'
+            '  }\n'
+            '}\n'
+        )
+        with open(layout_file, 'w', encoding='utf-8') as f:
+            f.write(layout)
+        os.chmod(layout_file, 0o600)
+
+        wait_proc = subprocess.Popen(
+            [zellij, '--session', session, '--new-session-with-layout', layout_file],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+        pid = None
+        pgid = None
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            pid = self._read_int_file(pid_file)
+            pgid = self._read_int_file(pgid_file)
+            if pid:
+                break
+            if wait_proc.poll() is not None:
+                raise RuntimeError(f'zellij exited before task started: code={wait_proc.returncode}')
+            time.sleep(0.05)
+        if not pid:
+            try:
+                wait_proc.terminate()
+            except OSError:
+                pass
+            raise RuntimeError('zellij session did not start task before timeout')
+        if pgid is None:
+            try:
+                pgid = os.getpgid(pid)
+            except OSError:
+                pgid = None
+
+        return {
+            'wait_proc': wait_proc,
+            'pid': pid,
+            'pgid': pgid,
+            'launcher': 'zellij',
+            'terminal_session': session,
+            'terminal_pane': '',
+            'tmux_session': '',
+            'tmux_pane': '',
+            'zellij_session': session,
+            'zellij_pane': '',
             'exit_code_file': exit_code_file,
         }
 
@@ -719,8 +849,12 @@ exit "$code"
         status = 'success' if exit_code == 0 else 'failed'
         pgid = None
         launcher = 'detached'
+        terminal_session = ''
+        terminal_pane = ''
         tmux_session = ''
         tmux_pane = ''
+        zellij_session = ''
+        zellij_pane = ''
         display_pid = display_pid or proc.pid
         with self._release_command_lock:
             cfg = load_config_file(self.config_file)
@@ -729,8 +863,12 @@ exit "$code"
                 if item.get('id') == command_id:
                     pgid = item.get('pgid')
                     launcher = item.get('launcher') or launcher
+                    terminal_session = item.get('terminal_session') or ''
+                    terminal_pane = item.get('terminal_pane') or ''
                     tmux_session = item.get('tmux_session') or ''
                     tmux_pane = item.get('tmux_pane') or ''
+                    zellij_session = item.get('zellij_session') or ''
+                    zellij_pane = item.get('zellij_pane') or ''
                     item['status'] = status
                     item['exit_code'] = exit_code
                     item['finished_at'] = finished_at
@@ -743,7 +881,7 @@ exit "$code"
         content = (
             f'## GPU 空闲任务已结束 — {HOSTNAME_TAG}\n\n'
             f'- 任务 ID: `{command_id}`\n'
-            f'- 启动方式: `{"tmux" if launcher == "tmux" else "后台日志模式"}`\n'
+            f'- 启动方式: `{_release_launcher_label(launcher)}`\n'
             f'- 进程 PID: `{display_pid}`\n'
             f'- 进程组 PGID: `{pgid if pgid is not None else "未知"}`\n'
             f'- 退出码: `{exit_code}`\n'
@@ -756,6 +894,14 @@ exit "$code"
             content += f'\n\n### tmux\n```\ntmux attach -t {tmux_session}\n```'
         if tmux_pane:
             content += f'\n\n- tmux pane: `{tmux_pane}`'
+        if zellij_session:
+            content += f'\n\n### zellij\n```\nzellij attach {zellij_session}\n```'
+        if zellij_pane:
+            content += f'\n\n- zellij pane: `{zellij_pane}`'
+        if terminal_session and launcher not in ('tmux', 'zellij'):
+            content += f'\n\n- terminal session: `{terminal_session}`'
+        if terminal_pane and launcher not in ('tmux', 'zellij'):
+            content += f'\n\n- terminal pane: `{terminal_pane}`'
         if tail:
             content += f'\n\n### 日志尾部\n```\n{tail}\n```'
         if self.release_command_notify_enabled:
@@ -797,20 +943,41 @@ exit "$code"
             log_path = self._release_command_log_path(command_id)
             started_at = now_text()
             launcher_warning = ''
+            launcher_mode = self.release_command_launcher
             try:
-                if self.release_command_tmux_enabled and shutil.which('tmux'):
-                    try:
-                        start_info = self._start_tmux_release_command(
-                            command_id, command_text, log_path, started_at, gpu, used_mib
+                if launcher_mode == 'tmux':
+                    if shutil.which('tmux'):
+                        try:
+                            start_info = self._start_tmux_release_command(
+                                command_id, command_text, log_path, started_at, gpu, used_mib
+                            )
+                        except Exception as tmux_exc:
+                            launcher_warning = f'tmux 启动失败，已回退后台日志模式：{tmux_exc}'
+                            start_info = self._start_detached_release_command(
+                                command_text, log_path, started_at, gpu, used_mib
+                            )
+                    else:
+                        launcher_warning = 'tmux 未安装，已回退后台日志模式'
+                        start_info = self._start_detached_release_command(
+                            command_text, log_path, started_at, gpu, used_mib
                         )
-                    except Exception as tmux_exc:
-                        launcher_warning = f'tmux 启动失败，已回退后台日志模式：{tmux_exc}'
+                elif launcher_mode == 'zellij':
+                    if shutil.which('zellij'):
+                        try:
+                            start_info = self._start_zellij_release_command(
+                                command_id, command_text, log_path, started_at, gpu, used_mib
+                            )
+                        except Exception as zellij_exc:
+                            launcher_warning = f'zellij 启动失败，已回退后台日志模式：{zellij_exc}'
+                            start_info = self._start_detached_release_command(
+                                command_text, log_path, started_at, gpu, used_mib
+                            )
+                    else:
+                        launcher_warning = 'zellij 未安装，已回退后台日志模式'
                         start_info = self._start_detached_release_command(
                             command_text, log_path, started_at, gpu, used_mib
                         )
                 else:
-                    if self.release_command_tmux_enabled:
-                        launcher_warning = 'tmux 未安装，已回退后台日志模式'
                     start_info = self._start_detached_release_command(
                         command_text, log_path, started_at, gpu, used_mib
                     )
@@ -821,8 +988,12 @@ exit "$code"
                 item['launcher'] = 'detached'
                 item['pid'] = None
                 item['pgid'] = None
+                item['terminal_session'] = ''
+                item['terminal_pane'] = ''
                 item['tmux_session'] = ''
                 item['tmux_pane'] = ''
+                item['zellij_session'] = ''
+                item['zellij_pane'] = ''
                 item['exit_code'] = None
                 item['exit_code_file'] = ''
                 item['trigger_gpu'] = gpu
@@ -852,8 +1023,12 @@ exit "$code"
             launcher = start_info.get('launcher') or 'detached'
             display_pid = start_info.get('pid')
             pgid = start_info.get('pgid')
+            terminal_session = start_info.get('terminal_session', '')
+            terminal_pane = start_info.get('terminal_pane', '')
             tmux_session = start_info.get('tmux_session', '')
             tmux_pane = start_info.get('tmux_pane', '')
+            zellij_session = start_info.get('zellij_session', '')
+            zellij_pane = start_info.get('zellij_pane', '')
             exit_code_file = start_info.get('exit_code_file', '')
             item['status'] = 'running'
             item['started_at'] = started_at
@@ -861,8 +1036,12 @@ exit "$code"
             item['launcher'] = launcher
             item['pid'] = display_pid
             item['pgid'] = pgid
+            item['terminal_session'] = terminal_session
+            item['terminal_pane'] = terminal_pane
             item['tmux_session'] = tmux_session
             item['tmux_pane'] = tmux_pane
+            item['zellij_session'] = zellij_session
+            item['zellij_pane'] = zellij_pane
             item['exit_code'] = None
             item['exit_code_file'] = exit_code_file
             item['trigger_gpu'] = gpu
@@ -875,7 +1054,7 @@ exit "$code"
         content = (
             f'## GPU 空闲任务已启动 — {HOSTNAME_TAG}\n\n'
             f'- 任务 ID: `{command_id}`\n'
-            f'- 启动方式: `{"tmux" if launcher == "tmux" else "后台日志模式"}`\n'
+            f'- 启动方式: `{_release_launcher_label(launcher)}`\n'
             f'- 进程 PID: `{display_pid if display_pid is not None else "未知"}`\n'
             f'- 进程组 PGID: `{pgid if pgid is not None else "未知"}`\n'
             f'- 触发 GPU: `{gpu}`\n'
@@ -892,6 +1071,14 @@ exit "$code"
             content += f'\n\n### tmux\n```\ntmux attach -t {tmux_session}\n```'
         if tmux_pane:
             content += f'\n\n- tmux pane: `{tmux_pane}`'
+        if zellij_session:
+            content += f'\n\n### zellij\n```\nzellij attach {zellij_session}\n```'
+        if zellij_pane:
+            content += f'\n\n- zellij pane: `{zellij_pane}`'
+        if terminal_session and launcher not in ('tmux', 'zellij'):
+            content += f'\n\n- terminal session: `{terminal_session}`'
+        if terminal_pane and launcher not in ('tmux', 'zellij'):
+            content += f'\n\n- terminal pane: `{terminal_pane}`'
         if self.release_command_notify_enabled:
             self.send_notification(
                 f'{TITLE_PREFIX} - 任务已启动 [{HOSTNAME_TAG}]',
@@ -1014,6 +1201,7 @@ exit "$code"
             'watch_pids': watch_pids,
             'release_command_enabled': self.release_command_enabled,
             'release_command_notify_enabled': self.release_command_notify_enabled,
+            'release_command_launcher': self.release_command_launcher,
             'release_command_tmux_enabled': self.release_command_tmux_enabled,
             'release_command_gpus': self.release_command_gpus,
             'release_command_mem_threshold_mib': self.release_command_mem_threshold_mib,
@@ -1389,7 +1577,8 @@ exit "$code"
         release_gpu_text = self.release_command_gpus if self.release_command_gpus else '全部'
         print(
             f'任务队列: enabled={self.release_command_enabled} notify={self.release_command_notify_enabled} '
-            f'tmux={self.release_command_tmux_enabled} GPUs={release_gpu_text} interval={self.release_command_check_interval}s '
+            f'launcher={self.release_command_launcher} tmux={self.release_command_tmux_enabled} '
+            f'GPUs={release_gpu_text} interval={self.release_command_check_interval}s '
             f'confirm={self.release_command_confirm_times} threshold={self.release_command_mem_threshold_mib}MiB '
             f'gpu_presets={len(self.release_command_gpu_settings)}',
             flush=True,

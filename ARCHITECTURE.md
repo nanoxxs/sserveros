@@ -197,7 +197,7 @@ webui.html
 | 开关 | `gpu_mem_monitor_enabled`，`main_pid_monitor_enabled` |
 | 指定 PID | `watch_pids` |
 | 日志 | `log_max_size_mb`，`log_archive_keep` |
-| 释放队列 | `release_command_enabled`，`release_command_notify_enabled`，`release_command_gpus`，`release_command_mem_threshold_mib`，`release_command_check_interval`，`release_command_confirm_times`，`release_command_gpu_settings`，`release_commands` |
+| 释放队列 | `release_command_enabled`，`release_command_notify_enabled`，`release_command_launcher`，`release_command_tmux_enabled`，`release_command_gpus`，`release_command_mem_threshold_mib`，`release_command_check_interval`，`release_command_confirm_times`，`release_command_gpu_settings`，`release_commands` |
 | WebUI | `webui_host`，`webui_port`，`password_hash`，`secret_key` |
 | Agent | `agent_enabled`，`agent_stream_enabled`，`llm_base_url`，`llm_api_key`，`llm_model`，`llm_max_iterations`，`llm_request_timeout`，`llm_temperature` |
 
@@ -264,7 +264,7 @@ webui.py
 执行由 `monitor.py` 管：
 
 - `check_release_commands_once()`：独立于主显存告警，按释放队列自己的 GPU、阈值、间隔、确认次数检测。
-- `_start_next_release_command()`：选出匹配 GPU 的 pending 命令并启动。
+- `_start_next_release_command()`：选出匹配 GPU 的 pending 命令并启动；启动器支持后台日志、tmux 和 zellij，失败时回退后台日志模式。
 - `_finish_release_command()`：收集退出码、日志尾部、写状态、可选通知。
 - `_reconcile_release_commands_locked()`：处理运行中子进程状态和配置同步。
 

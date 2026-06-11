@@ -7,6 +7,7 @@ import psutil
 import notifier
 from release_commands import (
     make_release_command,
+    normalize_release_command_launcher,
     normalize_release_command_gpu_settings,
     normalize_release_commands,
     validate_gpu_list,
@@ -108,7 +109,8 @@ def monitor_settings(script_dir: str) -> dict:
             'main_pid_monitor_enabled': cfg.get('main_pid_monitor_enabled', True),
             'release_command_enabled': cfg.get('release_command_enabled', True),
             'release_command_notify_enabled': cfg.get('release_command_notify_enabled', True),
-            'release_command_tmux_enabled': cfg.get('release_command_tmux_enabled', False),
+            'release_command_launcher': normalize_release_command_launcher(cfg),
+            'release_command_tmux_enabled': normalize_release_command_launcher(cfg) == 'tmux',
             'release_command_gpus': cfg.get('release_command_gpus', []),
             'release_command_mem_threshold_mib': cfg.get(
                 'release_command_mem_threshold_mib',
@@ -143,7 +145,8 @@ def list_release_commands(script_dir: str) -> dict:
     return {
         'ok': True,
         'release_command_enabled': cfg.get('release_command_enabled', True),
-        'release_command_tmux_enabled': cfg.get('release_command_tmux_enabled', False),
+        'release_command_launcher': normalize_release_command_launcher(cfg),
+        'release_command_tmux_enabled': normalize_release_command_launcher(cfg) == 'tmux',
         'count': len(commands),
         'commands': commands,
     }
@@ -196,6 +199,7 @@ def set_monitor_settings(
     main_pid_monitor_enabled=None,
     release_command_enabled=None,
     release_command_notify_enabled=None,
+    release_command_launcher=None,
     release_command_tmux_enabled=None,
     release_command_mem_threshold_mib=None,
     release_command_check_interval=None,
@@ -240,6 +244,13 @@ def set_monitor_settings(
         if not isinstance(value, bool):
             return {'ok': False, 'error': f'{key} must be boolean'}
         settings[key] = value
+
+    if release_command_launcher is not None:
+        launcher = str(release_command_launcher or '').strip()
+        if launcher not in ('detached', 'tmux', 'zellij'):
+            return {'ok': False, 'error': 'release_command_launcher must be detached, tmux, or zellij'}
+        settings['release_command_launcher'] = launcher
+        settings['release_command_tmux_enabled'] = launcher == 'tmux'
 
     if gpus is not None:
         if (

@@ -171,6 +171,11 @@ def test_index_contains_gpu_detail_task_queue_and_tmux_controls(client):
     assert "gpuDetailTab === 'tasks'" in text
     assert "gpuDetailTab === 'taskSettings'" in text
     assert 'tmuxStatus.installed' in text
+    assert 'zellijStatus.installed' in text
+    assert 'cfgReleaseCommandLauncher' in text
+    assert "setReleaseCommandLauncher('zellij')" in text
+    assert 'cmd.tmux_session' in text
+    assert 'cmd-session' in text
     assert 'cfgReleaseCommandTmuxEnabled' in text
     assert 'cfgReleaseCommandGpus' in text
     assert 'cfgReleaseCommandThreshold' in text
@@ -191,11 +196,14 @@ def test_state_no_file(auth_client):
 
 
 def test_state_reports_tmux_status(auth_client, monkeypatch):
-    monkeypatch.setattr('webui.shutil.which', lambda cmd: '/usr/bin/tmux' if cmd == 'tmux' else None)
+    monkeypatch.setattr(
+        'webui.shutil.which',
+        lambda cmd: {'tmux': '/usr/bin/tmux', 'zellij': '/usr/bin/zellij'}.get(cmd),
+    )
     monkeypatch.setattr(
         'webui.subprocess.run',
         lambda *args, **kwargs: subprocess.CompletedProcess(
-            args[0], 0, stdout='tmux 3.4\n', stderr=''
+            args[0], 0, stdout='tmux 3.4\n' if args[0][0].endswith('tmux') else 'zellij 0.44.1\n', stderr=''
         ),
     )
 
@@ -204,6 +212,9 @@ def test_state_reports_tmux_status(auth_client, monkeypatch):
     assert data['tmux_status']['installed'] is True
     assert data['tmux_status']['path'] == '/usr/bin/tmux'
     assert data['tmux_status']['version'] == 'tmux 3.4'
+    assert data['zellij_status']['installed'] is True
+    assert data['zellij_status']['path'] == '/usr/bin/zellij'
+    assert data['zellij_status']['version'] == 'zellij 0.44.1'
 
 
 def test_state_no_file_includes_configured_watch_pids(auth_client, tmp_config):
@@ -299,11 +310,14 @@ def test_config_reports_env_channel_summary(auth_client, monkeypatch):
 
 
 def test_config_reports_tmux_status(auth_client, monkeypatch):
-    monkeypatch.setattr('webui.shutil.which', lambda cmd: '/usr/bin/tmux' if cmd == 'tmux' else None)
+    monkeypatch.setattr(
+        'webui.shutil.which',
+        lambda cmd: {'tmux': '/usr/bin/tmux', 'zellij': '/usr/bin/zellij'}.get(cmd),
+    )
     monkeypatch.setattr(
         'webui.subprocess.run',
         lambda *args, **kwargs: subprocess.CompletedProcess(
-            args[0], 0, stdout='tmux 3.4\n', stderr=''
+            args[0], 0, stdout='tmux 3.4\n' if args[0][0].endswith('tmux') else 'zellij 0.44.1\n', stderr=''
         ),
     )
 
@@ -312,6 +326,9 @@ def test_config_reports_tmux_status(auth_client, monkeypatch):
     assert data['tmux_status']['installed'] is True
     assert data['tmux_status']['path'] == '/usr/bin/tmux'
     assert data['tmux_status']['version'] == 'tmux 3.4'
+    assert data['zellij_status']['installed'] is True
+    assert data['zellij_status']['path'] == '/usr/bin/zellij'
+    assert data['zellij_status']['version'] == 'zellij 0.44.1'
 
 
 def test_sysinfo_reports_lightweight_overview(auth_client):
@@ -672,6 +689,7 @@ def test_save_settings_updates_config(auth_client, tmp_config, monkeypatch):
     assert cfg['main_pid_monitor_enabled'] is False
     assert cfg['release_command_enabled'] is False
     assert cfg['release_command_notify_enabled'] is False
+    assert cfg['release_command_launcher'] == 'tmux'
     assert cfg['release_command_tmux_enabled'] is True
     assert cfg['release_command_gpus'] == [0]
     assert cfg['release_command_mem_threshold_mib'] == 512
@@ -680,6 +698,18 @@ def test_save_settings_updates_config(auth_client, tmp_config, monkeypatch):
     assert cfg['release_command_gpu_settings'] == {
         '0': {'mem_threshold_mib': 256, 'check_interval': 30, 'confirm_times': 1},
     }
+
+
+def test_save_settings_updates_release_command_launcher_zellij(auth_client, tmp_config, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+    r = auth_client.post('/api/settings', json={
+        'release_command_launcher': 'zellij',
+        'release_command_tmux_enabled': False,
+    }, content_type='application/json')
+    assert r.status_code == 200
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    assert cfg['release_command_launcher'] == 'zellij'
+    assert cfg['release_command_tmux_enabled'] is False
 
 
 def test_save_settings_updates_gpus(auth_client, tmp_config, monkeypatch):

@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
-from monitor import Monitor
+from monitor import Monitor, tmux_release_session_name
 
 
 def _write_exec(path: Path, content: str):
@@ -37,6 +37,47 @@ def _read_log_entries(path: Path):
     if not path.exists():
         return []
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def test_tmux_release_session_name_matches_task_id_prefix():
+    assert tmux_release_session_name('cmd_1a9a24eed892') == 'sserveros_cmd_1a9a24eed892'
+    assert tmux_release_session_name(' cmd/weird value ') == 'sserveros_cmd_weird_value'
+
+
+def test_zellij_release_command_uses_named_session_layout(tmp_path, monkeypatch):
+    monitor = Monitor(script_dir=str(tmp_path))
+    (tmp_path / 'runtime').mkdir()
+    log_path = monitor._release_command_log_path('cmd_test')
+    captured = {}
+
+    class FakeProc:
+        returncode = None
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.returncode = -15
+
+    def fake_popen(args, **kwargs):
+        captured['args'] = args
+        captured['kwargs'] = kwargs
+        Path(monitor._release_command_aux_path('cmd_test', '.pid')).write_text('12345')
+        Path(monitor._release_command_aux_path('cmd_test', '.pgid')).write_text('12345')
+        return FakeProc()
+
+    monkeypatch.setattr('monitor.shutil.which', lambda cmd: '/usr/bin/zellij' if cmd == 'zellij' else None)
+    monkeypatch.setattr('monitor.subprocess.Popen', fake_popen)
+
+    info = monitor._start_zellij_release_command('cmd_test', 'echo ok', log_path, '2026-06-11 16:00:00', 0, 0)
+
+    assert info['launcher'] == 'zellij'
+    assert info['terminal_session'] == 'sserveros_cmd_test'
+    assert info['zellij_session'] == 'sserveros_cmd_test'
+    assert captured['args'][:4] == ['/usr/bin/zellij', '--session', 'sserveros_cmd_test', '--new-session-with-layout']
+    layout_text = Path(captured['args'][-1]).read_text()
+    assert 'pane command="/bin/bash" name="cmd_test" close_on_exit=true' in layout_text
+    assert 'launcher=zellij' in layout_text
 
 
 def test_monitor_notify_cfg_uses_config_source_to_ignore_stale_env(tmp_path, monkeypatch):
@@ -514,6 +555,90 @@ def test_sserveros_runs_release_command_after_low_memory_alert(tmp_path):
         assert item['trigger_gpu'] == 0
         assert item['trigger_mem_mib'] == 0
         assert (project_dir / 'runtime' / 'command_logs' / 'cmd_test.log').exists()
+    finally:
+        _stop_monitor(proc)
+
+
+def test_sserveros_runs_reloaded_release_command_while_gpu_stays_low(tmp_path):
+    project_dir, mock_state_path = _prepare_project(tmp_path)
+    config_path = project_dir / 'config.json'
+    ran_first = project_dir / 'ran_release_first.txt'
+    ran_second = project_dir / 'ran_release_second.txt'
+    command_first = (
+        f'{sys.executable} -c "from pathlib import Path; '
+        f'Path({str(ran_first)!r}).write_text('
+        f'{repr("first")})"'
+    )
+    command_second = (
+        f'{sys.executable} -c "from pathlib import Path; '
+        f'Path({str(ran_second)!r}).write_text('
+        f'{repr("second")})"'
+    )
+    _write_mock_state(
+        mock_state_path,
+        gpu_indices=[0],
+        gpus=[
+            {'index': 0, 'uuid': 'GPU-0', 'mem_used': 0, 'mem_total': 10000, 'name': 'GPU Zero'},
+        ],
+        apps=[],
+        alive_pids={},
+    )
+    proc = _start_monitor(project_dir, {
+        'check_interval': 1,
+        'confirm_times': 1,
+        'mem_threshold_mib': 512,
+        'gpu_mem_monitor_enabled': True,
+        'main_pid_monitor_enabled': False,
+        'release_command_enabled': True,
+        'release_command_notify_enabled': False,
+        'release_command_gpus': [0],
+        'release_command_mem_threshold_mib': 512,
+        'release_command_check_interval': 1,
+        'release_command_confirm_times': 1,
+        'release_commands': [{
+            'id': 'cmd_first',
+            'command': command_first,
+            'target_gpus': [0],
+            'status': 'pending',
+        }],
+        'gpus': [0],
+        'watch_pids': [],
+        'sendkey': 'SCTtest',
+    })
+
+    try:
+        _wait_until(lambda: ran_first.exists(), timeout=8.0)
+        _wait_until(
+            lambda: _read_json(config_path)
+            if _read_json(config_path)['release_commands'][0]['status'] == 'success'
+            else None,
+            timeout=8.0,
+        )
+
+        cfg = _read_json(config_path)
+        cfg['release_commands'].append({
+            'id': 'cmd_second',
+            'command': command_second,
+            'target_gpus': [0],
+            'status': 'pending',
+        })
+        config_path.write_text(json.dumps(cfg))
+        pid = int((project_dir / 'runtime' / 'sserveros.pid').read_text().strip())
+        os.kill(pid, signal.SIGUSR2)
+
+        _wait_until(lambda: ran_second.exists(), timeout=8.0)
+        cfg = _wait_until(
+            lambda: _read_json(config_path)
+            if next(
+                item for item in _read_json(config_path)['release_commands']
+                if item['id'] == 'cmd_second'
+            )['status'] == 'success'
+            else None,
+            timeout=8.0,
+        )
+        by_id = {item['id']: item for item in cfg['release_commands']}
+        assert by_id['cmd_second']['trigger_gpu'] == 0
+        assert by_id['cmd_second']['trigger_mem_mib'] == 0
     finally:
         _stop_monitor(proc)
 

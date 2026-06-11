@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
     'release_command_check_interval': 120,
     'release_command_confirm_times': 2,
     'release_command_gpu_settings': {},
+    'release_command_launcher': 'detached',
     'release_command_tmux_enabled': False,
     'release_commands': [],
     'gpus': [],

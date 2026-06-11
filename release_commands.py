@@ -6,6 +6,7 @@ COMMAND_MAX_CHARS = 20000
 NOTE_MAX_CHARS = 200
 TERMINAL_STATUSES = {'success', 'failed'}
 VALID_STATUSES = {'pending', 'running', *TERMINAL_STATUSES}
+VALID_LAUNCHERS = {'detached', 'tmux', 'zellij'}
 GPU_SETTING_KEYS = ('mem_threshold_mib', 'check_interval', 'confirm_times')
 
 
@@ -114,6 +115,13 @@ def release_command_matches_gpu(item: dict, gpu: int) -> bool:
     return not target_gpus or gpu in target_gpus
 
 
+def normalize_release_command_launcher(cfg: dict) -> str:
+    launcher = str(cfg.get('release_command_launcher') or '').strip()
+    if launcher in VALID_LAUNCHERS:
+        return launcher
+    return 'tmux' if cfg.get('release_command_tmux_enabled', False) is True else 'detached'
+
+
 def make_release_command(command: str, note: str = '', target_gpus=None) -> dict:
     command = str(command).strip()
     if not command:
@@ -133,8 +141,12 @@ def make_release_command(command: str, note: str = '', target_gpus=None) -> dict
         'launcher': 'detached',
         'pid': None,
         'pgid': None,
+        'terminal_session': '',
+        'terminal_pane': '',
         'tmux_session': '',
         'tmux_pane': '',
+        'zellij_session': '',
+        'zellij_pane': '',
         'exit_code': None,
         'exit_code_file': '',
         'trigger_gpu': None,
@@ -153,7 +165,7 @@ def normalize_release_command(entry: dict, index: int = 0) -> dict | None:
     if status not in VALID_STATUSES:
         status = 'pending'
     launcher = str(entry.get('launcher') or 'detached').strip()
-    if launcher not in ('detached', 'tmux'):
+    if launcher not in VALID_LAUNCHERS:
         launcher = 'detached'
 
     def int_or_none(value):
@@ -177,14 +189,22 @@ def normalize_release_command(entry: dict, index: int = 0) -> dict | None:
         'launcher': launcher,
         'pid': int_or_none(entry.get('pid')),
         'pgid': int_or_none(entry.get('pgid')),
+        'terminal_session': str(entry.get('terminal_session', '') or ''),
+        'terminal_pane': str(entry.get('terminal_pane', '') or ''),
         'tmux_session': str(entry.get('tmux_session', '') or ''),
         'tmux_pane': str(entry.get('tmux_pane', '') or ''),
+        'zellij_session': str(entry.get('zellij_session', '') or ''),
+        'zellij_pane': str(entry.get('zellij_pane', '') or ''),
         'exit_code': int_or_none(entry.get('exit_code')),
         'exit_code_file': str(entry.get('exit_code_file', '') or ''),
         'trigger_gpu': int_or_none(entry.get('trigger_gpu')),
         'trigger_mem_mib': int_or_none(entry.get('trigger_mem_mib')),
         'log_file': str(entry.get('log_file', '') or ''),
     }
+    if not item['terminal_session']:
+        item['terminal_session'] = item['tmux_session'] or item['zellij_session']
+    if not item['terminal_pane']:
+        item['terminal_pane'] = item['tmux_pane'] or item['zellij_pane']
     return item
 
 

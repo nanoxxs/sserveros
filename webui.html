@@ -221,6 +221,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .cmd-main { flex: 1; min-width: 0; }
 .cmd-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; font-weight: 600; color: #1e293b; }
 .cmd-status { font-size: 11px; padding: 2px 7px; border-radius: 999px; font-weight: 600; }
+.cmd-code { font-family: monospace; font-size: 12px; color: #94a3b8; }
+.cmd-session { font-family: monospace; font-size: 12px; color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; padding: 2px 7px; }
+.launcher-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; max-width: 420px; }
+.launcher-option { border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #64748b; font-size: 13px; padding: 8px 10px; cursor: pointer; }
+.launcher-option.active { background: #dbeafe; border-color: #93c5fd; color: #2563eb; font-weight: 700; }
+.terminal-status-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .cmd-note { font-size: 12px; color: #64748b; margin-top: 4px; }
 .cmd-text { margin-top: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; max-height: 150px; overflow: auto; }
 .cmd-meta { margin-top: 7px; font-size: 11px; color: #94a3b8; line-height: 1.6; }
@@ -981,7 +987,10 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
                       <span class="cmd-status" :style="releaseCommandStatusStyle(cmd.status)">
                         {{ releaseCommandStatusText(cmd.status) }}
                       </span>
-                      <span style="font-family:monospace;font-size:12px;color:#94a3b8">{{ cmd.id }}</span>
+                      <span class="cmd-code">{{ cmd.id }}</span>
+                      <span v-if="cmd.terminal_session || cmd.tmux_session || cmd.zellij_session" class="cmd-session">
+                        {{ releaseCommandLauncherLabel(cmd.launcher) }} {{ cmd.terminal_session || cmd.tmux_session || cmd.zellij_session }}
+                      </span>
                     </div>
                     <div v-if="cmd.note" class="cmd-note">{{ cmd.note }}</div>
                     <pre class="cmd-text">{{ cmd.command }}</pre>
@@ -994,7 +1003,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
                       <span v-if="cmd.trigger_gpu !== null && cmd.trigger_gpu !== undefined">GPU {{ cmd.trigger_gpu }} / {{ cmd.trigger_mem_mib }} MiB · </span>
                       <span>{{ cmd.started_at || cmd.created_at || '未启动' }}</span>
                       <span v-if="cmd.log_file"> · 日志 {{ cmd.log_file }}</span>
-                      <span v-if="cmd.tmux_session"> · tmux attach -t {{ cmd.tmux_session }}</span>
+                      <span v-if="releaseCommandAttachText(cmd)"> · {{ releaseCommandAttachText(cmd) }}</span>
                     </div>
                   </div>
                   <div class="cmd-actions">
@@ -1051,19 +1060,27 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 	                <span class="toggle-slider"></span>
 	              </label>
 	            </div>
-	            <div class="setting-row setting-row-toggle">
-	              <div>
-	                <div class="setting-label" style="margin-bottom:2px">tmux</div>
-	                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-	                  <span class="cmd-status" :style="tmuxStatusStyle()">{{ tmuxStatus.installed ? '已安装' : '未安装' }}</span>
-	                  <span style="font-size:12px;color:#94a3b8">{{ tmuxStatus.version || tmuxStatus.path || '未检测到 tmux 命令' }}</span>
-	                </div>
-	                <div style="font-size:12px;color:#94a3b8;margin-top:4px">启用后新任务会优先在 tmux 会话中运行；未安装时自动回退后台日志模式</div>
-	              </div>
-	              <label class="toggle-switch" style="margin-left:16px">
-	                <input type="checkbox" v-model="cfgReleaseCommandTmuxEnabled">
-	                <span class="toggle-slider"></span>
-	              </label>
+	            <div class="setting-row">
+	              <div class="setting-label" style="margin-bottom:2px">启动器</div>
+                <div class="launcher-options">
+                  <button class="launcher-option" :class="{active: cfgReleaseCommandLauncher === 'detached'}"
+                          @click="setReleaseCommandLauncher('detached')">后台日志</button>
+                  <button class="launcher-option" :class="{active: cfgReleaseCommandLauncher === 'tmux'}"
+                          @click="setReleaseCommandLauncher('tmux')">tmux</button>
+                  <button class="launcher-option" :class="{active: cfgReleaseCommandLauncher === 'zellij'}"
+                          @click="setReleaseCommandLauncher('zellij')">zellij</button>
+                </div>
+                <div class="terminal-status-row">
+                  <span style="font-size:12px;color:#64748b">tmux</span>
+                  <span class="cmd-status" :style="terminalStatusStyle(tmuxStatus)">{{ tmuxStatus.installed ? '已安装' : '未安装' }}</span>
+                  <span style="font-size:12px;color:#94a3b8">{{ tmuxStatus.version || tmuxStatus.path || '未检测到 tmux 命令' }}</span>
+                </div>
+                <div class="terminal-status-row">
+                  <span style="font-size:12px;color:#64748b">zellij</span>
+                  <span class="cmd-status" :style="terminalStatusStyle(zellijStatus)">{{ zellijStatus.installed ? '已安装' : '未安装' }}</span>
+                  <span style="font-size:12px;color:#94a3b8">{{ zellijStatus.version || zellijStatus.path || '未检测到 zellij 命令' }}</span>
+                </div>
+                <div style="font-size:12px;color:#94a3b8;margin-top:4px">tmux/zellij 启动失败或未安装时自动回退后台日志模式</div>
 	            </div>
 	            <div class="setting-row">
 	              <div class="setting-label">任务队列监控 GPU（逗号分隔，留空自动检测）</div>
@@ -1717,6 +1734,7 @@ createApp({
 	      cfgGpus: '',
 	      cfgReleaseCommandEnabled: true,
 	      cfgReleaseCommandNotify: true,
+	      cfgReleaseCommandLauncher: 'detached',
 	      cfgReleaseCommandTmuxEnabled: false,
 	      cfgReleaseCommandGpus: '',
       cfgReleaseCommandThreshold: 10240,
@@ -1727,6 +1745,7 @@ createApp({
       releaseGroupOpen: {},
 	      releaseCommands: [],
 	      tmuxStatus: {installed:false, path:'', version:''},
+	      zellijStatus: {installed:false, path:'', version:''},
       newReleaseCommandGpus: '',
       newReleaseCommand: '',
       newReleaseCommandNote: '',
@@ -2063,13 +2082,15 @@ createApp({
 	        if (this.currentTab !== 'settings' && !editingTaskSettings) {
 	          this.cfgReleaseCommandEnabled = data.release_command_enabled !== false;
 	          this.cfgReleaseCommandNotify = data.release_command_notify_enabled !== false;
-	          this.cfgReleaseCommandTmuxEnabled = data.release_command_tmux_enabled === true;
+	          this.cfgReleaseCommandLauncher = data.release_command_launcher || (data.release_command_tmux_enabled === true ? 'tmux' : 'detached');
+	          this.cfgReleaseCommandTmuxEnabled = this.cfgReleaseCommandLauncher === 'tmux';
 	          this.cfgReleaseCommandGpus = (data.release_command_gpus || []).join(',');
 	          this.cfgReleaseCommandThreshold = data.release_command_mem_threshold_mib ?? this.cfgReleaseCommandThreshold;
 	          this.cfgReleaseCommandInterval = data.release_command_check_interval ?? this.cfgReleaseCommandInterval;
 	          this.cfgReleaseCommandConfirm = data.release_command_confirm_times ?? this.cfgReleaseCommandConfirm;
 	        }
 	        this.tmuxStatus = data.tmux_status || this.tmuxStatus;
+	        this.zellijStatus = data.zellij_status || this.zellijStatus;
 	        this.monitorRunning = !!data.monitor_running;
         this.updateAgentPaneHeight();
       } catch(e) {}
@@ -2305,7 +2326,8 @@ createApp({
 	      this.cfgMainPidMonitor = cfg.main_pid_monitor_enabled !== false;
 	      this.cfgReleaseCommandEnabled = cfg.release_command_enabled !== false;
 	      this.cfgReleaseCommandNotify = cfg.release_command_notify_enabled !== false;
-	      this.cfgReleaseCommandTmuxEnabled = cfg.release_command_tmux_enabled === true;
+	      this.cfgReleaseCommandLauncher = cfg.release_command_launcher || (cfg.release_command_tmux_enabled === true ? 'tmux' : 'detached');
+	      this.cfgReleaseCommandTmuxEnabled = this.cfgReleaseCommandLauncher === 'tmux';
 	      this.cfgReleaseCommandGpus = (cfg.release_command_gpus || []).join(',');
       this.cfgReleaseCommandThreshold = cfg.release_command_mem_threshold_mib ?? (cfg.mem_threshold_mib ?? 10240);
       this.cfgReleaseCommandInterval = cfg.release_command_check_interval ?? (cfg.check_interval ?? 120);
@@ -2322,6 +2344,7 @@ createApp({
         }));
 	      this.releaseCommands = cfg.release_commands || [];
 	      this.tmuxStatus = cfg.tmux_status || this.tmuxStatus;
+	      this.zellijStatus = cfg.zellij_status || this.zellijStatus;
       const envScKeys = env.env_serverchan_keys || [];
       const envBarkConfigs = env.env_bark_configs || [];
       const scKeys = [...(cfg.serverchan_keys || [])];
@@ -2387,6 +2410,12 @@ createApp({
 	        };
       }
       return release_command_gpu_settings;
+    },
+
+    setReleaseCommandLauncher(launcher) {
+      if (!['detached', 'tmux', 'zellij'].includes(launcher)) return;
+      this.cfgReleaseCommandLauncher = launcher;
+      this.cfgReleaseCommandTmuxEnabled = launcher === 'tmux';
     },
 
     collectNotifySettings() {
@@ -2458,7 +2487,8 @@ createApp({
 	          release_command_gpu_settings: this.collectReleaseGpuSettings(),
 	          release_command_enabled: this.cfgReleaseCommandEnabled,
 	          release_command_notify_enabled: this.cfgReleaseCommandNotify,
-	          release_command_tmux_enabled: this.cfgReleaseCommandTmuxEnabled,
+	          release_command_launcher: this.cfgReleaseCommandLauncher,
+	          release_command_tmux_enabled: this.cfgReleaseCommandLauncher === 'tmux',
 	        };
       } catch(err) {
         this.releaseSaveMsg = {text: err.message || '输入不合法', kind:'error'};
@@ -2582,13 +2612,27 @@ createApp({
 	    },
 
 	    releaseCommandLauncherLabel(launcher) {
-	      return launcher === 'tmux' ? 'tmux' : '后台日志';
+	      if (launcher === 'tmux') return 'tmux';
+	      if (launcher === 'zellij') return 'zellij';
+	      return '后台日志';
+	    },
+
+	    releaseCommandAttachText(cmd) {
+	      const session = cmd.terminal_session || cmd.tmux_session || cmd.zellij_session || '';
+	      if (!session) return '';
+	      if (cmd.launcher === 'tmux') return `tmux attach -t ${session}`;
+	      if (cmd.launcher === 'zellij') return `zellij attach ${session}`;
+	      return `session ${session}`;
+	    },
+
+	    terminalStatusStyle(status) {
+	      return status?.installed
+	        ? 'background:#dcfce7;color:#16a34a'
+	        : 'background:#fee2e2;color:#ef4444';
 	    },
 
 	    tmuxStatusStyle() {
-	      return this.tmuxStatus?.installed
-	        ? 'background:#dcfce7;color:#16a34a'
-	        : 'background:#fee2e2;color:#ef4444';
+	      return this.terminalStatusStyle(this.tmuxStatus);
 	    },
 
 	    taskSummaryForGpu(gpu) {

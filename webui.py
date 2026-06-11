@@ -16,6 +16,7 @@ from config_bootstrap import ensure_config
 from release_commands import (
     TERMINAL_STATUSES,
     make_release_command,
+    normalize_release_command_launcher,
     normalize_release_command_gpu_settings,
     normalize_release_commands,
     validate_release_command_gpu_settings,
@@ -43,14 +44,14 @@ _WEBUI_NUMERIC_SETTINGS = ('log_max_size_mb', 'log_archive_keep')
 _ENV_CHANNEL_KEYS = ('SERVERCHAN_KEYS', 'BARK_CONFIGS', 'SENDKEY')
 
 
-def _tmux_status() -> dict:
-    path = shutil.which('tmux')
+def _terminal_status(command: str, version_arg: str) -> dict:
+    path = shutil.which(command)
     status = {'installed': bool(path), 'path': path or '', 'version': ''}
     if not path:
         return status
     try:
         result = subprocess.run(
-            [path, '-V'],
+            [path, version_arg],
             capture_output=True,
             text=True,
             timeout=3,
@@ -60,6 +61,14 @@ def _tmux_status() -> dict:
     except Exception:
         pass
     return status
+
+
+def _tmux_status() -> dict:
+    return _terminal_status('tmux', '-V')
+
+
+def _zellij_status() -> dict:
+    return _terminal_status('zellij', '--version')
 
 
 def _clear_env_channel_keys(script_dir: str) -> None:
@@ -153,7 +162,9 @@ def create_app(script_dir: str = None):
         state.setdefault('gpus', [])
         state.setdefault('release_command_enabled', cfg.get('release_command_enabled', True))
         state.setdefault('release_command_notify_enabled', cfg.get('release_command_notify_enabled', True))
-        state.setdefault('release_command_tmux_enabled', cfg.get('release_command_tmux_enabled', False))
+        launcher = state.get('release_command_launcher') or normalize_release_command_launcher(cfg)
+        state['release_command_launcher'] = launcher
+        state['release_command_tmux_enabled'] = launcher == 'tmux'
         state.setdefault('release_command_gpus', cfg.get('release_command_gpus', []))
         state.setdefault(
             'release_command_mem_threshold_mib',
@@ -173,6 +184,7 @@ def create_app(script_dir: str = None):
         )
         state.setdefault('release_commands', normalize_release_commands(cfg.get('release_commands', [])))
         state['tmux_status'] = _tmux_status()
+        state['zellij_status'] = _zellij_status()
         state.setdefault('hostname', socket.gethostname())
         return jsonify(state)
 
@@ -185,7 +197,8 @@ def create_app(script_dir: str = None):
         cfg.pop('secret_key', None)
         cfg['release_command_enabled'] = cfg.get('release_command_enabled', True)
         cfg['release_command_notify_enabled'] = cfg.get('release_command_notify_enabled', True)
-        cfg['release_command_tmux_enabled'] = cfg.get('release_command_tmux_enabled', False)
+        cfg['release_command_launcher'] = normalize_release_command_launcher(cfg)
+        cfg['release_command_tmux_enabled'] = cfg['release_command_launcher'] == 'tmux'
         cfg['release_command_gpus'] = cfg.get('release_command_gpus', [])
         cfg['release_command_mem_threshold_mib'] = cfg.get(
             'release_command_mem_threshold_mib',
@@ -204,6 +217,7 @@ def create_app(script_dir: str = None):
         )
         cfg['release_commands'] = normalize_release_commands(cfg.get('release_commands', []))
         cfg['tmux_status'] = _tmux_status()
+        cfg['zellij_status'] = _zellij_status()
         cfg['env_channel_summary'] = summary
         return jsonify(cfg)
 
@@ -464,8 +478,12 @@ def create_app(script_dir: str = None):
             'finished_at': '',
             'pid': None,
             'pgid': None,
+            'terminal_session': '',
+            'terminal_pane': '',
             'tmux_session': '',
             'tmux_pane': '',
+            'zellij_session': '',
+            'zellij_pane': '',
             'exit_code': None,
             'exit_code_file': '',
             'trigger_gpu': None,
@@ -902,13 +920,26 @@ def create_app(script_dir: str = None):
             if cfg.get('release_command_notify_enabled', True) != val:
                 runtime_reload_needed = True
             cfg['release_command_notify_enabled'] = val
+        launcher_updated = False
+        if 'release_command_launcher' in data:
+            val = str(data['release_command_launcher'] or '').strip()
+            if val not in ('detached', 'tmux', 'zellij'):
+                return jsonify({'error': 'invalid value for release_command_launcher'}), 400
+            if normalize_release_command_launcher(cfg) != val:
+                runtime_reload_needed = True
+            cfg['release_command_launcher'] = val
+            cfg['release_command_tmux_enabled'] = val == 'tmux'
+            launcher_updated = True
         if 'release_command_tmux_enabled' in data:
             val = data['release_command_tmux_enabled']
             if not isinstance(val, bool):
                 return jsonify({'error': 'invalid value for release_command_tmux_enabled'}), 400
-            if cfg.get('release_command_tmux_enabled', False) != val:
-                runtime_reload_needed = True
-            cfg['release_command_tmux_enabled'] = val
+            if not launcher_updated:
+                launcher = 'tmux' if val else 'detached'
+                if normalize_release_command_launcher(cfg) != launcher:
+                    runtime_reload_needed = True
+                cfg['release_command_launcher'] = launcher
+                cfg['release_command_tmux_enabled'] = launcher == 'tmux'
         if 'release_command_gpus' in data:
             gpus = data['release_command_gpus']
             if not isinstance(gpus, list) or not all(isinstance(g, int) and not isinstance(g, bool) and g >= 0 for g in gpus):
@@ -1016,7 +1047,17 @@ def create_app(script_dir: str = None):
                 val = settings[key]
                 if not isinstance(val, bool):
                     return {'ok': False, 'message': f'invalid value for {key}'}
-                cfg[key] = val
+                if key == 'release_command_tmux_enabled':
+                    cfg['release_command_launcher'] = 'tmux' if val else 'detached'
+                    cfg[key] = cfg['release_command_launcher'] == 'tmux'
+                else:
+                    cfg[key] = val
+            if 'release_command_launcher' in settings:
+                val = str(settings['release_command_launcher'] or '').strip()
+                if val not in ('detached', 'tmux', 'zellij'):
+                    return {'ok': False, 'message': 'invalid value for release_command_launcher'}
+                cfg['release_command_launcher'] = val
+                cfg['release_command_tmux_enabled'] = val == 'tmux'
             if 'gpus' in settings:
                 gpus = settings['gpus']
                 if (
@@ -1095,8 +1136,12 @@ def create_app(script_dir: str = None):
                     'finished_at': '',
                     'pid': None,
                     'pgid': None,
+                    'terminal_session': '',
+                    'terminal_pane': '',
                     'tmux_session': '',
                     'tmux_pane': '',
+                    'zellij_session': '',
+                    'zellij_pane': '',
                     'exit_code': None,
                     'exit_code_file': '',
                     'trigger_gpu': None,
@@ -1297,7 +1342,8 @@ def _empty_state(cfg: dict) -> dict:
         'watch_pids': _merge_watch_pids([], cfg),
         'release_command_enabled': cfg.get('release_command_enabled', True),
         'release_command_notify_enabled': cfg.get('release_command_notify_enabled', True),
-        'release_command_tmux_enabled': cfg.get('release_command_tmux_enabled', False),
+        'release_command_launcher': normalize_release_command_launcher(cfg),
+        'release_command_tmux_enabled': normalize_release_command_launcher(cfg) == 'tmux',
         'release_command_gpus': cfg.get('release_command_gpus', []),
         'release_command_mem_threshold_mib': cfg.get(
             'release_command_mem_threshold_mib',
@@ -1316,6 +1362,7 @@ def _empty_state(cfg: dict) -> dict:
         ),
         'release_commands': normalize_release_commands(cfg.get('release_commands', [])),
         'tmux_status': _tmux_status(),
+        'zellij_status': _zellij_status(),
         'hostname': socket.gethostname(),
     }
 
@@ -1355,7 +1402,7 @@ def _build_test_notify_content(cfg: dict, summary: dict) -> str:
         f'- 监控 GPU: {gpu_text}\n'
         f'- 任务队列: {"开启" if cfg.get("release_command_enabled", True) else "关闭"}\n'
         f'- 任务队列通知: {"开启" if cfg.get("release_command_notify_enabled", True) else "关闭"}\n'
-        f'- 任务队列 tmux: {"启用" if cfg.get("release_command_tmux_enabled", False) else "未启用"}\n'
+        f'- 任务队列启动器: {normalize_release_command_launcher(cfg)}\n'
         f'- 空闲判定阈值: {cfg.get("release_command_mem_threshold_mib", cfg.get("mem_threshold_mib", 10240))} MiB\n'
         f'- 任务队列检测间隔: {cfg.get("release_command_check_interval", cfg.get("check_interval", 120))} 秒\n'
         f'- 连续空闲确认次数: {cfg.get("release_command_confirm_times", cfg.get("confirm_times", 2))}\n'
