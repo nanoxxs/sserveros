@@ -98,6 +98,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .sysinfo-value { font-size: 18px; font-weight: 700; color: #1e293b; margin-bottom: 10px; line-height: 1.2; }
 .sysinfo-sub { font-size: 12px; color: #64748b; margin-top: 5px; }
 .sysinfo-section-title { font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .5px; padding: 4px 0 2px; }
+.core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.core-item { border: 1px solid #f1f5f9; border-radius: 8px; padding: 9px 10px; background: #fff; }
+.core-label { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: #64748b; margin-bottom: 7px; }
+.detail-split { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 12px; color: #94a3b8; }
 
 /* GPU */
 .gpu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
@@ -341,6 +345,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .archive-row { padding: 12px 16px; border-bottom: 1px solid #f8fafc; display: flex; justify-content: space-between; align-items: center; }
 .archive-row:last-child { border-bottom: none; }
 .dl-btn { font-size: 12px; color: #2563eb; background: none; border: 1px solid #dbeafe; border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+.archive-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.archive-del-btn { font-size: 12px; color: #ef4444; background: none; border: 1px solid #fecaca; border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+.archive-del-btn:hover { background: #fee2e2; }
+@media (max-width: 480px) {
+  .archive-row { align-items: flex-start; gap: 10px; }
+  .archive-actions { flex-direction: column; align-items: stretch; }
+  .archive-actions a { display: block; }
+  .archive-actions button { width: 100%; }
+}
 
 /* Markdown inside agent messages */
 .md-body { white-space: normal; }
@@ -468,8 +481,8 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 .tab.active { color: var(--fg-1); border-bottom-color: var(--accent); font-weight: 500; }
 .pane { max-width: 1180px; gap: 10px; padding: 14px 20px 24px; }
 @media (max-width: 560px) {
-  .tabs { justify-content: flex-start; padding: 0 14px; gap: 10px; }
-  .tab { min-width: 82px; padding-left: 12px; padding-right: 12px; }
+  .tabs { justify-content: stretch; padding: 0 6px; gap: 4px; overflow-x: visible; }
+  .tab { flex: 1 1 0; min-width: 0; padding-left: 4px; padding-right: 4px; font-size: 12px; }
   .header { padding-left: 14px; padding-right: 14px; }
   .brand-lockup { gap: 8px; }
   .brand-name-main { font-size: 15px; }
@@ -483,6 +496,8 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   letter-spacing: .06em;
 }
 .sysinfo-value, .gpu-name, .gpu-stat-value, .proc-pid-cell, .pid-num, .log-title-text, .detail-title-text, .meta-value, .release-section-toggle, .release-group-title { color: var(--fg-1); }
+.core-item { background: var(--bg-1); border-color: var(--border-subtle); }
+.core-label, .detail-split { color: var(--fg-3); }
 .gpu-card:hover, .sysinfo-card-link:hover { border-color: var(--border-strong); background: var(--bg-2); box-shadow: none; }
 .bar-bg { background: var(--bg-3); height: 6px; }
 .bar-fill { background: var(--ok-fg); }
@@ -502,7 +517,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   box-shadow: none;
 }
 .login-btn:hover, .add-btn:hover, .modal-submit:hover, .agent-send-btn:hover, .proc-add-btn:hover { filter: brightness(.96); }
-.back-btn, .pwd-btn, .logout-btn, .menu-btn, .agent-tool-btn, .dl-btn, .modal-cancel, .detail-tab-btn {
+.back-btn, .pwd-btn, .logout-btn, .menu-btn, .agent-tool-btn, .dl-btn, .archive-del-btn, .modal-cancel, .detail-tab-btn {
   background: transparent;
   border-color: var(--border-default);
   color: var(--fg-2);
@@ -528,6 +543,8 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 .status-badge { background: var(--ok-bg); color: var(--ok-fg); }
 .status-badge.offline { background: var(--danger-bg); color: var(--danger-fg); }
 .app-footer-card a, .dl-btn { color: var(--accent); }
+.archive-del-btn { color: var(--danger-fg); border-color: color-mix(in oklab, var(--danger-fg) 28%, var(--border-default)); }
+.archive-del-btn:hover { background: var(--danger-bg); }
 [data-glass="on"] {
   background:
     radial-gradient(900px 600px at 8% -8%, oklch(82% 0.15 280 / .55), transparent 60%),
@@ -821,16 +838,19 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     <!-- GPU list -->
     <template v-if="gpuView === 'list'">
       <div class="sysinfo-grid">
-        <div class="sysinfo-card">
+        <div class="sysinfo-card sysinfo-card-link" @click="showCpuDetail()">
           <div class="sysinfo-label">CPU</div>
           <div class="sysinfo-value">{{ cpuPct != null ? cpuPct.toFixed(1) + '%' : '—' }}</div>
           <div class="bar-bg"><div class="bar-fill" :style="{width: (cpuPct||0)+'%', background: barColor(cpuPct||0)}"></div></div>
+          <div class="sysinfo-sub">{{ cpuCountLogical ? cpuCountLogical + ' 线程' : '' }}</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:6px">点击查看 CPU 详情 ›</div>
         </div>
-        <div class="sysinfo-card">
+        <div class="sysinfo-card sysinfo-card-link" @click="showMemoryDetail()">
           <div class="sysinfo-label">内存</div>
           <div class="sysinfo-value">{{ ramDisplay }}</div>
           <div class="bar-bg"><div class="bar-fill" :style="{width: ramPct+'%', background: barColor(ramPct)}"></div></div>
           <div class="sysinfo-sub">{{ ramTotalMib ? ramPct + '%' : '' }}</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:6px">点击查看内存详情 ›</div>
         </div>
         <div class="sysinfo-card sysinfo-card-link" @click="showDiskDetail()">
           <div class="sysinfo-label">磁盘</div>
@@ -1021,18 +1041,32 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
                 <span class="toggle-slider"></span>
               </label>
             </div>
-            <div class="setting-row setting-row-toggle">
-              <div>
-                <div class="setting-label" style="margin-bottom:2px">任务队列通知</div>
-                <div style="font-size:12px;color:#94a3b8">检测空闲、启动任务、任务结束时推送消息</div>
-              </div>
+	            <div class="setting-row setting-row-toggle">
+	              <div>
+	                <div class="setting-label" style="margin-bottom:2px">任务队列通知</div>
+	                <div style="font-size:12px;color:#94a3b8">检测空闲、启动任务、任务结束时推送消息</div>
+	              </div>
               <label class="toggle-switch" style="margin-left:16px">
                 <input type="checkbox" v-model="cfgReleaseCommandNotify">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="setting-row">
-              <div class="setting-label">任务队列监控 GPU（逗号分隔，留空自动检测）</div>
+	                <span class="toggle-slider"></span>
+	              </label>
+	            </div>
+	            <div class="setting-row setting-row-toggle">
+	              <div>
+	                <div class="setting-label" style="margin-bottom:2px">tmux</div>
+	                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+	                  <span class="cmd-status" :style="tmuxStatusStyle()">{{ tmuxStatus.installed ? '已安装' : '未安装' }}</span>
+	                  <span style="font-size:12px;color:#94a3b8">{{ tmuxStatus.version || tmuxStatus.path || '未检测到 tmux 命令' }}</span>
+	                </div>
+	                <div style="font-size:12px;color:#94a3b8;margin-top:4px">启用后新任务会优先在 tmux 会话中运行；未安装时自动回退后台日志模式</div>
+	              </div>
+	              <label class="toggle-switch" style="margin-left:16px">
+	                <input type="checkbox" v-model="cfgReleaseCommandTmuxEnabled">
+	                <span class="toggle-slider"></span>
+	              </label>
+	            </div>
+	            <div class="setting-row">
+	              <div class="setting-label">任务队列监控 GPU（逗号分隔，留空自动检测）</div>
               <input class="setting-input" v-model="cfgReleaseCommandGpus" placeholder="例：0,1">
             </div>
             <div class="setting-row">
@@ -1082,6 +1116,118 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
             </div>
           </template>
         </template>
+      </div>
+    </template>
+
+    <!-- CPU detail -->
+    <template v-else-if="gpuView === 'cpu'">
+      <div class="card">
+        <div class="detail-header">
+          <button class="back-btn" @click="gpuView='list'">← 返回</button>
+          <span class="detail-title-text">CPU 详情</span>
+          <button class="back-btn" @click="fetchCpuDetail()" style="margin-left:auto">刷新</button>
+        </div>
+        <div class="gpu-stat-row">
+          <div v-for="s in cpuDetailStats" :key="s.label" class="gpu-stat">
+            <div class="gpu-stat-label">{{ s.label }}</div>
+            <div class="gpu-stat-value">{{ s.value }}</div>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">核心利用率</div>
+          <div v-if="!cpuPerCore.length" class="release-empty" style="padding:0">暂无核心数据</div>
+          <div v-else class="core-grid">
+            <div v-for="(pct, i) in cpuPerCore" :key="i" class="core-item">
+              <div class="core-label">
+                <span>CPU {{ i }}</span>
+                <span>{{ pct.toFixed(1) }}%</span>
+              </div>
+              <div class="bar-bg">
+                <div class="bar-fill" :style="{width: Math.min(100, Math.max(0, pct))+'%', background: barColor(pct)}"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">CPU 占用进程排行</div>
+          <div v-if="!topCpuProcesses.length" class="release-empty" style="padding:0">暂无进程数据</div>
+          <div v-else class="proc-table-wrap">
+            <table class="proc-table">
+              <thead><tr>
+                <th>PID</th><th>CPU</th><th>内存</th><th>用户</th><th>命令</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="p in topCpuProcesses" :key="p.pid">
+                  <td data-label="PID" class="proc-pid-cell">{{ p.pid }}</td>
+                  <td data-label="CPU" class="proc-mem-cell">{{ p.cpu_pct.toFixed(1) }}%</td>
+                  <td data-label="内存" style="white-space:nowrap;color:#64748b">{{ p.rss_mib }} MiB</td>
+                  <td data-label="用户" style="white-space:nowrap;color:#475569">{{ p.user || '—' }}</td>
+                  <td data-label="命令" class="proc-cmd-cell">{{ p.cmd || p.name || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Memory detail -->
+    <template v-else-if="gpuView === 'memory'">
+      <div class="card">
+        <div class="detail-header">
+          <button class="back-btn" @click="gpuView='list'">← 返回</button>
+          <span class="detail-title-text">内存详情</span>
+          <button class="back-btn" @click="fetchMemoryDetail()" style="margin-left:auto">刷新</button>
+        </div>
+        <div class="gpu-stat-row">
+          <div v-for="s in memoryDetailStats" :key="s.label" class="gpu-stat">
+            <div class="gpu-stat-label">{{ s.label }}</div>
+            <div class="gpu-stat-value">{{ s.value }}</div>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">物理内存</div>
+          <div class="bar-bg" style="margin-bottom:8px">
+            <div class="bar-fill" :style="{width: ramPct+'%', background: barColor(ramPct)}"></div>
+          </div>
+          <div class="detail-split">
+            <span>已用 {{ formatMib(ramUsedMib) }}</span>
+            <span>可用 {{ formatMib(ramAvailableMib) }}</span>
+            <span>总计 {{ formatMib(ramTotalMib) }}</span>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">Swap</div>
+          <div class="bar-bg" style="margin-bottom:8px">
+            <div class="bar-fill" :style="{width: swapPct+'%', background: barColor(swapPct)}"></div>
+          </div>
+          <div class="detail-split">
+            <span>已用 {{ formatMib(swapUsedMib) }}</span>
+            <span>总计 {{ formatMib(swapTotalMib) }}</span>
+            <span>{{ swapPct.toFixed(1) }}%</span>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label">内存占用进程排行</div>
+          <div v-if="!topMemoryProcesses.length" class="release-empty" style="padding:0">暂无进程数据</div>
+          <div v-else class="proc-table-wrap">
+            <table class="proc-table">
+              <thead><tr>
+                <th>PID</th><th>RSS</th><th>占比</th><th>CPU</th><th>用户</th><th>命令</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="p in topMemoryProcesses" :key="p.pid">
+                  <td data-label="PID" class="proc-pid-cell">{{ p.pid }}</td>
+                  <td data-label="RSS" class="proc-mem-cell">{{ p.rss_mib }} MiB</td>
+                  <td data-label="占比" style="white-space:nowrap;color:#64748b">{{ p.mem_pct.toFixed(1) }}%</td>
+                  <td data-label="CPU" style="white-space:nowrap;color:#64748b">{{ p.cpu_pct.toFixed(1) }}%</td>
+                  <td data-label="用户" style="white-space:nowrap;color:#475569">{{ p.user || '—' }}</td>
+                  <td data-label="命令" class="proc-cmd-cell">{{ p.cmd || p.name || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </template>
 
@@ -1217,100 +1363,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     </div>
     <button class="save-btn" @click="saveMonitorSettings()" style="margin-top:0">保存监控参数</button>
     <div v-if="monitorSaveMsg.text" class="notice-msg" :class="monitorSaveMsg.kind" style="display:block">{{ monitorSaveMsg.text }}</div>
-	    <div class="card settings-section" ref="settingsRelease">
-	      <div class="card-header">
-	        <span>任务队列配置</span>
-	      </div>
-	      <button class="release-section-toggle" @click="toggleReleasePanel('defaults')">
-        <span class="release-section-title">
-          <span>{{ releasePanelOpen.defaults ? '▾' : '▸' }}</span>
-          <span>全局默认</span>
-        </span>
-        <span class="release-section-meta">{{ cfgReleaseCommandThreshold }} MiB / {{ cfgReleaseCommandInterval }} 秒 / {{ cfgReleaseCommandConfirm }} 次</span>
-      </button>
-	      <div v-show="releasePanelOpen.defaults">
-	        <div class="setting-row setting-row-toggle">
-	          <div>
-	            <div class="setting-label" style="margin-bottom:2px">GPU 空闲后自动执行</div>
-	            <div style="font-size:12px;color:#94a3b8">当 GPU 显存连续低于空闲阈值时，按顺序启动下一条匹配任务</div>
-	          </div>
-          <label class="toggle-switch" style="margin-left:16px">
-            <input type="checkbox" v-model="cfgReleaseCommandEnabled">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-	        <div class="setting-row setting-row-toggle">
-	          <div>
-	            <div class="setting-label" style="margin-bottom:2px">任务队列通知</div>
-	            <div style="font-size:12px;color:#94a3b8">检测空闲、启动任务、任务结束时推送消息</div>
-	          </div>
-          <label class="toggle-switch" style="margin-left:16px">
-            <input type="checkbox" v-model="cfgReleaseCommandNotify">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-	        <div class="setting-row">
-	          <div class="setting-label">任务队列监控 GPU（逗号分隔，留空自动检测）</div>
-	          <input class="setting-input" v-model="cfgReleaseCommandGpus" placeholder="例：0,1">
-	        </div>
-        <div class="setting-row">
-          <div class="setting-inline-grid">
-	            <div>
-	              <div class="setting-label">空闲判定阈值 (MiB)</div>
-	              <input class="setting-input" v-model.number="cfgReleaseCommandThreshold" type="number">
-	            </div>
-	            <div>
-	              <div class="setting-label">任务队列检测间隔 (秒)</div>
-	              <input class="setting-input" v-model.number="cfgReleaseCommandInterval" type="number">
-	            </div>
-	            <div>
-	              <div class="setting-label">连续空闲确认次数</div>
-	              <input class="setting-input" v-model.number="cfgReleaseCommandConfirm" type="number">
-	            </div>
-          </div>
-        </div>
-      </div>
-      <button class="release-section-toggle" @click="toggleReleasePanel('presets')">
-        <span class="release-section-title">
-          <span>{{ releasePanelOpen.presets ? '▾' : '▸' }}</span>
-          <span>GPU 预设</span>
-        </span>
-        <span class="release-section-meta">{{ releaseGpuPresets.length }} 张 GPU</span>
-      </button>
-      <div v-show="releasePanelOpen.presets">
-        <div v-if="!releaseGpuPresets.length" class="release-empty">暂无 GPU 预设</div>
-        <div v-for="(preset, i) in releaseGpuPresets" :key="preset.key" class="release-preset-row">
-          <div class="setting-inline-grid four">
-            <div>
-              <div class="setting-label">GPU</div>
-              <input class="setting-input" v-model="preset.gpu" placeholder="0">
-            </div>
-	            <div>
-	              <div class="setting-label">空闲判定阈值 (MiB)</div>
-	              <input class="setting-input" v-model.number="preset.mem_threshold_mib" type="number">
-	            </div>
-            <div>
-              <div class="setting-label">检测间隔 (秒)</div>
-              <input class="setting-input" v-model.number="preset.check_interval" type="number">
-            </div>
-            <div>
-              <div class="setting-label">确认次数</div>
-              <input class="setting-input" v-model.number="preset.confirm_times" type="number">
-            </div>
-          </div>
-          <div style="display:flex;justify-content:flex-end;margin-top:8px">
-            <button class="back-btn" style="color:#ef4444;border-color:#fecaca"
-                    @click="removeReleaseGpuPreset(i)">移除预设</button>
-          </div>
-        </div>
-        <div class="setting-row">
-          <button class="back-btn" @click="addReleaseGpuPreset()">新增 GPU 预设</button>
-        </div>
-      </div>
-	    </div>
-	    <button class="save-btn" @click="saveReleaseSettings()" style="margin-top:0">保存任务队列配置</button>
-    <div v-if="releaseSaveMsg.text" class="notice-msg" :class="releaseSaveMsg.kind" style="display:block">{{ releaseSaveMsg.text }}</div>
-    <div class="card settings-section" ref="settingsNotify">
+	    <div class="card settings-section" ref="settingsNotify">
       <div class="card-header">通知渠道</div>
       <div class="setting-row">
         <div class="setting-label">Server Chan 密钥（每行一个，支持多个）</div>
@@ -1396,7 +1449,11 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
       <div class="card">
         <div class="card-header">
           <span>事件日志</span>
-          <span style="font-size:13px;color:#94a3b8;font-weight:400">最近 200 条</span>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+            <span style="font-size:13px;color:#94a3b8;font-weight:400">最近 200 条</span>
+            <button v-if="logEntries.length" class="back-btn log-clear-btn"
+                    @click="clearEventLog()">清空日志</button>
+          </div>
         </div>
         <div v-if="!logEntries.length" style="padding:16px;color:#94a3b8;font-size:14px">暂无日志</div>
         <div v-for="(e, i) in logEntries" :key="i" class="log-row" @click="logDetailIdx=i; logView='detail'">
@@ -1424,9 +1481,12 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
             <div style="font-size:14px">{{ a.filename }}</div>
             <div style="font-size:12px;color:#94a3b8">{{ (a.size_bytes/1024).toFixed(1) }} KB</div>
           </div>
-          <a :href="'/api/log/archives/' + encodeURIComponent(a.filename)" download>
-            <button class="dl-btn">下载</button>
-          </a>
+          <div class="archive-actions">
+            <a :href="'/api/log/archives/' + encodeURIComponent(a.filename)" download>
+              <button class="dl-btn">下载</button>
+            </a>
+            <button class="archive-del-btn" @click="deleteArchive(a.filename)">删除</button>
+          </div>
         </div>
       </div>
     </template>
@@ -1623,11 +1683,22 @@ createApp({
       gpuView: 'list',
 	      currentGpuIndex: null,
 	      gpuDetail: null,
-	      gpuDetailTab: 'processes',
+      gpuDetailTab: 'processes',
 	      gpuDetailLoading: false,
       gpuDetailError: '',
       cpuPct: null,
+      cpuCountLogical: 0,
+      cpuCountPhysical: 0,
+      cpuPerCore: [],
+      cpuTimesPercent: {},
+      cpuFreqMhz: {},
+      loadAvg: [],
+      topCpuProcesses: [],
       ramUsedMib: null, ramTotalMib: null,
+      ramAvailableMib: null, ramFreeMib: null,
+      ramCachedMib: null, ramBuffersMib: null, ramSharedMib: null,
+      swapUsedMib: 0, swapTotalMib: 0, swapPct: 0,
+      topMemoryProcesses: [],
       diskPct: null, diskUsedGb: null, diskTotalGb: null,
       diskData: [],
       // PID
@@ -1639,21 +1710,23 @@ createApp({
       cfgMemMonitor: true,
       cfgMainPidMonitor: true,
       cfgThreshold: 10240,
-      cfgInterval: 60,
+      cfgInterval: 120,
       cfgConfirm: 2,
       cfgLogMb: 10,
       cfgLogKeep: 5,
-      cfgGpus: '',
-      cfgReleaseCommandEnabled: true,
-      cfgReleaseCommandNotify: true,
-      cfgReleaseCommandGpus: '',
+	      cfgGpus: '',
+	      cfgReleaseCommandEnabled: true,
+	      cfgReleaseCommandNotify: true,
+	      cfgReleaseCommandTmuxEnabled: false,
+	      cfgReleaseCommandGpus: '',
       cfgReleaseCommandThreshold: 10240,
-      cfgReleaseCommandInterval: 60,
+      cfgReleaseCommandInterval: 120,
       cfgReleaseCommandConfirm: 2,
       releaseGpuPresets: [],
 	      releasePanelOpen: {defaults:true, presets:true},
       releaseGroupOpen: {},
-      releaseCommands: [],
+	      releaseCommands: [],
+	      tmuxStatus: {installed:false, path:'', version:''},
       newReleaseCommandGpus: '',
       newReleaseCommand: '',
       newReleaseCommandNote: '',
@@ -1665,11 +1738,10 @@ createApp({
       notifySaveMsg: {text:'', kind:''},
       envChannelMsg: {text:'', kind:''},
       // Agent config
-      settingsSections: [
-        {id:'monitor', label:'监控参数'},
-	        {id:'release', label:'任务队列'},
-        {id:'notify', label:'通知渠道'},
-        {id:'agent', label:'Agent'},
+	      settingsSections: [
+	        {id:'monitor', label:'监控参数'},
+	        {id:'notify', label:'通知渠道'},
+	        {id:'agent', label:'Agent'},
       ],
       activeSettingsSection: 'monitor',
       cfgAgentEnabled: false,
@@ -1710,6 +1782,30 @@ createApp({
     },
     diskDisplay() {
       return this.diskTotalGb ? this.diskUsedGb + ' / ' + this.diskTotalGb + ' GB' : '—';
+    },
+    cpuDetailStats() {
+      const freq = this.cpuFreqMhz || {};
+      const load = Array.isArray(this.loadAvg) && this.loadAvg.length
+        ? this.loadAvg.map(v => Number(v).toFixed(2)).join(' / ')
+        : '—';
+      return [
+        {label:'当前利用率', value: this.cpuPct != null ? `${this.cpuPct.toFixed(1)}%` : '—'},
+        {label:'核心/线程', value: `${this.cpuCountPhysical || '—'} / ${this.cpuCountLogical || '—'}`},
+        {label:'当前频率', value: freq.current ? `${freq.current.toFixed(0)} MHz` : '—'},
+        {label:'Load Avg', value: load},
+        {label:'User / System', value: `${(this.cpuTimesPercent.user || 0).toFixed(1)}% / ${(this.cpuTimesPercent.system || 0).toFixed(1)}%`},
+        {label:'Idle', value: `${(this.cpuTimesPercent.idle || 0).toFixed(1)}%`},
+      ];
+    },
+    memoryDetailStats() {
+      return [
+        {label:'已用内存', value: this.formatMib(this.ramUsedMib)},
+        {label:'可用内存', value: this.formatMib(this.ramAvailableMib)},
+        {label:'总内存', value: this.formatMib(this.ramTotalMib)},
+        {label:'缓存', value: this.formatMib(this.ramCachedMib)},
+        {label:'Buffers', value: this.formatMib(this.ramBuffersMib)},
+        {label:'Swap', value: `${this.formatMib(this.swapUsedMib)} / ${this.formatMib(this.swapTotalMib)}`},
+      ];
     },
     gpuDetailStats() {
       if (!this.gpuDetail) return [];
@@ -1948,6 +2044,7 @@ createApp({
       this._refreshTimer = setInterval(() => {
         this.fetchState();
         this.fetchSysinfo();
+        this.fetchActiveSystemDetail();
       }, 5000);
     },
 
@@ -1966,11 +2063,13 @@ createApp({
 	        if (this.currentTab !== 'settings' && !editingTaskSettings) {
 	          this.cfgReleaseCommandEnabled = data.release_command_enabled !== false;
 	          this.cfgReleaseCommandNotify = data.release_command_notify_enabled !== false;
+	          this.cfgReleaseCommandTmuxEnabled = data.release_command_tmux_enabled === true;
 	          this.cfgReleaseCommandGpus = (data.release_command_gpus || []).join(',');
 	          this.cfgReleaseCommandThreshold = data.release_command_mem_threshold_mib ?? this.cfgReleaseCommandThreshold;
 	          this.cfgReleaseCommandInterval = data.release_command_check_interval ?? this.cfgReleaseCommandInterval;
 	          this.cfgReleaseCommandConfirm = data.release_command_confirm_times ?? this.cfgReleaseCommandConfirm;
 	        }
+	        this.tmuxStatus = data.tmux_status || this.tmuxStatus;
 	        this.monitorRunning = !!data.monitor_running;
         this.updateAgentPaneHeight();
       } catch(e) {}
@@ -1982,6 +2081,7 @@ createApp({
         if (!r.ok) return;
         const d = await r.json();
         this.cpuPct = d.cpu_pct ?? null;
+        this.cpuCountLogical = d.cpu_count_logical || 0;
         this.ramUsedMib = d.ram_used_mib ?? null;
         this.ramTotalMib = d.ram_total_mib ?? null;
         this.diskPct = d.disk_pct ?? null;
@@ -1989,6 +2089,47 @@ createApp({
         this.diskTotalGb = d.disk_total_gb ?? null;
         this.diskData = d.disks || [];
       } catch(e) {}
+    },
+
+    async fetchCpuDetail() {
+      try {
+        const r = await this.api('/api/sysinfo/cpu');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.cpuPct = d.cpu_pct ?? this.cpuPct;
+        this.cpuCountLogical = d.cpu_count_logical || 0;
+        this.cpuCountPhysical = d.cpu_count_physical || 0;
+        this.cpuPerCore = d.cpu_per_core || [];
+        this.cpuTimesPercent = d.cpu_times_percent || {};
+        this.cpuFreqMhz = d.cpu_freq_mhz || {};
+        this.loadAvg = d.load_avg || [];
+        this.topCpuProcesses = d.top_cpu_processes || [];
+      } catch(e) {}
+    },
+
+    async fetchMemoryDetail() {
+      try {
+        const r = await this.api('/api/sysinfo/memory');
+        if (!r.ok) return;
+        const d = await r.json();
+        this.ramUsedMib = d.ram_used_mib ?? this.ramUsedMib;
+        this.ramTotalMib = d.ram_total_mib ?? this.ramTotalMib;
+        this.ramAvailableMib = d.ram_available_mib ?? null;
+        this.ramFreeMib = d.ram_free_mib ?? null;
+        this.ramCachedMib = d.ram_cached_mib ?? null;
+        this.ramBuffersMib = d.ram_buffers_mib ?? null;
+        this.ramSharedMib = d.ram_shared_mib ?? null;
+        this.swapUsedMib = d.swap_used_mib ?? 0;
+        this.swapTotalMib = d.swap_total_mib ?? 0;
+        this.swapPct = d.swap_pct ?? 0;
+        this.topMemoryProcesses = d.top_memory_processes || [];
+      } catch(e) {}
+    },
+
+    fetchActiveSystemDetail() {
+      if (this.currentTab !== 'gpu') return;
+      if (this.gpuView === 'cpu') this.fetchCpuDetail();
+      if (this.gpuView === 'memory') this.fetchMemoryDetail();
     },
 
     // ── GPU ───────────────────────────────────────────
@@ -2041,6 +2182,16 @@ createApp({
     showDiskDetail() {
       if (!this.diskData.length) return;
       this.gpuView = 'disk';
+    },
+
+    async showCpuDetail() {
+      this.gpuView = 'cpu';
+      await this.fetchCpuDetail();
+    },
+
+    async showMemoryDetail() {
+      this.gpuView = 'memory';
+      await this.fetchMemoryDetail();
     },
 
     // ── PIDs ──────────────────────────────────────────
@@ -2130,11 +2281,10 @@ createApp({
     // ── Settings ──────────────────────────────────────
     scrollSettingSection(id) {
       this.activeSettingsSection = id;
-      const refMap = {
-        monitor: 'settingsMonitor',
-        release: 'settingsRelease',
-        notify: 'settingsNotify',
-        agent: 'settingsAgent',
+	      const refMap = {
+	        monitor: 'settingsMonitor',
+	        notify: 'settingsNotify',
+	        agent: 'settingsAgent',
       };
       const el = this.$refs[refMap[id]];
       if (el && el.scrollIntoView) el.scrollIntoView({behavior:'smooth', block:'start'});
@@ -2146,18 +2296,19 @@ createApp({
       const cfg = await r.json();
       const env = cfg.env_channel_summary || {};
       this.cfgThreshold = cfg.mem_threshold_mib ?? 10240;
-      this.cfgInterval = cfg.check_interval ?? 60;
+      this.cfgInterval = cfg.check_interval ?? 120;
       this.cfgConfirm = cfg.confirm_times ?? 2;
       this.cfgLogMb = cfg.log_max_size_mb ?? 10;
       this.cfgLogKeep = cfg.log_archive_keep ?? 5;
       this.cfgGpus = (cfg.gpus || []).join(',');
       this.cfgMemMonitor = cfg.gpu_mem_monitor_enabled !== false;
-      this.cfgMainPidMonitor = cfg.main_pid_monitor_enabled !== false;
-      this.cfgReleaseCommandEnabled = cfg.release_command_enabled !== false;
-      this.cfgReleaseCommandNotify = cfg.release_command_notify_enabled !== false;
-      this.cfgReleaseCommandGpus = (cfg.release_command_gpus || []).join(',');
+	      this.cfgMainPidMonitor = cfg.main_pid_monitor_enabled !== false;
+	      this.cfgReleaseCommandEnabled = cfg.release_command_enabled !== false;
+	      this.cfgReleaseCommandNotify = cfg.release_command_notify_enabled !== false;
+	      this.cfgReleaseCommandTmuxEnabled = cfg.release_command_tmux_enabled === true;
+	      this.cfgReleaseCommandGpus = (cfg.release_command_gpus || []).join(',');
       this.cfgReleaseCommandThreshold = cfg.release_command_mem_threshold_mib ?? (cfg.mem_threshold_mib ?? 10240);
-      this.cfgReleaseCommandInterval = cfg.release_command_check_interval ?? (cfg.check_interval ?? 60);
+      this.cfgReleaseCommandInterval = cfg.release_command_check_interval ?? (cfg.check_interval ?? 120);
       this.cfgReleaseCommandConfirm = cfg.release_command_confirm_times ?? (cfg.confirm_times ?? 2);
       const gpuSettings = cfg.release_command_gpu_settings || {};
       this.releaseGpuPresets = Object.keys(gpuSettings)
@@ -2169,7 +2320,8 @@ createApp({
           check_interval: gpuSettings[gpu].check_interval ?? this.cfgReleaseCommandInterval,
           confirm_times: gpuSettings[gpu].confirm_times ?? this.cfgReleaseCommandConfirm,
         }));
-      this.releaseCommands = cfg.release_commands || [];
+	      this.releaseCommands = cfg.release_commands || [];
+	      this.tmuxStatus = cfg.tmux_status || this.tmuxStatus;
       const envScKeys = env.env_serverchan_keys || [];
       const envBarkConfigs = env.env_bark_configs || [];
       const scKeys = [...(cfg.serverchan_keys || [])];
@@ -2303,10 +2455,11 @@ createApp({
 	          release_command_check_interval: this.parsePositiveInt(this.cfgReleaseCommandInterval, '任务队列检测间隔'),
 	          release_command_confirm_times: this.parsePositiveInt(this.cfgReleaseCommandConfirm, '连续空闲确认次数'),
 	          release_command_gpus: this.parseGpuList(this.cfgReleaseCommandGpus, '任务队列 GPU 索引'),
-          release_command_gpu_settings: this.collectReleaseGpuSettings(),
-          release_command_enabled: this.cfgReleaseCommandEnabled,
-          release_command_notify_enabled: this.cfgReleaseCommandNotify,
-        };
+	          release_command_gpu_settings: this.collectReleaseGpuSettings(),
+	          release_command_enabled: this.cfgReleaseCommandEnabled,
+	          release_command_notify_enabled: this.cfgReleaseCommandNotify,
+	          release_command_tmux_enabled: this.cfgReleaseCommandTmuxEnabled,
+	        };
       } catch(err) {
         this.releaseSaveMsg = {text: err.message || '输入不合法', kind:'error'};
         return;
@@ -2430,6 +2583,12 @@ createApp({
 
 	    releaseCommandLauncherLabel(launcher) {
 	      return launcher === 'tmux' ? 'tmux' : '后台日志';
+	    },
+
+	    tmuxStatusStyle() {
+	      return this.tmuxStatus?.installed
+	        ? 'background:#dcfce7;color:#16a34a'
+	        : 'background:#fee2e2;color:#ef4444';
 	    },
 
 	    taskSummaryForGpu(gpu) {
@@ -2614,6 +2773,33 @@ createApp({
       const r = await this.api('/api/log/archives');
       if (!r.ok) return;
       this.archives = await r.json();
+    },
+
+    async clearEventLog() {
+      if (!confirm('确认清空当前事件日志？历史存档不会被删除。')) return;
+      const r = await this.api('/api/log/clear', {method:'POST'});
+      const payload = await r.json().catch(() => ({}));
+      if (r.ok) {
+        this.logEntries = [];
+        this.logDetailIdx = null;
+        this.logView = 'list';
+        this.showToast(`已清空 ${payload.removed_count ?? 0} 条事件日志`, true);
+        return;
+      }
+      this.showToast(payload.error || '清空日志失败', false);
+    },
+
+    async deleteArchive(filename) {
+      if (!filename) return;
+      if (!confirm(`确认删除历史存档 ${filename}？`)) return;
+      const r = await this.api('/api/log/archives/' + encodeURIComponent(filename), {method:'DELETE'});
+      const payload = await r.json().catch(() => ({}));
+      if (r.ok) {
+        this.archives = this.archives.filter(a => a.filename !== filename);
+        this.showToast('历史存档已删除', true);
+        return;
+      }
+      this.showToast(payload.error || '删除历史存档失败', false);
     },
 
     // ── Notify ────────────────────────────────────────
@@ -2907,6 +3093,13 @@ createApp({
       if (type === 'SSD') return 'background:#dbeafe;color:#2563eb';
       if (type === 'HDD') return 'background:#fef3c7;color:#d97706';
       return 'background:#f1f5f9;color:#64748b';
+    },
+
+    formatMib(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n <= 0) return '0 MiB';
+      if (n >= 1024) return (n / 1024).toFixed(1) + ' GB';
+      return Math.round(n) + ' MiB';
     },
 
     tagLabel(type) { return TAG_LABELS[type] || type; },

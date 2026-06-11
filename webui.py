@@ -4,6 +4,7 @@ import json
 import os
 import socket
 import signal
+import shutil
 import subprocess
 import threading
 from datetime import datetime, timedelta
@@ -40,6 +41,25 @@ _RELEASE_COMMAND_NUMERIC_SETTINGS = (
 )
 _WEBUI_NUMERIC_SETTINGS = ('log_max_size_mb', 'log_archive_keep')
 _ENV_CHANNEL_KEYS = ('SERVERCHAN_KEYS', 'BARK_CONFIGS', 'SENDKEY')
+
+
+def _tmux_status() -> dict:
+    path = shutil.which('tmux')
+    status = {'installed': bool(path), 'path': path or '', 'version': ''}
+    if not path:
+        return status
+    try:
+        result = subprocess.run(
+            [path, '-V'],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if result.returncode == 0:
+            status['version'] = result.stdout.strip()
+    except Exception:
+        pass
+    return status
 
 
 def _clear_env_channel_keys(script_dir: str) -> None:
@@ -126,13 +146,14 @@ def create_app(script_dir: str = None):
         try:
             ts = datetime.strptime(state['timestamp'], '%Y-%m-%d %H:%M:%S')
             age = (datetime.now() - ts).total_seconds()
-            state['monitor_running'] = age < cfg.get('check_interval', 60) * 3
+            state['monitor_running'] = age < cfg.get('check_interval', 120) * 3
         except Exception:
             state['monitor_running'] = False
         state['watch_pids'] = _merge_watch_pids(state.get('watch_pids', []), cfg)
         state.setdefault('gpus', [])
         state.setdefault('release_command_enabled', cfg.get('release_command_enabled', True))
         state.setdefault('release_command_notify_enabled', cfg.get('release_command_notify_enabled', True))
+        state.setdefault('release_command_tmux_enabled', cfg.get('release_command_tmux_enabled', False))
         state.setdefault('release_command_gpus', cfg.get('release_command_gpus', []))
         state.setdefault(
             'release_command_mem_threshold_mib',
@@ -140,7 +161,7 @@ def create_app(script_dir: str = None):
         )
         state.setdefault(
             'release_command_check_interval',
-            cfg.get('release_command_check_interval', cfg.get('check_interval', 60)),
+            cfg.get('release_command_check_interval', cfg.get('check_interval', 120)),
         )
         state.setdefault(
             'release_command_confirm_times',
@@ -151,6 +172,7 @@ def create_app(script_dir: str = None):
             normalize_release_command_gpu_settings(cfg.get('release_command_gpu_settings', {})),
         )
         state.setdefault('release_commands', normalize_release_commands(cfg.get('release_commands', [])))
+        state['tmux_status'] = _tmux_status()
         state.setdefault('hostname', socket.gethostname())
         return jsonify(state)
 
@@ -163,6 +185,7 @@ def create_app(script_dir: str = None):
         cfg.pop('secret_key', None)
         cfg['release_command_enabled'] = cfg.get('release_command_enabled', True)
         cfg['release_command_notify_enabled'] = cfg.get('release_command_notify_enabled', True)
+        cfg['release_command_tmux_enabled'] = cfg.get('release_command_tmux_enabled', False)
         cfg['release_command_gpus'] = cfg.get('release_command_gpus', [])
         cfg['release_command_mem_threshold_mib'] = cfg.get(
             'release_command_mem_threshold_mib',
@@ -170,7 +193,7 @@ def create_app(script_dir: str = None):
         )
         cfg['release_command_check_interval'] = cfg.get(
             'release_command_check_interval',
-            cfg.get('check_interval', 60),
+            cfg.get('check_interval', 120),
         )
         cfg['release_command_confirm_times'] = cfg.get(
             'release_command_confirm_times',
@@ -180,6 +203,7 @@ def create_app(script_dir: str = None):
             cfg.get('release_command_gpu_settings', {})
         )
         cfg['release_commands'] = normalize_release_commands(cfg.get('release_commands', []))
+        cfg['tmux_status'] = _tmux_status()
         cfg['env_channel_summary'] = summary
         return jsonify(cfg)
 
@@ -200,6 +224,21 @@ def create_app(script_dir: str = None):
                         pass
         return jsonify(list(reversed(entries[-200:])))
 
+    @app.route('/api/log/clear', methods=['POST'])
+    @require_auth
+    def api_log_clear():
+        log_path = _runtime_path(script_dir, 'log.json')
+        removed_count = 0
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, encoding='utf-8') as f:
+                    removed_count = sum(1 for line in f if line.strip())
+                with open(log_path, 'w', encoding='utf-8'):
+                    pass
+            except OSError as e:
+                return jsonify({'error': str(e)}), 500
+        return jsonify({'ok': True, 'removed_count': removed_count})
+
     @app.route('/api/log/archives')
     @require_auth
     def api_log_archives():
@@ -210,19 +249,38 @@ def create_app(script_dir: str = None):
             result.append({'filename': os.path.basename(f), 'size_bytes': st.st_size})
         return jsonify(result)
 
-    @app.route('/api/log/archives/<filename>')
-    @require_auth
-    def api_log_archive_download(filename):
+    def _log_archive_file(filename: str):
         if not (filename.startswith('log_') and filename.endswith('.json.gz')):
-            return jsonify({'error': 'invalid filename'}), 400
-        # Prevent path traversal: resolve and confirm it stays within runtime dir
+            return None
         real_base = os.path.realpath(_runtime_dir(script_dir))
         path = os.path.realpath(_runtime_path(script_dir, filename))
         if not path.startswith(real_base + os.sep):
+            return None
+        return path
+
+    @app.route('/api/log/archives/<filename>')
+    @require_auth
+    def api_log_archive_download(filename):
+        path = _log_archive_file(filename)
+        if not path:
             return jsonify({'error': 'invalid filename'}), 400
         if not os.path.exists(path):
             return jsonify({'error': 'not found'}), 404
         return send_file(path, as_attachment=True)
+
+    @app.route('/api/log/archives/<filename>', methods=['DELETE'])
+    @require_auth
+    def api_log_archive_delete(filename):
+        path = _log_archive_file(filename)
+        if not path:
+            return jsonify({'error': 'invalid filename'}), 400
+        if not os.path.exists(path):
+            return jsonify({'error': 'not found'}), 404
+        try:
+            os.remove(path)
+        except OSError as e:
+            return jsonify({'error': str(e)}), 500
+        return jsonify({'ok': True, 'filename': filename})
 
     @app.route('/api/pids/add', methods=['POST'])
     @require_auth
@@ -409,6 +467,7 @@ def create_app(script_dir: str = None):
             'tmux_session': '',
             'tmux_pane': '',
             'exit_code': None,
+            'exit_code_file': '',
             'trigger_gpu': None,
             'trigger_mem_mib': None,
         })
@@ -428,7 +487,11 @@ def create_app(script_dir: str = None):
         import psutil
         import re as _re
         cpu_pct = psutil.cpu_percent(interval=0.2)
+        cpu_count_logical = psutil.cpu_count(logical=True) or 0
         vm = psutil.virtual_memory()
+
+        def _mib(value: int) -> int:
+            return int(value // (1024 * 1024))
 
         _VIRTUAL_FS = {
             'tmpfs', 'devtmpfs', 'devfs', 'overlay', 'squashfs', 'proc',
@@ -478,12 +541,153 @@ def create_app(script_dir: str = None):
         agg_pct = round(total_used / total_size * 100, 1) if total_size > 0 else 0
         return jsonify({
             'cpu_pct': round(cpu_pct, 1),
-            'ram_used_mib': vm.used // (1024 * 1024),
-            'ram_total_mib': vm.total // (1024 * 1024),
+            'cpu_count_logical': cpu_count_logical,
+            'ram_used_mib': _mib(vm.used),
+            'ram_total_mib': _mib(vm.total),
+            'ram_pct': round(vm.percent, 1),
             'disk_used_gb': round(total_used / (1024 ** 3), 1),
             'disk_total_gb': round(total_size / (1024 ** 3), 1),
             'disk_pct': agg_pct,
             'disks': disks,
+        })
+
+    @app.route('/api/sysinfo/cpu')
+    @require_auth
+    def api_sysinfo_cpu():
+        import psutil
+        import time as _time
+
+        def _mib(value: int) -> int:
+            return int(value // (1024 * 1024))
+
+        def _freq_value(value):
+            return round(float(value), 1) if value is not None else None
+
+        def _proc_row(proc, now_ts: float, cpu_count: int):
+            try:
+                info = proc.as_dict(attrs=[
+                    'pid', 'name', 'username', 'cmdline', 'create_time',
+                    'memory_info', 'memory_percent', 'cpu_times',
+                ])
+                mem = info.get('memory_info')
+                times = info.get('cpu_times')
+                elapsed = max(now_ts - float(info.get('create_time') or now_ts), 0.001)
+                cpu_seconds = (getattr(times, 'user', 0.0) + getattr(times, 'system', 0.0)) if times else 0.0
+                cpu_percent = cpu_seconds / elapsed * 100 / max(cpu_count, 1)
+                cmdline = info.get('cmdline') or []
+                cmd = ' '.join(cmdline) if cmdline else (info.get('name') or '')
+                return {
+                    'pid': info.get('pid'),
+                    'name': info.get('name') or '',
+                    'user': info.get('username') or '',
+                    'cmd': cmd,
+                    'cpu_pct': round(max(0.0, cpu_percent), 1),
+                    'rss_mib': _mib(mem.rss) if mem else 0,
+                    'mem_pct': round(float(info.get('memory_percent') or 0), 1),
+                }
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, OSError, ValueError):
+                return None
+
+        cpu_pct = psutil.cpu_percent(interval=0.2)
+        cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
+        cpu_times = psutil.cpu_times_percent(interval=None)
+        cpu_count_logical = psutil.cpu_count(logical=True) or 0
+        cpu_count_physical = psutil.cpu_count(logical=False) or 0
+        try:
+            freq = psutil.cpu_freq()
+        except Exception:
+            freq = None
+        try:
+            load_avg = [round(v, 2) for v in os.getloadavg()]
+        except (AttributeError, OSError):
+            load_avg = []
+
+        now_ts = _time.time()
+        proc_rows = []
+        for proc in psutil.process_iter():
+            row = _proc_row(proc, now_ts, cpu_count_logical or 1)
+            if row:
+                proc_rows.append(row)
+        top_cpu = sorted(proc_rows, key=lambda p: p['cpu_pct'], reverse=True)[:8]
+
+        return jsonify({
+            'cpu_pct': round(cpu_pct, 1),
+            'cpu_count_logical': cpu_count_logical,
+            'cpu_count_physical': cpu_count_physical,
+            'cpu_per_core': [round(v, 1) for v in cpu_per_core],
+            'cpu_times_percent': {
+                'user': round(getattr(cpu_times, 'user', 0.0), 1),
+                'system': round(getattr(cpu_times, 'system', 0.0), 1),
+                'idle': round(getattr(cpu_times, 'idle', 0.0), 1),
+                'iowait': round(getattr(cpu_times, 'iowait', 0.0), 1),
+            },
+            'cpu_freq_mhz': {
+                'current': _freq_value(freq.current) if freq else None,
+                'min': _freq_value(freq.min) if freq else None,
+                'max': _freq_value(freq.max) if freq else None,
+            },
+            'load_avg': load_avg,
+            'top_cpu_processes': top_cpu,
+        })
+
+    @app.route('/api/sysinfo/memory')
+    @require_auth
+    def api_sysinfo_memory():
+        import psutil
+        import time as _time
+
+        def _mib(value: int) -> int:
+            return int(value // (1024 * 1024))
+
+        def _proc_row(proc, now_ts: float, cpu_count: int):
+            try:
+                info = proc.as_dict(attrs=[
+                    'pid', 'name', 'username', 'cmdline', 'create_time',
+                    'memory_info', 'memory_percent', 'cpu_times',
+                ])
+                mem = info.get('memory_info')
+                times = info.get('cpu_times')
+                elapsed = max(now_ts - float(info.get('create_time') or now_ts), 0.001)
+                cpu_seconds = (getattr(times, 'user', 0.0) + getattr(times, 'system', 0.0)) if times else 0.0
+                cpu_percent = cpu_seconds / elapsed * 100 / max(cpu_count, 1)
+                cmdline = info.get('cmdline') or []
+                cmd = ' '.join(cmdline) if cmdline else (info.get('name') or '')
+                return {
+                    'pid': info.get('pid'),
+                    'name': info.get('name') or '',
+                    'user': info.get('username') or '',
+                    'cmd': cmd,
+                    'cpu_pct': round(max(0.0, cpu_percent), 1),
+                    'rss_mib': _mib(mem.rss) if mem else 0,
+                    'mem_pct': round(float(info.get('memory_percent') or 0), 1),
+                }
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, OSError, ValueError):
+                return None
+
+        vm = psutil.virtual_memory()
+        swap = psutil.swap_memory()
+        cpu_count_logical = psutil.cpu_count(logical=True) or 1
+        now_ts = _time.time()
+        proc_rows = []
+        for proc in psutil.process_iter():
+            row = _proc_row(proc, now_ts, cpu_count_logical)
+            if row:
+                proc_rows.append(row)
+        top_memory = sorted(proc_rows, key=lambda p: p['rss_mib'], reverse=True)[:8]
+
+        return jsonify({
+            'ram_used_mib': _mib(vm.used),
+            'ram_total_mib': _mib(vm.total),
+            'ram_available_mib': _mib(vm.available),
+            'ram_free_mib': _mib(vm.free),
+            'ram_cached_mib': _mib(getattr(vm, 'cached', 0)),
+            'ram_buffers_mib': _mib(getattr(vm, 'buffers', 0)),
+            'ram_shared_mib': _mib(getattr(vm, 'shared', 0)),
+            'ram_pct': round(vm.percent, 1),
+            'swap_used_mib': _mib(swap.used),
+            'swap_total_mib': _mib(swap.total),
+            'swap_pct': round(swap.percent, 1),
+            'top_memory_processes': top_memory,
         })
 
     @app.route('/api/gpu/<int:gpu_index>/processes')
@@ -698,6 +902,13 @@ def create_app(script_dir: str = None):
             if cfg.get('release_command_notify_enabled', True) != val:
                 runtime_reload_needed = True
             cfg['release_command_notify_enabled'] = val
+        if 'release_command_tmux_enabled' in data:
+            val = data['release_command_tmux_enabled']
+            if not isinstance(val, bool):
+                return jsonify({'error': 'invalid value for release_command_tmux_enabled'}), 400
+            if cfg.get('release_command_tmux_enabled', False) != val:
+                runtime_reload_needed = True
+            cfg['release_command_tmux_enabled'] = val
         if 'release_command_gpus' in data:
             gpus = data['release_command_gpus']
             if not isinstance(gpus, list) or not all(isinstance(g, int) and not isinstance(g, bool) and g >= 0 for g in gpus):
@@ -790,6 +1001,7 @@ def create_app(script_dir: str = None):
                 'main_pid_monitor_enabled',
                 'release_command_enabled',
                 'release_command_notify_enabled',
+                'release_command_tmux_enabled',
             )
             for key in numeric_keys:
                 if key not in settings:
@@ -886,6 +1098,7 @@ def create_app(script_dir: str = None):
                     'tmux_session': '',
                     'tmux_pane': '',
                     'exit_code': None,
+                    'exit_code_file': '',
                     'trigger_gpu': None,
                     'trigger_mem_mib': None,
                 })
@@ -1084,6 +1297,7 @@ def _empty_state(cfg: dict) -> dict:
         'watch_pids': _merge_watch_pids([], cfg),
         'release_command_enabled': cfg.get('release_command_enabled', True),
         'release_command_notify_enabled': cfg.get('release_command_notify_enabled', True),
+        'release_command_tmux_enabled': cfg.get('release_command_tmux_enabled', False),
         'release_command_gpus': cfg.get('release_command_gpus', []),
         'release_command_mem_threshold_mib': cfg.get(
             'release_command_mem_threshold_mib',
@@ -1091,7 +1305,7 @@ def _empty_state(cfg: dict) -> dict:
         ),
         'release_command_check_interval': cfg.get(
             'release_command_check_interval',
-            cfg.get('check_interval', 60),
+            cfg.get('check_interval', 120),
         ),
         'release_command_confirm_times': cfg.get(
             'release_command_confirm_times',
@@ -1101,6 +1315,7 @@ def _empty_state(cfg: dict) -> dict:
             cfg.get('release_command_gpu_settings', {})
         ),
         'release_commands': normalize_release_commands(cfg.get('release_commands', [])),
+        'tmux_status': _tmux_status(),
         'hostname': socket.gethostname(),
     }
 
@@ -1135,13 +1350,14 @@ def _build_test_notify_content(cfg: dict, summary: dict) -> str:
         f'- 显存阈值监控: {"开启" if cfg.get("gpu_mem_monitor_enabled", True) else "关闭"}\n'
         f'- 主 PID 监控: {"开启" if cfg.get("main_pid_monitor_enabled", True) else "关闭"}\n'
         f'- 显存告警阈值: {cfg.get("mem_threshold_mib", 10240)} MiB\n'
-        f'- 检测间隔: {cfg.get("check_interval", 60)} 秒\n'
+        f'- 检测间隔: {cfg.get("check_interval", 120)} 秒\n'
         f'- 确认次数: {cfg.get("confirm_times", 2)}\n'
         f'- 监控 GPU: {gpu_text}\n'
         f'- 任务队列: {"开启" if cfg.get("release_command_enabled", True) else "关闭"}\n'
         f'- 任务队列通知: {"开启" if cfg.get("release_command_notify_enabled", True) else "关闭"}\n'
+        f'- 任务队列 tmux: {"启用" if cfg.get("release_command_tmux_enabled", False) else "未启用"}\n'
         f'- 空闲判定阈值: {cfg.get("release_command_mem_threshold_mib", cfg.get("mem_threshold_mib", 10240))} MiB\n'
-        f'- 任务队列检测间隔: {cfg.get("release_command_check_interval", cfg.get("check_interval", 60))} 秒\n'
+        f'- 任务队列检测间隔: {cfg.get("release_command_check_interval", cfg.get("check_interval", 120))} 秒\n'
         f'- 连续空闲确认次数: {cfg.get("release_command_confirm_times", cfg.get("confirm_times", 2))}\n'
         f'- 日志压缩触发大小: {cfg.get("log_max_size_mb", 10)} MB\n'
         f'- 历史存档保留数量: {cfg.get("log_archive_keep", 5)}\n\n'

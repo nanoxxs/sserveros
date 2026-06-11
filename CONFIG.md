@@ -11,7 +11,7 @@
 | `password_hash` | string | 随机生成 | 是（设置页改密） | 是（哈希值） | WebUI 登录密码哈希（werkzeug pbkdf2） |
 | `sendkey` | string | `""` | 是 | 是 | Server Chan 推送密钥，也可通过 `SENDKEY` 环境变量设置 |
 | `notification_channels_source` | string | `""` | 是（隐式） | 否 | WebUI 保存通知渠道后写为 `"config"`，表示后续以 `config.json` 渠道为准 |
-| `check_interval` | int | `60` | 是 | 否 | 主循环检测间隔（秒） |
+| `check_interval` | int | `120` | 是 | 否 | 主循环检测间隔（秒） |
 | `mem_threshold_mib` | int | `10240` | 是 | 否 | GPU 显存低于此值触发告警（MiB） |
 | `confirm_times` | int | `2` | 是 | 否 | 连续 N 次检测到才触发通知 |
 | `log_max_size_mb` | int | `10` | 是 | 否 | `runtime/log.json` 超过此大小时自动压缩（MB） |
@@ -23,9 +23,10 @@
 | `release_command_notify_enabled` | bool | `true` | 是 | 否 | 是否推送任务队列检测、启动和结束通知 |
 | `release_command_gpus` | int[] | `[]` | 是 | 否 | 任务队列监控的 GPU 索引列表，空数组表示自动检测全部 |
 | `release_command_mem_threshold_mib` | int | `10240` | 是 | 否 | 任务队列默认空闲判定阈值（MiB） |
-| `release_command_check_interval` | int | `60` | 是 | 否 | 任务队列默认检测间隔（秒） |
+| `release_command_check_interval` | int | `120` | 是 | 否 | 任务队列默认检测间隔（秒） |
 | `release_command_confirm_times` | int | `2` | 是 | 否 | 任务队列默认连续空闲确认次数 |
 | `release_command_gpu_settings` | object | `{}` | 是 | 否 | 每 GPU 任务队列预设，键为 GPU index，值可覆盖阈值、间隔和确认次数 |
+| `release_command_tmux_enabled` | bool | `false` | 是 | 否 | 是否优先使用 tmux 会话启动任务；未安装 tmux 时自动回退后台日志模式 |
 | `release_commands` | object[] | `[]` | 是 | 否 | GPU 空闲后执行任务队列；每项可用 `target_gpus` 指定触发 GPU，空数组表示任意 GPU |
 | `watch_pids` | object[] | `[]` | 是（PIDs 页） | 否 | 持久化的监控 PID 列表，格式：`[{"pid": 1234, "note": "备注"}]` |
 | `webui_host` | string | `"0.0.0.0"` | 否 | 否 | WebUI 绑定地址，修改需重启 |

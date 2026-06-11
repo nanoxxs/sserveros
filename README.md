@@ -161,6 +161,8 @@ python monitor.py add <pid>
 
 WebUI → 概览 → GPU 详情 → 任务队列 支持按 GPU 设置队列任务。每条任务可以指定 `target_gpus`，例如只由 GPU 0 触发；留空则表示任意任务队列 GPU 都可触发。空闲判定阈值、检测间隔和确认次数可以使用全局默认值，也可以通过 GPU 预设为不同 GPU 单独覆盖。
 
+在 GPU 详情 → 任务配置中会显示 tmux 已/未安装状态。启用 tmux 后，新任务会优先在独立 tmux 会话中启动，并继续写入任务日志；如果 tmux 未安装或启动失败，会自动回退到后台日志模式。
+
 ## Agent
 
 Agent 默认关闭。开启后，它可以调用只读工具查询当前 GPU 快照、监控 PID、进程、systemd 服务、端口、磁盘和系统信息；涉及写操作的 `add_watch_pid` / `remove_watch_pid` 会先进入待确认状态，需要在 WebUI 中确认后才会真正写入配置并通知 `monitor.py`。

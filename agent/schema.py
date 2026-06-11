@@ -92,6 +92,7 @@ TOOL_SCHEMAS = [
                     'main_pid_monitor_enabled': {'type': 'boolean', 'description': '是否启用主 PID 发现/消失监控'},
                     'release_command_enabled': {'type': 'boolean', 'description': '是否启用 GPU 空闲后自动执行任务队列'},
                     'release_command_notify_enabled': {'type': 'boolean', 'description': '是否启用任务队列检测、启动、结束通知'},
+                    'release_command_tmux_enabled': {'type': 'boolean', 'description': '是否优先使用 tmux 会话启动任务队列任务'},
                     'release_command_mem_threshold_mib': {'type': 'integer', 'description': '任务队列独立空闲判定阈值 MiB，例如 512'},
                     'release_command_check_interval': {'type': 'integer', 'description': '任务队列独立检测间隔秒数，例如 120'},
                     'release_command_confirm_times': {'type': 'integer', 'description': '任务队列独立连续空闲确认次数，例如 3'},

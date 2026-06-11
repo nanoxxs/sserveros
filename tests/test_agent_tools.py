@@ -144,6 +144,7 @@ class TestMonitorSettingsAndReleaseCommands:
             'main_pid_monitor_enabled': False,
             'release_command_enabled': True,
             'release_command_notify_enabled': False,
+            'release_command_tmux_enabled': True,
             'release_command_gpus': [0],
             'release_command_mem_threshold_mib': 512,
             'release_command_check_interval': 120,
@@ -161,6 +162,7 @@ class TestMonitorSettingsAndReleaseCommands:
         assert r['settings']['check_interval'] == 120
         assert r['settings']['confirm_times'] == 3
         assert r['settings']['release_command_notify_enabled'] is False
+        assert r['settings']['release_command_tmux_enabled'] is True
         assert r['settings']['release_command_gpus'] == [0]
         assert r['settings']['release_command_mem_threshold_mib'] == 512
         assert r['settings']['release_command_check_interval'] == 120
@@ -225,6 +227,7 @@ class TestWriteTools:
         r = set_monitor_settings(mem_threshold_mib=512, check_interval=120, confirm_times=3,
                                  release_command_enabled=True,
                                  release_command_notify_enabled=False,
+                                 release_command_tmux_enabled=True,
                                  release_command_mem_threshold_mib=512,
                                  release_command_check_interval=120,
                                  release_command_confirm_times=3,
@@ -240,6 +243,7 @@ class TestWriteTools:
         assert r['settings']['confirm_times'] == 3
         assert r['settings']['gpus'] == [0]
         assert r['settings']['release_command_notify_enabled'] is False
+        assert r['settings']['release_command_tmux_enabled'] is True
         assert r['settings']['release_command_mem_threshold_mib'] == 512
         assert r['settings']['release_command_check_interval'] == 120
         assert r['settings']['release_command_confirm_times'] == 3
@@ -251,6 +255,7 @@ class TestWriteTools:
     def test_set_monitor_settings_rejects_invalid_values(self):
         assert set_monitor_settings(check_interval=0)['ok'] is False
         assert set_monitor_settings(release_command_enabled='yes')['ok'] is False
+        assert set_monitor_settings(release_command_tmux_enabled='yes')['ok'] is False
         assert set_monitor_settings(gpus=[-1])['ok'] is False
         assert set_monitor_settings(release_command_gpus=[-1])['ok'] is False
         assert set_monitor_settings(release_command_gpu_settings={'0': {'check_interval': 0}})['ok'] is False

@@ -91,7 +91,7 @@ def release_command_default_settings(cfg: dict) -> dict:
         ),
         'check_interval': _positive_int(
             cfg.get('release_command_check_interval'),
-            _positive_int(cfg.get('check_interval'), 60),
+            _positive_int(cfg.get('check_interval'), 120),
         ),
         'confirm_times': _positive_int(
             cfg.get('release_command_confirm_times'),
@@ -136,6 +136,7 @@ def make_release_command(command: str, note: str = '', target_gpus=None) -> dict
         'tmux_session': '',
         'tmux_pane': '',
         'exit_code': None,
+        'exit_code_file': '',
         'trigger_gpu': None,
         'trigger_mem_mib': None,
         'log_file': '',
@@ -179,6 +180,7 @@ def normalize_release_command(entry: dict, index: int = 0) -> dict | None:
         'tmux_session': str(entry.get('tmux_session', '') or ''),
         'tmux_pane': str(entry.get('tmux_pane', '') or ''),
         'exit_code': int_or_none(entry.get('exit_code')),
+        'exit_code_file': str(entry.get('exit_code_file', '') or ''),
         'trigger_gpu': int_or_none(entry.get('trigger_gpu')),
         'trigger_mem_mib': int_or_none(entry.get('trigger_mem_mib')),
         'log_file': str(entry.get('log_file', '') or ''),

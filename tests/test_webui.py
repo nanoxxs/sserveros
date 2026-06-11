@@ -21,7 +21,7 @@ def tmp_config(tmp_path):
     cfg = {
         'password_hash': generate_password_hash('default'),
         'sendkey': 'SCTtest',
-        'check_interval': 60,
+        'check_interval': 120,
         'mem_threshold_mib': 10240,
         'confirm_times': 2,
         'log_max_size_mb': 10,
@@ -149,12 +149,29 @@ def test_index_contains_agent_empty_welcome(client):
     assert '你可以向我提问' in text
 
 
-def test_index_contains_settings_side_nav_and_release_settings(client):
+def test_index_contains_cpu_and_memory_detail_views(client):
+    r = client.get('/')
+    text = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert "showCpuDetail()" in text
+    assert "showMemoryDetail()" in text
+    assert "gpuView === 'cpu'" in text
+    assert "gpuView === 'memory'" in text
+    assert 'CPU 占用进程排行' in text
+    assert '内存占用进程排行' in text
+
+
+def test_index_contains_gpu_detail_task_queue_and_tmux_controls(client):
     r = client.get('/')
     text = r.get_data(as_text=True)
     assert r.status_code == 200
     assert 'settings-nav' in text
     assert 'settingsSections' in text
+    assert "{id:'release', label:'任务队列'}" not in text
+    assert "gpuDetailTab === 'tasks'" in text
+    assert "gpuDetailTab === 'taskSettings'" in text
+    assert 'tmuxStatus.installed' in text
+    assert 'cfgReleaseCommandTmuxEnabled' in text
     assert 'cfgReleaseCommandGpus' in text
     assert 'cfgReleaseCommandThreshold' in text
     assert 'cfgReleaseCommandInterval' in text
@@ -171,6 +188,22 @@ def test_state_no_file(auth_client):
     data = auth_client.get('/api/state').get_json()
     assert data['monitor_running'] is False
     assert data['gpus'] == []
+
+
+def test_state_reports_tmux_status(auth_client, monkeypatch):
+    monkeypatch.setattr('webui.shutil.which', lambda cmd: '/usr/bin/tmux' if cmd == 'tmux' else None)
+    monkeypatch.setattr(
+        'webui.subprocess.run',
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 0, stdout='tmux 3.4\n', stderr=''
+        ),
+    )
+
+    data = auth_client.get('/api/state').get_json()
+
+    assert data['tmux_status']['installed'] is True
+    assert data['tmux_status']['path'] == '/usr/bin/tmux'
+    assert data['tmux_status']['version'] == 'tmux 3.4'
 
 
 def test_state_no_file_includes_configured_watch_pids(auth_client, tmp_config):
@@ -265,6 +298,62 @@ def test_config_reports_env_channel_summary(auth_client, monkeypatch):
     ]
 
 
+def test_config_reports_tmux_status(auth_client, monkeypatch):
+    monkeypatch.setattr('webui.shutil.which', lambda cmd: '/usr/bin/tmux' if cmd == 'tmux' else None)
+    monkeypatch.setattr(
+        'webui.subprocess.run',
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 0, stdout='tmux 3.4\n', stderr=''
+        ),
+    )
+
+    data = auth_client.get('/api/config').get_json()
+
+    assert data['tmux_status']['installed'] is True
+    assert data['tmux_status']['path'] == '/usr/bin/tmux'
+    assert data['tmux_status']['version'] == 'tmux 3.4'
+
+
+def test_sysinfo_reports_lightweight_overview(auth_client):
+    r = auth_client.get('/api/sysinfo')
+    data = r.get_json()
+
+    assert r.status_code == 200
+    assert 'cpu_pct' in data
+    assert 'cpu_count_logical' in data
+    assert 'ram_used_mib' in data
+    assert 'ram_total_mib' in data
+    assert 'disks' in data
+    assert 'top_cpu_processes' not in data
+    assert 'top_memory_processes' not in data
+    assert 'cpu_per_core' not in data
+    assert 'ram_cached_mib' not in data
+
+
+def test_sysinfo_cpu_reports_detail_only(auth_client):
+    r = auth_client.get('/api/sysinfo/cpu')
+    data = r.get_json()
+
+    assert r.status_code == 200
+    assert 'cpu_count_physical' in data
+    assert isinstance(data['cpu_per_core'], list)
+    assert isinstance(data['cpu_times_percent'], dict)
+    assert isinstance(data['cpu_freq_mhz'], dict)
+    assert isinstance(data['load_avg'], list)
+    assert isinstance(data['top_cpu_processes'], list)
+
+
+def test_sysinfo_memory_reports_detail_only(auth_client):
+    r = auth_client.get('/api/sysinfo/memory')
+    data = r.get_json()
+
+    assert r.status_code == 200
+    assert 'ram_available_mib' in data
+    assert 'ram_cached_mib' in data
+    assert 'swap_total_mib' in data
+    assert isinstance(data['top_memory_processes'], list)
+
+
 def test_config_source_ignores_stale_env_channels(monkeypatch):
     import notifier
 
@@ -302,6 +391,20 @@ def test_log_returns_reversed_entries(auth_client, tmp_config):
     assert data[0]['title'] == 'B'
 
 
+def test_log_clear_truncates_current_log(auth_client, tmp_config):
+    log_path = tmp_config / 'runtime' / 'log.json'
+    log_path.write_text('{"time":"now","title":"A"}\n{"time":"now","title":"B"}\n')
+
+    r = auth_client.post('/api/log/clear')
+    data = r.get_json()
+
+    assert r.status_code == 200
+    assert data['ok'] is True
+    assert data['removed_count'] == 2
+    assert log_path.read_text() == ''
+    assert auth_client.get('/api/log').get_json() == []
+
+
 # ── Archives ────────────────────────────────────────────
 
 def test_archives_empty(auth_client):
@@ -315,6 +418,24 @@ def test_archives_lists_gz_files(auth_client, tmp_config):
     data = auth_client.get('/api/log/archives').get_json()
     assert len(data) == 1
     assert data[0]['filename'] == 'log_20260411_235959.json.gz'
+
+
+def test_archive_delete_removes_gz_file(auth_client, tmp_config):
+    gz = tmp_config / 'runtime' / 'log_20260411_235959.json.gz'
+    with gzip.open(str(gz), 'wt') as f:
+        f.write('{"time":"old"}\n')
+
+    r = auth_client.delete('/api/log/archives/log_20260411_235959.json.gz')
+
+    assert r.status_code == 200
+    assert r.get_json()['ok'] is True
+    assert not gz.exists()
+    assert auth_client.get('/api/log/archives').get_json() == []
+
+
+def test_archive_delete_rejects_invalid_filename(auth_client):
+    r = auth_client.delete('/api/log/archives/not-a-log.json.gz')
+    assert r.status_code == 400
 
 
 # ── PID add/remove ──────────────────────────────────────
@@ -535,6 +656,7 @@ def test_save_settings_updates_config(auth_client, tmp_config, monkeypatch):
         'gpu_mem_monitor_enabled': False, 'main_pid_monitor_enabled': False,
         'release_command_enabled': False,
         'release_command_notify_enabled': False,
+        'release_command_tmux_enabled': True,
         'release_command_gpus': [0],
         'release_command_mem_threshold_mib': 512,
         'release_command_check_interval': 120,
@@ -550,6 +672,7 @@ def test_save_settings_updates_config(auth_client, tmp_config, monkeypatch):
     assert cfg['main_pid_monitor_enabled'] is False
     assert cfg['release_command_enabled'] is False
     assert cfg['release_command_notify_enabled'] is False
+    assert cfg['release_command_tmux_enabled'] is True
     assert cfg['release_command_gpus'] == [0]
     assert cfg['release_command_mem_threshold_mib'] == 512
     assert cfg['release_command_check_interval'] == 120
@@ -823,7 +946,7 @@ def test_notify_test_sends_request(auth_client, monkeypatch):
     assert captured['title'] == 'sserveros 测试通知'
     assert '## 当前监控参数' in captured['content']
     assert '- 显存告警阈值: 10240 MiB' in captured['content']
-    assert '- 检测间隔: 60 秒' in captured['content']
+    assert '- 检测间隔: 120 秒' in captured['content']
     assert '- 确认次数: 2' in captured['content']
 
 

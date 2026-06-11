@@ -620,7 +620,7 @@ def test_sserveros_bootstraps_config_when_missing(tmp_path):
         assert state['gpus'][0]['top_cmd'] == 'python train_zero.py'
         cfg = _read_json(project_dir / 'config.json')
         assert cfg['sendkey'] == ''
-        assert cfg['check_interval'] == 60
+        assert cfg['check_interval'] == 120
         assert 'password_hash' in cfg
         assert 'secret_key' in cfg
         assert oct((project_dir / 'config.json').stat().st_mode & 0o777) == '0o600'

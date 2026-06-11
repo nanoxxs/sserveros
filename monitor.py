@@ -5,6 +5,8 @@ import atexit
 import json
 import os
 import re
+import shlex
+import shutil
 import signal
 import socket
 import subprocess
@@ -77,16 +79,17 @@ class Monitor:
         self.config_file = _config_path(self.script_dir)
 
         # 运行参数（从 config.json 加载）
-        self.check_interval = 60
+        self.check_interval = 120
         self.confirm_times = 2
         self.mem_threshold_mib = 10240
         self.gpu_mem_monitor_enabled = True
         self.main_pid_monitor_enabled = True
         self.release_command_enabled = True
         self.release_command_notify_enabled = True
+        self.release_command_tmux_enabled = False
         self.release_command_gpus: list[int] = []
         self.release_command_mem_threshold_mib = 10240
-        self.release_command_check_interval = 60
+        self.release_command_check_interval = 120
         self.release_command_confirm_times = 2
         self.release_command_gpu_settings: dict[str, dict] = {}
         self.release_commands: list[dict] = []
@@ -211,6 +214,7 @@ class Monitor:
         self.main_pid_monitor_enabled = cfg.get('main_pid_monitor_enabled', True)
         self.release_command_enabled = cfg.get('release_command_enabled', True)
         self.release_command_notify_enabled = cfg.get('release_command_notify_enabled', True)
+        self.release_command_tmux_enabled = cfg.get('release_command_tmux_enabled', False)
         raw_release_gpus = cfg.get('release_command_gpus', [])
         self.release_command_gpus = [int(g) for g in raw_release_gpus] if raw_release_gpus else []
         self.release_command_mem_threshold_mib = cfg.get(
@@ -298,6 +302,7 @@ class Monitor:
             prev_main_pid_enabled = self.main_pid_monitor_enabled
             prev_release_command_enabled = self.release_command_enabled
             prev_release_notify_enabled = self.release_command_notify_enabled
+            prev_release_tmux_enabled = self.release_command_tmux_enabled
             prev_release_gpus = list(self.release_command_gpus)
             prev_release_mem_threshold = self.release_command_mem_threshold_mib
             prev_release_check_interval = self.release_command_check_interval
@@ -311,6 +316,7 @@ class Monitor:
             self.main_pid_monitor_enabled = cfg.get('main_pid_monitor_enabled', True)
             self.release_command_enabled = cfg.get('release_command_enabled', True)
             self.release_command_notify_enabled = cfg.get('release_command_notify_enabled', True)
+            self.release_command_tmux_enabled = cfg.get('release_command_tmux_enabled', False)
             raw_release_gpus = cfg.get('release_command_gpus', [])
             self.release_command_gpus = [int(g) for g in raw_release_gpus] if raw_release_gpus else []
             self.release_command_mem_threshold_mib = cfg.get(
@@ -351,6 +357,7 @@ class Monitor:
             if (
                 prev_release_command_enabled != self.release_command_enabled
                 or prev_release_notify_enabled != self.release_command_notify_enabled
+                or prev_release_tmux_enabled != self.release_command_tmux_enabled
                 or prev_release_gpus != self.release_command_gpus
                 or prev_release_mem_threshold != self.release_command_mem_threshold_mib
                 or prev_release_confirm_times != self.release_command_confirm_times
@@ -368,6 +375,7 @@ class Monitor:
                 f'间隔={self.check_interval} 确认={self.confirm_times} '
                 f'显存监控={self.gpu_mem_monitor_enabled} 主PID监控={self.main_pid_monitor_enabled} '
                 f'任务队列={self.release_command_enabled} 任务GPU={release_gpu_text} '
+                f'tmux={self.release_command_tmux_enabled} '
                 f'空闲阈值={self.release_command_mem_threshold_mib} '
                 f'任务间隔={self.release_command_check_interval} '
                 f'空闲确认={self.release_command_confirm_times} '
@@ -528,6 +536,141 @@ class Monitor:
         except OSError:
             return ''
 
+    def _release_command_aux_path(self, command_id: str, suffix: str) -> str:
+        return self._release_command_log_path(command_id) + suffix
+
+    def _read_int_file(self, path: str):
+        try:
+            with open(path, encoding='utf-8') as f:
+                value = f.read().strip()
+            return int(value) if value else None
+        except (OSError, ValueError):
+            return None
+
+    def _start_detached_release_command(self, command_text: str, log_path: str,
+                                        started_at: str, gpu: int, used_mib: int) -> dict:
+        with open(log_path, 'a', encoding='utf-8', buffering=1) as log:
+            log.write(f'\n===== sserveros task start {started_at} =====\n')
+            log.write(f'launcher=detached host={HOSTNAME_TAG} gpu={gpu} used_mib={used_mib}\n')
+            log.write(command_text + '\n\n')
+            proc = subprocess.Popen(
+                command_text,
+                shell=True,
+                executable='/bin/bash',
+                cwd=self.script_dir,
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            try:
+                pgid = os.getpgid(proc.pid)
+            except OSError:
+                pgid = None
+        return {
+            'wait_proc': proc,
+            'pid': proc.pid,
+            'pgid': pgid,
+            'launcher': 'detached',
+            'tmux_session': '',
+            'tmux_pane': '',
+            'exit_code_file': '',
+        }
+
+    def _start_tmux_release_command(self, command_id: str, command_text: str, log_path: str,
+                                    started_at: str, gpu: int, used_mib: int) -> dict:
+        tmux = shutil.which('tmux')
+        if not tmux:
+            raise FileNotFoundError('tmux not found')
+
+        safe_id = re.sub(r'[^a-zA-Z0-9_.-]+', '_', command_id).strip('._-') or 'command'
+        session = f'sserveros_{safe_id}'
+        channel = f'sserveros_done_{safe_id}_{int(time.time())}'
+        pid_file = self._release_command_aux_path(command_id, '.pid')
+        pgid_file = self._release_command_aux_path(command_id, '.pgid')
+        exit_code_file = self._release_command_aux_path(command_id, '.exit')
+        for path in (pid_file, pgid_file, exit_code_file):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+        wrapper = f"""
+set -u
+LOG={shlex.quote(log_path)}
+PID_FILE={shlex.quote(pid_file)}
+PGID_FILE={shlex.quote(pgid_file)}
+EXIT_FILE={shlex.quote(exit_code_file)}
+CHANNEL={shlex.quote(channel)}
+COMMAND={shlex.quote(command_text)}
+TMUX={shlex.quote(tmux)}
+cd {shlex.quote(self.script_dir)}
+exec > >(tee -a "$LOG") 2>&1
+echo
+echo "===== sserveros task start {started_at} ====="
+echo "launcher=tmux host={HOSTNAME_TAG} gpu={gpu} used_mib={used_mib}"
+echo "$COMMAND"
+echo
+/bin/bash -lc "$COMMAND" &
+child=$!
+echo "$child" > "$PID_FILE"
+pgid="$(ps -o pgid= -p "$child" 2>/dev/null | tr -d '[:space:]' || true)"
+if [ -n "$pgid" ]; then echo "$pgid" > "$PGID_FILE"; fi
+wait "$child"
+code=$?
+echo "$code" > "$EXIT_FILE"
+"$TMUX" wait-for -S "$CHANNEL" >/dev/null 2>&1 || true
+exit "$code"
+""".strip()
+
+        subprocess.run(
+            [tmux, 'new-session', '-d', '-s', session, '-c', self.script_dir,
+             f'/bin/bash -lc {shlex.quote(wrapper)}'],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+        pane_result = subprocess.run(
+            [tmux, 'display-message', '-p', '-t', session, '#{pane_id}'],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        pane = pane_result.stdout.strip() if pane_result.returncode == 0 else ''
+        wait_proc = subprocess.Popen(
+            [tmux, 'wait-for', channel],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+        pid = None
+        pgid = None
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            pid = self._read_int_file(pid_file)
+            pgid = self._read_int_file(pgid_file)
+            if pid:
+                break
+            time.sleep(0.05)
+        if pid and pgid is None:
+            try:
+                pgid = os.getpgid(pid)
+            except OSError:
+                pgid = None
+
+        return {
+            'wait_proc': wait_proc,
+            'pid': pid,
+            'pgid': pgid,
+            'launcher': 'tmux',
+            'tmux_session': session,
+            'tmux_pane': pane,
+            'exit_code_file': exit_code_file,
+        }
+
     def _reconcile_release_commands_locked(self):
         if not os.path.exists(self.config_file):
             return
@@ -540,9 +683,10 @@ class Monitor:
             pid = item.get('pid')
             if pid and _pid_alive(pid):
                 continue
-            item['status'] = 'failed'
+            exit_code = self._read_int_file(item.get('exit_code_file', ''))
+            item['status'] = 'success' if exit_code == 0 else 'failed'
             item['finished_at'] = item.get('finished_at') or now_text()
-            item['exit_code'] = item.get('exit_code')
+            item['exit_code'] = exit_code if exit_code is not None else item.get('exit_code')
             changed = True
         if changed:
             cfg['release_commands'] = queue
@@ -550,12 +694,34 @@ class Monitor:
         self.release_commands = queue
 
     def _finish_release_command(self, command_id: str, proc: subprocess.Popen, log_path: str,
-                                command_text: str):
-        exit_code = proc.wait()
+                                command_text: str, display_pid=None, exit_code_file: str = ''):
+        if exit_code_file:
+            exit_code = None
+            while True:
+                recorded_exit = self._read_int_file(exit_code_file)
+                if recorded_exit is not None:
+                    exit_code = recorded_exit
+                    if proc.poll() is None:
+                        try:
+                            proc.terminate()
+                        except OSError:
+                            pass
+                    break
+                if proc.poll() is not None:
+                    exit_code = proc.returncode
+                    break
+                time.sleep(0.5)
+            if exit_code is None:
+                exit_code = 1
+        else:
+            exit_code = proc.wait()
         finished_at = now_text()
         status = 'success' if exit_code == 0 else 'failed'
         pgid = None
         launcher = 'detached'
+        tmux_session = ''
+        tmux_pane = ''
+        display_pid = display_pid or proc.pid
         with self._release_command_lock:
             cfg = load_config_file(self.config_file)
             queue = normalize_release_commands(cfg.get('release_commands', []))
@@ -563,6 +729,8 @@ class Monitor:
                 if item.get('id') == command_id:
                     pgid = item.get('pgid')
                     launcher = item.get('launcher') or launcher
+                    tmux_session = item.get('tmux_session') or ''
+                    tmux_pane = item.get('tmux_pane') or ''
                     item['status'] = status
                     item['exit_code'] = exit_code
                     item['finished_at'] = finished_at
@@ -576,7 +744,7 @@ class Monitor:
             f'## GPU 空闲任务已结束 — {HOSTNAME_TAG}\n\n'
             f'- 任务 ID: `{command_id}`\n'
             f'- 启动方式: `{"tmux" if launcher == "tmux" else "后台日志模式"}`\n'
-            f'- 进程 PID: `{proc.pid}`\n'
+            f'- 进程 PID: `{display_pid}`\n'
             f'- 进程组 PGID: `{pgid if pgid is not None else "未知"}`\n'
             f'- 退出码: `{exit_code}`\n'
             f'- 结束时间: `{finished_at}`\n'
@@ -584,6 +752,10 @@ class Monitor:
             f'- 日志文件: `{log_path}`\n\n'
             f'### 启动命令\n```\n{command_text}\n```'
         )
+        if tmux_session:
+            content += f'\n\n### tmux\n```\ntmux attach -t {tmux_session}\n```'
+        if tmux_pane:
+            content += f'\n\n- tmux pane: `{tmux_pane}`'
         if tail:
             content += f'\n\n### 日志尾部\n```\n{tail}\n```'
         if self.release_command_notify_enabled:
@@ -593,7 +765,7 @@ class Monitor:
                 'command',
             )
         print(
-            f'[{finished_at}] 任务结束: id={command_id} pid={proc.pid} exit={exit_code}',
+            f'[{finished_at}] 任务结束: id={command_id} pid={display_pid} exit={exit_code}',
             flush=True,
         )
 
@@ -624,31 +796,35 @@ class Monitor:
             settings = self._release_settings_for_gpu(gpu)
             log_path = self._release_command_log_path(command_id)
             started_at = now_text()
+            launcher_warning = ''
             try:
-                with open(log_path, 'a', encoding='utf-8', buffering=1) as log:
-                    log.write(f'\n===== sserveros release command start {started_at} =====\n')
-                    log.write(f'host={HOSTNAME_TAG} gpu={gpu} used_mib={used_mib}\n')
-                    log.write(command_text + '\n\n')
-                    proc = subprocess.Popen(
-                        command_text,
-                        shell=True,
-                        executable='/bin/bash',
-                        cwd=self.script_dir,
-                        stdin=subprocess.DEVNULL,
-                        stdout=log,
-                        stderr=subprocess.STDOUT,
-                        start_new_session=True,
-                    )
+                if self.release_command_tmux_enabled and shutil.which('tmux'):
                     try:
-                        pgid = os.getpgid(proc.pid)
-                    except OSError:
-                        pgid = None
+                        start_info = self._start_tmux_release_command(
+                            command_id, command_text, log_path, started_at, gpu, used_mib
+                        )
+                    except Exception as tmux_exc:
+                        launcher_warning = f'tmux 启动失败，已回退后台日志模式：{tmux_exc}'
+                        start_info = self._start_detached_release_command(
+                            command_text, log_path, started_at, gpu, used_mib
+                        )
+                else:
+                    if self.release_command_tmux_enabled:
+                        launcher_warning = 'tmux 未安装，已回退后台日志模式'
+                    start_info = self._start_detached_release_command(
+                        command_text, log_path, started_at, gpu, used_mib
+                    )
             except Exception as exc:
                 item['status'] = 'failed'
                 item['started_at'] = started_at
                 item['finished_at'] = now_text()
                 item['launcher'] = 'detached'
+                item['pid'] = None
+                item['pgid'] = None
+                item['tmux_session'] = ''
+                item['tmux_pane'] = ''
                 item['exit_code'] = None
+                item['exit_code_file'] = ''
                 item['trigger_gpu'] = gpu
                 item['trigger_mem_mib'] = used_mib
                 item['log_file'] = log_path
@@ -672,13 +848,23 @@ class Monitor:
                     )
                 return 'failed'
 
+            proc = start_info['wait_proc']
+            launcher = start_info.get('launcher') or 'detached'
+            display_pid = start_info.get('pid')
+            pgid = start_info.get('pgid')
+            tmux_session = start_info.get('tmux_session', '')
+            tmux_pane = start_info.get('tmux_pane', '')
+            exit_code_file = start_info.get('exit_code_file', '')
             item['status'] = 'running'
             item['started_at'] = started_at
             item['finished_at'] = ''
-            item['launcher'] = 'detached'
-            item['pid'] = proc.pid
+            item['launcher'] = launcher
+            item['pid'] = display_pid
             item['pgid'] = pgid
+            item['tmux_session'] = tmux_session
+            item['tmux_pane'] = tmux_pane
             item['exit_code'] = None
+            item['exit_code_file'] = exit_code_file
             item['trigger_gpu'] = gpu
             item['trigger_mem_mib'] = used_mib
             item['log_file'] = log_path
@@ -689,8 +875,8 @@ class Monitor:
         content = (
             f'## GPU 空闲任务已启动 — {HOSTNAME_TAG}\n\n'
             f'- 任务 ID: `{command_id}`\n'
-            f'- 启动方式: `后台日志模式`\n'
-            f'- 进程 PID: `{proc.pid}`\n'
+            f'- 启动方式: `{"tmux" if launcher == "tmux" else "后台日志模式"}`\n'
+            f'- 进程 PID: `{display_pid if display_pid is not None else "未知"}`\n'
             f'- 进程组 PGID: `{pgid if pgid is not None else "未知"}`\n'
             f'- 触发 GPU: `{gpu}`\n'
             f'- 当前显存: `{used_mib} MiB`\n'
@@ -700,6 +886,12 @@ class Monitor:
             f'- 日志文件: `{log_path}`\n\n'
             f'### 启动命令\n```\n{command_text}\n```'
         )
+        if launcher_warning:
+            content += f'\n\n### 启动提示\n```\n{launcher_warning}\n```'
+        if tmux_session:
+            content += f'\n\n### tmux\n```\ntmux attach -t {tmux_session}\n```'
+        if tmux_pane:
+            content += f'\n\n- tmux pane: `{tmux_pane}`'
         if self.release_command_notify_enabled:
             self.send_notification(
                 f'{TITLE_PREFIX} - 任务已启动 [{HOSTNAME_TAG}]',
@@ -708,12 +900,12 @@ class Monitor:
             )
         print(
             f'[{started_at}] 任务启动: id={command_id} gpu={gpu} '
-            f'pid={proc.pid} pgid={pgid}',
+            f'launcher={launcher} pid={display_pid} pgid={pgid}',
             flush=True,
         )
         t = threading.Thread(
             target=self._finish_release_command,
-            args=(command_id, proc, log_path, command_text),
+            args=(command_id, proc, log_path, command_text, display_pid, exit_code_file),
             daemon=True,
         )
         t.start()
@@ -822,6 +1014,7 @@ class Monitor:
             'watch_pids': watch_pids,
             'release_command_enabled': self.release_command_enabled,
             'release_command_notify_enabled': self.release_command_notify_enabled,
+            'release_command_tmux_enabled': self.release_command_tmux_enabled,
             'release_command_gpus': self.release_command_gpus,
             'release_command_mem_threshold_mib': self.release_command_mem_threshold_mib,
             'release_command_check_interval': self.release_command_check_interval,
@@ -1196,7 +1389,7 @@ class Monitor:
         release_gpu_text = self.release_command_gpus if self.release_command_gpus else '全部'
         print(
             f'任务队列: enabled={self.release_command_enabled} notify={self.release_command_notify_enabled} '
-            f'GPUs={release_gpu_text} interval={self.release_command_check_interval}s '
+            f'tmux={self.release_command_tmux_enabled} GPUs={release_gpu_text} interval={self.release_command_check_interval}s '
             f'confirm={self.release_command_confirm_times} threshold={self.release_command_mem_threshold_mib}MiB '
             f'gpu_presets={len(self.release_command_gpu_settings)}',
             flush=True,

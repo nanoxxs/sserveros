@@ -102,12 +102,13 @@ def monitor_settings(script_dir: str) -> dict:
         'ok': True,
         'settings': {
             'mem_threshold_mib': cfg.get('mem_threshold_mib', 10240),
-            'check_interval': cfg.get('check_interval', 60),
+            'check_interval': cfg.get('check_interval', 120),
             'confirm_times': cfg.get('confirm_times', 2),
             'gpu_mem_monitor_enabled': cfg.get('gpu_mem_monitor_enabled', True),
             'main_pid_monitor_enabled': cfg.get('main_pid_monitor_enabled', True),
             'release_command_enabled': cfg.get('release_command_enabled', True),
             'release_command_notify_enabled': cfg.get('release_command_notify_enabled', True),
+            'release_command_tmux_enabled': cfg.get('release_command_tmux_enabled', False),
             'release_command_gpus': cfg.get('release_command_gpus', []),
             'release_command_mem_threshold_mib': cfg.get(
                 'release_command_mem_threshold_mib',
@@ -115,7 +116,7 @@ def monitor_settings(script_dir: str) -> dict:
             ),
             'release_command_check_interval': cfg.get(
                 'release_command_check_interval',
-                cfg.get('check_interval', 60),
+                cfg.get('check_interval', 120),
             ),
             'release_command_confirm_times': cfg.get(
                 'release_command_confirm_times',
@@ -142,6 +143,7 @@ def list_release_commands(script_dir: str) -> dict:
     return {
         'ok': True,
         'release_command_enabled': cfg.get('release_command_enabled', True),
+        'release_command_tmux_enabled': cfg.get('release_command_tmux_enabled', False),
         'count': len(commands),
         'commands': commands,
     }
@@ -194,6 +196,7 @@ def set_monitor_settings(
     main_pid_monitor_enabled=None,
     release_command_enabled=None,
     release_command_notify_enabled=None,
+    release_command_tmux_enabled=None,
     release_command_mem_threshold_mib=None,
     release_command_check_interval=None,
     release_command_confirm_times=None,
@@ -229,6 +232,7 @@ def set_monitor_settings(
         'main_pid_monitor_enabled': main_pid_monitor_enabled,
         'release_command_enabled': release_command_enabled,
         'release_command_notify_enabled': release_command_notify_enabled,
+        'release_command_tmux_enabled': release_command_tmux_enabled,
     }
     for key, value in bool_values.items():
         if value is None:
@@ -287,7 +291,7 @@ def add_release_command(command: str, note: str = '', target_gpus=None) -> dict:
         'command': item['command'],
         'note': item['note'],
         'target_gpus': normalized_targets,
-        'message': '已暂存：添加显存释放后执行的指令，等待用户在 WebUI 确认后生效。',
+        'message': '已暂存：添加任务队列任务，等待用户在 WebUI 确认后生效。',
     }
 
 
@@ -304,7 +308,7 @@ def remove_release_command(command_id: str = '', index: int = None) -> dict:
         'action': 'remove_release_command',
         'command_id': command_id,
         'index': index,
-        'message': '已暂存：移除释放指令，等待用户在 WebUI 确认后生效。',
+        'message': '已暂存：移除任务队列任务，等待用户在 WebUI 确认后生效。',
     }
 
 
@@ -318,7 +322,7 @@ def clear_release_commands(scope: str = 'finished') -> dict:
         'staged': True,
         'action': 'clear_release_commands',
         'scope': scope,
-        'message': f'已暂存：清理释放指令（scope={scope}），等待用户在 WebUI 确认后生效。',
+        'message': f'已暂存：清理任务队列任务（scope={scope}），等待用户在 WebUI 确认后生效。',
     }
 
 
@@ -335,7 +339,7 @@ def requeue_release_command(command_id: str = '', index: int = None) -> dict:
         'action': 'requeue_release_command',
         'command_id': command_id,
         'index': index,
-        'message': '已暂存：重新排队释放指令，等待用户在 WebUI 确认后生效。',
+        'message': '已暂存：重新排队任务队列任务，等待用户在 WebUI 确认后生效。',
     }
 
 
