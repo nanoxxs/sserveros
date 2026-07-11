@@ -1,0 +1,7 @@
+[Unit]
+Description=sserveros controller services
+Wants=sserveros-webui.service sserveros-monitor.service sserveros-agent-api.service
+After=sserveros-webui.service sserveros-monitor.service sserveros-agent-api.service
+
+[Install]
+WantedBy=default.target

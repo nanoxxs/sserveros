@@ -130,6 +130,7 @@ class Monitor:
         self.serverchan_keys: list = []
         self.bark_configs: list = []
         self.notification_channels_source = ''
+        self.display_hostname = ''
 
         # GPU 状态
         self.gpu_low_count: dict[int, int] = {}
@@ -279,6 +280,7 @@ class Monitor:
         if not self.bark_configs:
             self.bark_configs = cfg.get('bark_configs', [])
         self.notification_channels_source = cfg.get('notification_channels_source', '')
+        self.display_hostname = str(cfg.get('display_hostname') or '').strip()
         watch_pids_cfg = cfg.get('watch_pids', [])
         for wp in watch_pids_cfg:
             pid = int(wp['pid'])
@@ -353,6 +355,7 @@ class Monitor:
             self.confirm_times = cfg.get('confirm_times', self.confirm_times)
             self.gpu_mem_monitor_enabled = cfg.get('gpu_mem_monitor_enabled', True)
             self.main_pid_monitor_enabled = cfg.get('main_pid_monitor_enabled', True)
+            self.display_hostname = str(cfg.get('display_hostname') or '').strip()
             self.release_command_enabled = cfg.get('release_command_enabled', True)
             self.release_command_notify_enabled = cfg.get('release_command_notify_enabled', True)
             self.release_command_launcher = normalize_release_command_launcher(cfg)
@@ -464,6 +467,7 @@ class Monitor:
             'serverchan_keys': self.serverchan_keys,
             'bark_configs': self.bark_configs,
             'notification_channels_source': self.notification_channels_source,
+            'display_hostname': self.display_hostname,
         })
 
     def _clear_stop_context(self):
@@ -501,14 +505,15 @@ class Monitor:
         title = None
         content = None
         event_type = 'info'
+        host_label = _display_hostname(self._notify_cfg())
         if stop_context:
             operator = stop_context.get('operator') or '未知'
             source = stop_context.get('source') or '未知来源'
             requested_at = stop_context.get('requested_at') or '未知时间'
             tty = stop_context.get('tty') or '无 TTY'
-            title = f'监控脚本被管理员停止 [{HOSTNAME_TAG}]'
+            title = f'监控脚本被管理员停止 [{host_label}]'
             content = (
-                f'## 监控脚本被主动停止 — {HOSTNAME_TAG}\n\n'
+                f'## 监控脚本被主动停止 — {host_label}\n\n'
                 f'- PID: `{os.getpid()}`\n'
                 f'- 操作者: `{operator}`\n'
                 f'- 来源: `{source}`\n'
@@ -518,27 +523,27 @@ class Monitor:
             )
             event_type = 'admin_stop'
         elif self._exit_reason == 'signal':
-            title = f'监控脚本收到外部停止信号 [{HOSTNAME_TAG}]'
+            title = f'监控脚本收到外部停止信号 [{host_label}]'
             content = (
-                f'## 监控脚本收到外部停止信号 — {HOSTNAME_TAG}\n\n'
+                f'## 监控脚本收到外部停止信号 — {host_label}\n\n'
                 f'- PID: `{os.getpid()}`\n'
                 f'- 信号: `{self._exit_detail or "未知"}`\n'
                 f'- 说明: `未检测到来自 manage.sh 的停机上下文，操作者未知`\n'
             )
             event_type = 'stop'
         elif self._exit_reason == 'abnormal_exit':
-            title = f'监控脚本异常退出 [{HOSTNAME_TAG}]'
+            title = f'监控脚本异常退出 [{host_label}]'
             content = (
-                f'## 监控脚本异常退出 — {HOSTNAME_TAG}\n\n'
+                f'## 监控脚本异常退出 — {host_label}\n\n'
                 f'- PID: `{os.getpid()}`\n'
                 f'- 时间: `{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}`\n\n'
                 f'### 错误信息\n```\n{self._exit_detail or "未知异常"}\n```'
             )
             event_type = 'crash'
         else:
-            title = f'监控脚本已退出 [{HOSTNAME_TAG}]'
+            title = f'监控脚本已退出 [{host_label}]'
             content = (
-                f'## 监控脚本已退出 — {HOSTNAME_TAG}\n\n'
+                f'## 监控脚本已退出 — {host_label}\n\n'
                 f'- PID: `{os.getpid()}`\n'
                 f'- 退出原因: `{self._exit_reason}`\n'
             )
@@ -1322,6 +1327,7 @@ exit "$code"
 
     def check_once(self):
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        host_label = _display_hostname(self._notify_cfg())
         nvs_full = None  # 懒加载 nvidia-smi 全量输出
 
         def get_nvs():
@@ -1370,7 +1376,7 @@ exit "$code"
                 pid_mem = self.pid_last_maxmem.get(pid, '未知')
 
                 content = (
-                    f'## 发现新的主PID — {HOSTNAME_TAG}\n\n'
+                    f'## 发现新的主PID — {host_label}\n\n'
                     f'- PID: `{pid}`\n'
                     f'- GPU: `{pid_gpus}`\n'
                     f'- 显存占用: `{pid_mem} MiB`\n'
@@ -1379,7 +1385,7 @@ exit "$code"
                     f'### 完整启动命令\n```\n{cmd}\n```\n\n'
                     f'### nvidia-smi\n```\n{get_nvs()}\n```'
                 )
-                self.send_notification(f'{TITLE_PREFIX} - 发现主PID [{HOSTNAME_TAG}]', content, 'found')
+                self.send_notification(f'{TITLE_PREFIX} - 发现主PID [{host_label}]', content, 'found')
                 self.pid_seen_notified[pid] = True
                 print(f'[{now}] 发现主PID: pid={pid} gpus={pid_gpus}', flush=True)
 
@@ -1396,7 +1402,7 @@ exit "$code"
                     continue
 
                 content = (
-                    f'## 主PID已消失 — {HOSTNAME_TAG}\n\n'
+                    f'## 主PID已消失 — {host_label}\n\n'
                     f'- PID: `{pid}`\n'
                     f'- GPU: `{self.pid_last_gpus.get(pid, "未知")}`\n'
                     f'- 最大显存: `{self.pid_last_maxmem.get(pid, "未知")} MiB`\n'
@@ -1408,7 +1414,7 @@ exit "$code"
                     f'{self.pid_last_cmd.get(pid, "（进程已退出，无法获取）")}\n```\n\n'
                     f'### nvidia-smi\n```\n{get_nvs()}\n```'
                 )
-                self.send_notification(f'{TITLE_PREFIX} - 主PID消失 [{HOSTNAME_TAG}]', content, 'warn')
+                self.send_notification(f'{TITLE_PREFIX} - 主PID消失 [{host_label}]', content, 'warn')
                 self.pid_disappear_notified[pid] = True
                 print(f'[{now}] 主PID消失: pid={pid}', flush=True)
 
@@ -1428,7 +1434,7 @@ exit "$code"
                         continue
 
                     content = (
-                        f'## GPU 显存低于阈值 — {HOSTNAME_TAG}\n\n'
+                        f'## GPU 显存低于阈值 — {host_label}\n\n'
                         f'- GPU: `{gpu}`\n'
                         f'- 当前显存: `{used} MiB`\n'
                         f'- 阈值: `{self.mem_threshold_mib} MiB`\n'
@@ -1467,7 +1473,7 @@ exit "$code"
                             cmd = '当前无计算PID'
 
                         content = (
-                            f'## GPU 已恢复高占用，重新识别主PID — {HOSTNAME_TAG}\n\n'
+                            f'## GPU 已恢复高占用，重新识别主PID — {host_label}\n\n'
                             f'- GPU: `{gpu}`\n'
                             f'- 当前显存: `{used} MiB`\n'
                             f'- 阈值: `{self.mem_threshold_mib} MiB`\n'
@@ -1481,7 +1487,7 @@ exit "$code"
                         )
                     else:
                         content = (
-                            f'## GPU 已恢复高占用 — {HOSTNAME_TAG}\n\n'
+                            f'## GPU 已恢复高占用 — {host_label}\n\n'
                             f'- GPU: `{gpu}`\n'
                             f'- 当前显存: `{used} MiB`\n'
                             f'- 阈值: `{self.mem_threshold_mib} MiB`\n'
@@ -1519,7 +1525,7 @@ exit "$code"
                     continue
 
                 content = (
-                    f'## 指定监控的 PID 已消失 — {HOSTNAME_TAG}\n\n'
+                    f'## 指定监控的 PID 已消失 — {host_label}\n\n'
                     f'- PID: `{pid}`\n'
                     f'- 备注: {self.watch_pid_note.get(pid, "（无）")}\n'
                     f'- 检测时间: `{now}`\n'
@@ -1531,7 +1537,7 @@ exit "$code"
                     f'### nvidia-smi\n```\n{get_nvs()}\n```'
                 )
                 self.send_notification(
-                    f'{TITLE_PREFIX} - 指定PID消失 [{HOSTNAME_TAG}]', content, 'pid'
+                    f'{TITLE_PREFIX} - 指定PID消失 [{host_label}]', content, 'pid'
                 )
                 self.watch_pid_notified[pid] = True
                 print(f'[{now}] 指定PID消失: pid={pid}', flush=True)

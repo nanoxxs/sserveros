@@ -1,5 +1,6 @@
 import glob
 import gzip
+import hmac
 import json
 import os
 import socket
@@ -12,7 +13,14 @@ from functools import wraps
 
 import notifier
 from agent.runner import AgentRunner, SessionStore
+from agent.tools import READ_ONLY_TOOLS, WRITE_TOOLS
 from config_bootstrap import ensure_config
+from controller import (
+    PROTOCOL_VERSION,
+    AgentRequestError,
+    ControllerRegistry,
+    ServerNotFound,
+)
 from release_commands import (
     COMMAND_MAX_CHARS,
     TERMINAL_STATUSES,
@@ -44,6 +52,7 @@ _RELEASE_COMMAND_NUMERIC_SETTINGS = (
 )
 _WEBUI_NUMERIC_SETTINGS = ('log_max_size_mb', 'log_archive_keep')
 _ENV_CHANNEL_KEYS = ('SERVERCHAN_KEYS', 'BARK_CONFIGS', 'SENDKEY')
+AGENT_VERSION = '1.0'
 
 
 def _terminal_status(command: str, version_arg: str) -> dict:
@@ -92,7 +101,12 @@ def _clear_env_channel_keys(script_dir: str) -> None:
         os.environ.pop(k, None)
 
 
-def create_app(script_dir: str = None):
+def create_app(
+    script_dir: str = None,
+    *,
+    start_background: bool = True,
+    agent_api_only: bool = False,
+):
     if script_dir is None:
         script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -108,19 +122,63 @@ def create_app(script_dir: str = None):
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=60)
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['AGENT_API_ONLY'] = agent_api_only
+    controller_registry = ControllerRegistry(script_dir)
+    app.extensions['controller_registry'] = controller_registry
+    if (
+        start_background
+        and not agent_api_only
+        and cfg0.get('node_role', 'standalone') == 'controller'
+    ):
+        controller_registry.start()
     if initial_password:
-        print('[sserveros webui] 已自动生成 config.json', flush=True)
-        print(f'[sserveros webui] 初始密码: {initial_password}', flush=True)
-        print('[sserveros webui] 请登录后尽快修改密码', flush=True)
-        print(f'[sserveros webui] 访问地址: http://{cfg0["webui_host"]}:{cfg0["webui_port"]}', flush=True)
+        if agent_api_only:
+            print('[sserveros agent] 已自动生成 config.json；配对令牌可通过 manage.sh 查看', flush=True)
+        else:
+            print('[sserveros webui] 已自动生成 config.json', flush=True)
+            print(f'[sserveros webui] 初始密码: {initial_password}', flush=True)
+            print('[sserveros webui] 请登录后尽快修改密码', flush=True)
+            print(f'[sserveros webui] 访问地址: http://{cfg0["webui_host"]}:{cfg0["webui_port"]}', flush=True)
 
     def require_auth(f):
         @wraps(f)
         def decorated(*args, **kwargs):
+            if app.config.get('AGENT_API_ONLY'):
+                cfg = load_config_file(_config_path(script_dir))
+                expected = str(cfg.get('agent_token') or '')
+                header = request.headers.get('Authorization', '')
+                supplied = header[7:].strip() if header.startswith('Bearer ') else ''
+                if not expected or not hmac.compare_digest(supplied, expected):
+                    return jsonify({'error': 'unauthorized'}), 401
+                return f(*args, **kwargs)
             if not session.get('authenticated'):
                 return jsonify({'error': 'unauthorized'}), 401
             return f(*args, **kwargs)
         return decorated
+
+    @app.before_request
+    def _restrict_agent_api_surface():
+        if not app.config.get('AGENT_API_ONLY'):
+            return None
+        if not request.environ.get('SSERVEROS_AGENT_REQUEST'):
+            return jsonify({'error': 'not found'}), 404
+        allowed = (
+            '/api/health',
+            '/api/state',
+            '/api/config',
+            '/api/log',
+            '/api/pids/',
+            '/api/release-commands/',
+            '/api/sysinfo',
+            '/api/gpu/',
+            '/api/notify/test',
+            '/api/settings',
+            '/api/tools/',
+            '/api/actions/execute',
+        )
+        if not any(request.path == prefix or request.path.startswith(prefix) for prefix in allowed):
+            return jsonify({'error': 'not found'}), 404
+        return None
 
     @app.route('/')
     def index():
@@ -141,6 +199,20 @@ def create_app(script_dir: str = None):
     def logout():
         session.clear()
         return jsonify({'ok': True})
+
+    @app.route('/api/health')
+    @require_auth
+    def api_health():
+        cfg = load_config_file(_config_path(script_dir))
+        return jsonify({
+            'ok': True,
+            'server_id': cfg.get('node_id', ''),
+            'hostname': socket.gethostname(),
+            'display_name': cfg.get('display_hostname') or socket.gethostname(),
+            'node_role': cfg.get('node_role', 'standalone'),
+            'agent_version': AGENT_VERSION,
+            'protocol_version': PROTOCOL_VERSION,
+        })
 
     @app.route('/api/state')
     @require_auth
@@ -190,6 +262,11 @@ def create_app(script_dir: str = None):
         state['tmux_status'] = _tmux_status()
         state['zellij_status'] = _zellij_status()
         state.setdefault('hostname', socket.gethostname())
+        state['server_id'] = cfg.get('node_id', '')
+        state['display_name'] = cfg.get('display_hostname') or state['hostname']
+        state['agent_version'] = AGENT_VERSION
+        state['protocol_version'] = PROTOCOL_VERSION
+        state['sampled_at'] = state.get('timestamp') or state.get('time') or ''
         return jsonify(state)
 
     @app.route('/api/config')
@@ -199,6 +276,13 @@ def create_app(script_dir: str = None):
         summary = notifier.channel_summary(cfg)
         cfg.pop('password_hash', None)
         cfg.pop('secret_key', None)
+        cfg.pop('agent_token', None)
+        cfg.pop('llm_api_key', None)
+        cfg['controller_servers'] = [
+            {k: v for k, v in item.items() if k != 'token'}
+            for item in cfg.get('controller_servers', [])
+            if isinstance(item, dict)
+        ]
         cfg['release_command_enabled'] = cfg.get('release_command_enabled', True)
         cfg['release_command_notify_enabled'] = cfg.get('release_command_notify_enabled', True)
         cfg['release_command_launcher'] = normalize_release_command_launcher(cfg)
@@ -226,6 +310,140 @@ def create_app(script_dir: str = None):
         cfg['zellij_status'] = _zellij_status()
         cfg['env_channel_summary'] = summary
         return jsonify(cfg)
+
+    def _controller_required():
+        cfg = load_config_file(_config_path(script_dir))
+        if cfg.get('node_role', 'standalone') != 'controller':
+            return jsonify({'error': '当前节点不是主控端'}), 409
+        return None
+
+    @app.route('/api/servers', methods=['GET'])
+    @require_auth
+    def api_servers_list():
+        error = _controller_required()
+        if error:
+            return error
+        return jsonify(controller_registry.list_servers())
+
+    @app.route('/api/servers', methods=['POST'])
+    @require_auth
+    def api_servers_add():
+        error = _controller_required()
+        if error:
+            return error
+        try:
+            server = controller_registry.add_server(request.get_json() or {})
+            return jsonify({'ok': True, 'server': server}), 201
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+
+    @app.route('/api/servers/refresh', methods=['POST'])
+    @require_auth
+    def api_servers_refresh():
+        error = _controller_required()
+        if error:
+            return error
+        controller_registry.poll_once()
+        return jsonify(controller_registry.list_servers())
+
+    @app.route('/api/servers/<server_id>', methods=['PUT'])
+    @require_auth
+    def api_servers_update(server_id):
+        error = _controller_required()
+        if error:
+            return error
+        try:
+            server = controller_registry.update_server(server_id, request.get_json() or {})
+            return jsonify({'ok': True, 'server': server})
+        except ServerNotFound as exc:
+            return jsonify({'error': str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+
+    @app.route('/api/servers/<server_id>', methods=['DELETE'])
+    @require_auth
+    def api_servers_delete(server_id):
+        error = _controller_required()
+        if error:
+            return error
+        try:
+            controller_registry.remove_server(server_id)
+            return jsonify({'ok': True})
+        except ServerNotFound as exc:
+            return jsonify({'error': str(exc)}), 404
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+
+    @app.route('/api/servers/<server_id>/test', methods=['POST'])
+    @require_auth
+    def api_servers_test(server_id):
+        error = _controller_required()
+        if error:
+            return error
+        try:
+            result = controller_registry.test_server(server_id)
+            status = 200 if result.get('compatible') else 409
+            return jsonify(result), status
+        except ServerNotFound as exc:
+            return jsonify({'error': str(exc)}), 404
+        except AgentRequestError as exc:
+            status = 502 if exc.status_code == 401 else exc.status_code
+            message = 'Agent 配对令牌无效' if exc.status_code == 401 else str(exc)
+            return jsonify({'error': message}), status
+
+    @app.route(
+        '/api/servers/<server_id>/<path:subpath>',
+        methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    )
+    @require_auth
+    def api_server_proxy(server_id, subpath):
+        error = _controller_required()
+        if error:
+            return error
+        try:
+            json_body = request.get_json(silent=True) if request.is_json else None
+            content = None if request.is_json else request.get_data()
+            forwarded_headers = {}
+            if content and request.content_type:
+                forwarded_headers['Content-Type'] = request.content_type
+            upstream = controller_registry.request(
+                server_id,
+                request.method,
+                subpath,
+                json_body=json_body,
+                params=list(request.args.items(multi=True)),
+                content=content,
+                headers=forwarded_headers,
+            )
+        except ServerNotFound as exc:
+            return jsonify({'error': str(exc)}), 404
+        except AgentRequestError as exc:
+            status = 502 if exc.status_code == 401 else exc.status_code
+            message = 'Agent 配对令牌无效' if exc.status_code == 401 else str(exc)
+            return jsonify({'error': message}), status
+
+        if upstream.status_code == 401:
+            return jsonify({'error': 'Agent 配对令牌无效'}), 502
+
+        content_type = upstream.headers.get('content-type', '')
+        if 'application/json' in content_type:
+            try:
+                payload = upstream.json()
+            except ValueError:
+                return jsonify({'error': 'Agent 返回了无效 JSON'}), 502
+            if isinstance(payload, dict):
+                payload.setdefault('controller_server_id', server_id)
+                try:
+                    payload.setdefault('controller_server_name', controller_registry.get_server(server_id)['name'])
+                except ServerNotFound:
+                    pass
+            return jsonify(payload), upstream.status_code
+
+        response = Response(upstream.content, status=upstream.status_code, content_type=content_type or None)
+        disposition = upstream.headers.get('content-disposition')
+        if disposition:
+            response.headers['Content-Disposition'] = disposition
+        return response
 
     @app.route('/api/log')
     @require_auth
@@ -931,9 +1149,10 @@ def create_app(script_dir: str = None):
         if not notifier.has_any_channel(notify_cfg):
             return jsonify({'error': '未配置任何推送渠道，请先在设置页填写'}), 400
         summary = notifier.channel_summary(cfg)
+        display_name = str(cfg.get('display_hostname') or socket.gethostname()).strip()
         results = notifier.send_all(
             notify_cfg,
-            'sserveros 测试通知',
+            f'[{display_name}] sserveros 测试通知',
             _build_test_notify_content(cfg, summary),
         )
         all_ok = all(r['send_success'] for r in results)
@@ -1109,9 +1328,57 @@ def create_app(script_dir: str = None):
 
     _session_store = SessionStore(script_dir)
 
-    def _agent_runner() -> AgentRunner:
+    def _agent_runner(server_id: str = '') -> AgentRunner:
         cfg = load_config_file(_config_path(script_dir))
-        return AgentRunner(cfg, script_dir, _session_store)
+        if cfg.get('node_role', 'standalone') != 'controller':
+            return AgentRunner(cfg, script_dir, _session_store)
+        server = controller_registry.get_server(server_id)
+
+        def execute_remote_tool(name: str, args: dict) -> dict:
+            try:
+                upstream = controller_registry.request(
+                    server_id,
+                    'POST',
+                    f'tools/{name}',
+                    json_body={'arguments': args},
+                )
+            except (AgentRequestError, ServerNotFound) as exc:
+                return {'ok': False, 'error': str(exc)}
+            try:
+                payload = upstream.json()
+            except ValueError:
+                return {'ok': False, 'error': 'Agent 返回了无效 JSON'}
+            if upstream.status_code >= 400 and isinstance(payload, dict):
+                payload.setdefault('ok', False)
+            return payload if isinstance(payload, dict) else {'ok': False, 'error': 'Agent 返回格式不正确'}
+
+        def stage_remote_tool(name: str, args: dict) -> dict:
+            try:
+                upstream = controller_registry.request(
+                    server_id,
+                    'POST',
+                    f'tools/{name}/stage',
+                    json_body={'arguments': args},
+                )
+            except (AgentRequestError, ServerNotFound) as exc:
+                return {'ok': False, 'error': str(exc)}
+            try:
+                payload = upstream.json()
+            except ValueError:
+                return {'ok': False, 'error': 'Agent 返回了无效 JSON'}
+            if upstream.status_code >= 400 and isinstance(payload, dict):
+                payload.setdefault('ok', False)
+            return payload if isinstance(payload, dict) else {'ok': False, 'error': 'Agent 返回格式不正确'}
+
+        return AgentRunner(
+            cfg,
+            script_dir,
+            _session_store,
+            tool_executor=execute_remote_tool,
+            write_tool_executor=stage_remote_tool,
+            pending_context={'server_id': server_id, 'server_name': server['name']},
+            system_context=f"服务器 {server['name']}（server_id={server_id}）",
+        )
 
     def _exec_pending_action(action: dict) -> dict:
         atype = action.get('action')
@@ -1311,7 +1578,7 @@ def create_app(script_dir: str = None):
                 return {'ok': False, 'message': '未配置任何推送渠道'}
             results = notifier.send_all(
                 notify_cfg,
-                'sserveros 测试通知',
+                f'[{str(cfg.get("display_hostname") or socket.gethostname()).strip()}] sserveros 测试通知',
                 _build_test_notify_content(cfg, notifier.channel_summary(cfg)),
                 log_file=_runtime_path(script_dir, 'log.json'),
                 event_type='info',
@@ -1331,7 +1598,7 @@ def create_app(script_dir: str = None):
                 return {'ok': False, 'message': '未配置任何推送渠道'}
             results = notifier.send_all(
                 notify_cfg,
-                title,
+                f'[{str(cfg.get("display_hostname") or socket.gethostname()).strip()}] {title}',
                 message,
                 log_file=_runtime_path(script_dir, 'log.json'),
                 event_type='info',
@@ -1341,6 +1608,88 @@ def create_app(script_dir: str = None):
                 return {'ok': False, 'message': f'部分渠道发送失败：{", ".join(failed)}'}
             return {'ok': True, 'message': f'通知已发送（共 {len(results)} 个渠道）'}
         return {'ok': False, 'message': f'未知动作类型: {atype}'}
+
+    def _exec_pending_action_for_target(action: dict) -> dict:
+        cfg = load_config_file(_config_path(script_dir))
+        if cfg.get('node_role', 'standalone') != 'controller':
+            return _exec_pending_action(action)
+        server_id = str(action.get('server_id') or '').strip()
+        if not server_id:
+            return {'ok': False, 'message': '待确认操作缺少目标服务器'}
+        remote_action = {
+            key: value for key, value in action.items()
+            if key not in ('id', 'server_id', 'server_name', 'staged', 'message')
+        }
+        try:
+            upstream = controller_registry.request(
+                server_id,
+                'POST',
+                'actions/execute',
+                json_body={'action': remote_action},
+            )
+        except (AgentRequestError, ServerNotFound) as exc:
+            return {'ok': False, 'message': str(exc)}
+        try:
+            payload = upstream.json()
+        except ValueError:
+            return {'ok': False, 'message': 'Agent 返回了无效 JSON'}
+        if not isinstance(payload, dict):
+            return {'ok': False, 'message': 'Agent 返回格式不正确'}
+        if upstream.status_code >= 400:
+            payload.setdefault('ok', False)
+            payload.setdefault('message', payload.get('error', f'Agent 返回 HTTP {upstream.status_code}'))
+        return payload
+
+    @app.route('/api/tools/<tool_name>', methods=['POST'])
+    @require_auth
+    def api_agent_tool_execute(tool_name):
+        fn = READ_ONLY_TOOLS.get(tool_name)
+        if fn is None:
+            return jsonify({'error': 'unknown or non-read-only tool'}), 404
+        data = request.get_json() or {}
+        args = data.get('arguments', {})
+        if not isinstance(args, dict):
+            return jsonify({'error': 'arguments must be an object'}), 400
+        try:
+            if tool_name in ('list_watch_pids', 'gpu_state', 'monitor_settings', 'list_release_commands'):
+                result = fn(script_dir)
+            else:
+                result = fn(**args)
+        except TypeError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except Exception as exc:
+            return jsonify({'error': str(exc)}), 500
+        if isinstance(result, dict):
+            result.setdefault('server_id', load_config_file(_config_path(script_dir)).get('node_id', ''))
+        return jsonify(result)
+
+    @app.route('/api/tools/<tool_name>/stage', methods=['POST'])
+    @require_auth
+    def api_agent_tool_stage(tool_name):
+        fn = WRITE_TOOLS.get(tool_name)
+        if fn is None:
+            return jsonify({'error': 'unknown write tool'}), 404
+        data = request.get_json() or {}
+        args = data.get('arguments', {})
+        if not isinstance(args, dict):
+            return jsonify({'error': 'arguments must be an object'}), 400
+        try:
+            result = fn(**args)
+        except TypeError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except Exception as exc:
+            return jsonify({'error': str(exc)}), 500
+        return jsonify(result), 200 if result.get('ok') else 400
+
+    @app.route('/api/actions/execute', methods=['POST'])
+    @require_auth
+    def api_agent_action_execute():
+        data = request.get_json() or {}
+        action = data.get('action', data)
+        if not isinstance(action, dict):
+            return jsonify({'error': 'action must be an object'}), 400
+        result = _exec_pending_action(action)
+        return jsonify(result), 200 if result.get('ok') else 400
 
     @app.route('/api/agent/config', methods=['GET'])
     @require_auth
@@ -1388,6 +1737,7 @@ def create_app(script_dir: str = None):
     def api_agent_chat():
         data = request.get_json() or {}
         session_id = str(data.get('session_id', '')).strip()
+        server_id = str(data.get('server_id', '')).strip()
         message = str(data.get('message', '')).strip()
         if not session_id:
             return jsonify({'error': 'session_id required'}), 400
@@ -1398,7 +1748,14 @@ def create_app(script_dir: str = None):
             return jsonify({'error': 'agent 未启用，请在「设置 → Agent」中开启并填写 LLM 配置'}), 403
         if not cfg.get('llm_api_key', '').strip():
             return jsonify({'error': '未配置 LLM API Key，请在「设置 → Agent」中填写'}), 403
-        result = _agent_runner().chat(session_id, message)
+        if cfg.get('node_role', 'standalone') == 'controller' and not server_id:
+            return jsonify({'error': 'server_id required'}), 400
+        try:
+            runner = _agent_runner(server_id)
+        except ServerNotFound as exc:
+            return jsonify({'error': str(exc)}), 404
+        store_session_id = f'{server_id}:{session_id}' if server_id else session_id
+        result = runner.chat(store_session_id, message)
         return jsonify(result), 200 if result.get('ok') else 500
 
     @app.route('/api/agent/chat/stream', methods=['POST'])
@@ -1406,6 +1763,7 @@ def create_app(script_dir: str = None):
     def api_agent_chat_stream():
         data = request.get_json() or {}
         session_id = str(data.get('session_id', '')).strip()
+        server_id = str(data.get('server_id', '')).strip()
         message = str(data.get('message', '')).strip()
         if not session_id:
             return jsonify({'error': 'session_id required'}), 400
@@ -1416,10 +1774,17 @@ def create_app(script_dir: str = None):
             return jsonify({'error': 'agent 未启用，请在「设置 → Agent」中开启并填写 LLM 配置'}), 403
         if not cfg.get('llm_api_key', '').strip():
             return jsonify({'error': '未配置 LLM API Key，请在「设置 → Agent」中填写'}), 403
+        if cfg.get('node_role', 'standalone') == 'controller' and not server_id:
+            return jsonify({'error': 'server_id required'}), 400
+        try:
+            runner = _agent_runner(server_id)
+        except ServerNotFound as exc:
+            return jsonify({'error': str(exc)}), 404
+        store_session_id = f'{server_id}:{session_id}' if server_id else session_id
 
         def generate():
             try:
-                for event in _agent_runner().chat_stream(session_id, message):
+                for event in runner.chat_stream(store_session_id, message):
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
@@ -1439,20 +1804,37 @@ def create_app(script_dir: str = None):
     def api_agent_confirm():
         data = request.get_json() or {}
         session_id = str(data.get('session_id', '')).strip()
+        server_id = str(data.get('server_id', '')).strip()
         approved = data.get('approved', [])
         rejected = data.get('rejected', [])
         if not session_id:
             return jsonify({'error': 'session_id required'}), 400
-        result = _agent_runner().confirm(session_id, approved, rejected, _exec_pending_action)
+        cfg = load_config_file(_config_path(script_dir))
+        if cfg.get('node_role', 'standalone') == 'controller' and not server_id:
+            return jsonify({'error': 'server_id required'}), 400
+        try:
+            runner = _agent_runner(server_id)
+        except ServerNotFound as exc:
+            return jsonify({'error': str(exc)}), 404
+        store_session_id = f'{server_id}:{session_id}' if server_id else session_id
+        result = runner.confirm(store_session_id, approved, rejected, _exec_pending_action_for_target)
         return jsonify(result)
 
     @app.route('/api/agent/session/<session_id>', methods=['DELETE'])
     @require_auth
     def api_agent_session_delete(session_id):
-        _session_store.clear(session_id)
+        server_id = str(request.args.get('server_id', '')).strip()
+        cfg = load_config_file(_config_path(script_dir))
+        store_session_id = (
+            f'{server_id}:{session_id}'
+            if server_id and cfg.get('node_role', 'standalone') == 'controller'
+            else session_id
+        )
+        _session_store.clear(store_session_id)
         return jsonify({'ok': True})
 
-    _start_log_compressor(script_dir)
+    if not agent_api_only or cfg0.get('node_role', 'standalone') == 'agent':
+        _start_log_compressor(script_dir)
     return app
 
 
@@ -1481,6 +1863,12 @@ def _release_commands_with_log_tails(commands) -> list[dict]:
 
 def _empty_state(cfg: dict) -> dict:
     return {
+        'server_id': cfg.get('node_id', ''),
+        'hostname': socket.gethostname(),
+        'display_name': cfg.get('display_hostname') or socket.gethostname(),
+        'agent_version': AGENT_VERSION,
+        'protocol_version': PROTOCOL_VERSION,
+        'sampled_at': '',
         'monitor_running': False,
         'gpus': [],
         'watch_pids': _merge_watch_pids([], cfg),

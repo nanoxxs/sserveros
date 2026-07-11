@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import psutil
 
+from agent.runner import AgentRunner
+
 # ── _shell.py ─────────────────────────────────────────────────────────────────
 
 from agent._shell import run_safe
@@ -422,3 +424,41 @@ class TestSystemInfo:
         assert r['ok'] is True
         for key in ('uptime', 'cpu_percent', 'mem_total_gb', 'mem_used_gb', 'mem_percent'):
             assert key in r, f'missing key: {key}'
+
+
+class TestRemoteAgentRunnerRouting:
+    def test_read_tool_uses_selected_server_executor(self):
+        calls = []
+        runner = AgentRunner(
+            {}, '.', MagicMock(),
+            tool_executor=lambda name, args: calls.append((name, args)) or {
+                'ok': True, 'state': {'gpus': [{'index': 3}]},
+            },
+        )
+
+        result = json.loads(runner._call_tool('gpu_state', {}, [], [0]))
+
+        assert calls == [('gpu_state', {})]
+        assert result['state']['gpus'][0]['index'] == 3
+
+    def test_write_tool_stages_on_selected_server_with_target_context(self):
+        calls = []
+        pending = []
+        runner = AgentRunner(
+            {}, '.', MagicMock(),
+            write_tool_executor=lambda name, args: calls.append((name, args)) or {
+                'ok': True,
+                'staged': True,
+                'action': 'add_watch_pid',
+                'pid': args['pid'],
+                'message': 'staged remotely',
+            },
+            pending_context={'server_id': 'srv_b', 'server_name': 'GPU-B'},
+        )
+
+        result = json.loads(runner._call_tool('add_watch_pid', {'pid': 2468}, pending, [0]))
+
+        assert calls == [('add_watch_pid', {'pid': 2468})]
+        assert result['server_id'] == 'srv_b'
+        assert pending[0]['server_id'] == 'srv_b'
+        assert pending[0]['server_name'] == 'GPU-B'

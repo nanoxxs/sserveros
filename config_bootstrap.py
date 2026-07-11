@@ -1,5 +1,6 @@
 import os
 import random
+import secrets
 import string
 from typing import Optional, Tuple
 
@@ -20,6 +21,8 @@ def ensure_config(script_dir: str, *, initial_password: Optional[str] = None) ->
         cfg = default_config()
         cfg['password_hash'] = generate_password_hash(password)
         cfg['secret_key'] = os.urandom(32).hex()
+        cfg['agent_token'] = secrets.token_urlsafe(32)
+        cfg['node_id'] = f"node_{secrets.token_hex(8)}"
         save_config_file(path, cfg)
         return cfg, password
 
@@ -34,6 +37,14 @@ def ensure_config(script_dir: str, *, initial_password: Optional[str] = None) ->
 
     if not cfg.get('secret_key'):
         cfg['secret_key'] = os.urandom(32).hex()
+        changed = True
+
+    if not cfg.get('agent_token'):
+        cfg['agent_token'] = secrets.token_urlsafe(32)
+        changed = True
+
+    if not cfg.get('node_id'):
+        cfg['node_id'] = f"node_{secrets.token_hex(8)}"
         changed = True
 
     for key, value in DEFAULT_CONFIG.items():

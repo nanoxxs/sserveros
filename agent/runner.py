@@ -148,26 +148,47 @@ def _summarize_result(name: str, result: dict) -> str:
 
 
 class AgentRunner:
-    def __init__(self, cfg: dict, script_dir: str, session_store: SessionStore):
+    def __init__(
+        self,
+        cfg: dict,
+        script_dir: str,
+        session_store: SessionStore,
+        *,
+        tool_executor=None,
+        write_tool_executor=None,
+        pending_context: dict = None,
+        system_context: str = '',
+    ):
         self._cfg = cfg
         self._script_dir = script_dir
         self._store = session_store
+        self._tool_executor = tool_executor
+        self._write_tool_executor = write_tool_executor
+        self._pending_context = pending_context or {}
+        self._system_context = str(system_context or '').strip()
 
     def _call_tool(self, name: str, args: dict, pending: list, counter: list) -> str:
         if name in READ_ONLY_TOOLS:
-            fn = READ_ONLY_TOOLS[name]
-            if name in ('list_watch_pids', 'gpu_state', 'monitor_settings', 'list_release_commands'):
-                result = fn(self._script_dir)
+            if self._tool_executor is not None:
+                result = self._tool_executor(name, args)
             else:
-                result = fn(**args)
+                fn = READ_ONLY_TOOLS[name]
+                if name in ('list_watch_pids', 'gpu_state', 'monitor_settings', 'list_release_commands'):
+                    result = fn(self._script_dir)
+                else:
+                    result = fn(**args)
         elif name in WRITE_TOOLS:
-            fn = WRITE_TOOLS[name]
-            result = fn(**args)
+            if self._write_tool_executor is not None:
+                result = self._write_tool_executor(name, args)
+            else:
+                fn = WRITE_TOOLS[name]
+                result = fn(**args)
             if result.get('staged'):
                 action_id = f'act_{counter[0]}'
                 counter[0] += 1
-                pending.append({'id': action_id, **result})
+                pending.append({'id': action_id, **result, **self._pending_context})
                 result['action_id'] = action_id
+                result.update(self._pending_context)
         else:
             result = {'ok': False, 'error': f'unknown tool: {name}'}
         return json.dumps(result, ensure_ascii=False)
@@ -176,7 +197,10 @@ class AgentRunner:
         session = self._store.get(session_id)
         session.messages.append({'role': 'user', 'content': user_message})
 
-        llm_messages = [{'role': 'system', 'content': SYSTEM_PROMPT}] + [
+        system_prompt = SYSTEM_PROMPT
+        if self._system_context:
+            system_prompt += f'\n\n当前操作目标：{self._system_context}。所有查询和操作都只针对该服务器。'
+        llm_messages = [{'role': 'system', 'content': system_prompt}] + [
             {k: v for k, v in m.items() if k != 'staged'} for m in session.messages
         ]
 
@@ -287,7 +311,10 @@ class AgentRunner:
         session = self._store.get(session_id)
         session.messages.append({'role': 'user', 'content': user_message})
 
-        llm_messages = [{'role': 'system', 'content': SYSTEM_PROMPT}] + [
+        system_prompt = SYSTEM_PROMPT
+        if self._system_context:
+            system_prompt += f'\n\n当前操作目标：{self._system_context}。所有查询和操作都只针对该服务器。'
+        llm_messages = [{'role': 'system', 'content': system_prompt}] + [
             {k: v for k, v in m.items() if k != 'staged'} for m in session.messages
         ]
 

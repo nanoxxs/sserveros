@@ -1116,7 +1116,8 @@ def test_notify_test_sends_request(auth_client, monkeypatch):
     data = r.get_json()
     assert data['ok'] is True
     assert 'message' in data
-    assert captured['title'] == 'sserveros 测试通知'
+    assert captured['title'].endswith('sserveros 测试通知')
+    assert captured['title'].startswith('[')
     assert '## 当前监控参数' in captured['content']
     assert '- 显存告警阈值: 5120 MiB' in captured['content']
     assert '- 检测间隔: 120 秒' in captured['content']

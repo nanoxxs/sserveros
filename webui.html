@@ -654,6 +654,98 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   -webkit-backdrop-filter: blur(12px) saturate(160%);
 }
 
+/* Controller / multi-server */
+.header-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.server-switcher { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.server-switcher-label { color: var(--fg-3); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.server-select {
+  width: min(210px, 26vw);
+  height: 30px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-1);
+  color: var(--fg-1);
+  padding: 0 28px 0 9px;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+}
+.server-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.controller-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.controller-toolbar-copy { min-width: 0; }
+.controller-title { color: var(--fg-1); font-size: 18px; font-weight: 750; }
+.controller-subtitle { color: var(--fg-3); font-size: 12px; margin-top: 3px; }
+.controller-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.server-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.server-summary-card { padding: 14px 16px; }
+.server-summary-value { color: var(--fg-1); font-family: var(--font-mono); font-size: 24px; font-weight: 750; line-height: 1; }
+.server-summary-label { color: var(--fg-3); font-size: 12px; margin-top: 7px; }
+.server-overview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 10px; }
+.server-overview-card {
+  padding: 15px;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, opacity .15s ease;
+}
+.server-overview-card:hover { border-color: var(--border-strong); background: var(--bg-2); }
+.server-overview-card.is-offline { border-color: color-mix(in oklab, var(--danger-fg) 25%, var(--border-default)); }
+.server-overview-card.is-disabled { cursor: default; opacity: .62; }
+.server-overview-card.is-disabled:hover { background: var(--bg-1); border-color: var(--border-default); }
+.server-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.server-card-name { color: var(--fg-1); font-size: 15px; font-weight: 750; overflow-wrap: anywhere; }
+.server-card-url { color: var(--fg-3); font-family: var(--font-mono); font-size: 11px; margin-top: 3px; overflow-wrap: anywhere; }
+.server-card-badges { display: flex; justify-content: flex-end; gap: 5px; flex-wrap: wrap; }
+.server-chip { display: inline-flex; align-items: center; border-radius: var(--radius-pill); padding: 3px 8px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.server-chip.online { background: var(--ok-bg); color: var(--ok-fg); }
+.server-chip.offline { background: var(--danger-bg); color: var(--danger-fg); }
+.server-chip.local { background: var(--accent-bg); color: var(--accent); }
+.server-chip.disabled { background: var(--bg-3); color: var(--fg-3); }
+.server-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 14px; }
+.server-metric { min-width: 0; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-2); padding: 8px; }
+.server-metric-label { color: var(--fg-3); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; }
+.server-metric-value { color: var(--fg-1); font-family: var(--font-mono); font-size: 13px; font-weight: 700; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.server-gpu-summary { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 11px; }
+.server-gpu-chip { border: 1px solid var(--border-default); border-radius: var(--radius-pill); background: var(--bg-1); color: var(--fg-2); padding: 4px 8px; font-family: var(--font-mono); font-size: 10px; }
+.server-card-foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; color: var(--fg-3); font-size: 11px; margin-top: 12px; }
+.server-card-error { color: var(--danger-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
+.server-manage-layout { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 10px; align-items: start; }
+.server-form-card { position: sticky; top: 100px; }
+.server-form-grid { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
+.server-form-field { display: flex; flex-direction: column; gap: 6px; }
+.server-form-field label { color: var(--fg-3); font-size: 11px; font-weight: 650; }
+.server-form-help { color: var(--fg-3); font-size: 11px; line-height: 1.45; }
+.server-form-actions, .server-manage-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+.server-manage-list { display: flex; flex-direction: column; gap: 10px; }
+.server-manage-card { padding: 14px 16px; }
+.server-manage-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.server-manage-meta-item { min-width: 0; }
+.server-manage-meta-label { color: var(--fg-3); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+.server-manage-meta-value { color: var(--fg-2); font-family: var(--font-mono); font-size: 11px; margin-top: 3px; overflow-wrap: anywhere; }
+.button-danger { color: var(--danger-fg) !important; border-color: color-mix(in oklab, var(--danger-fg) 30%, var(--border-default)) !important; }
+.button-danger:hover { background: var(--danger-bg) !important; }
+.target-context { color: var(--accent); font-weight: 650; }
+@media (max-width: 820px) {
+  .server-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .server-manage-layout { grid-template-columns: 1fr; }
+  .server-form-card { position: static; }
+}
+@media (max-width: 640px) {
+  .server-switcher-label { display: none; }
+  .server-select { width: min(138px, 34vw); }
+  .tabs.controller-tabs { justify-content: flex-start; overflow-x: auto; padding: 0 6px; }
+  .tabs.controller-tabs .tab { flex: 0 0 auto; min-width: 72px; }
+  .server-overview-grid { grid-template-columns: 1fr; }
+  .server-manage-meta { grid-template-columns: 1fr; }
+}
+@media (max-width: 460px) {
+  .server-select { width: 116px; }
+  .server-switcher + .status-badge { display: none; }
+  .server-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .server-summary-card { padding: 12px; }
+  .server-summary-value { font-size: 20px; }
+  .server-card-foot { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .server-card-error { max-width: 100%; }
+}
+
 /* Selected login style: Dark Console */
 .login-console-wrap {
   min-height: 100vh;
@@ -850,7 +942,10 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 
 <!-- ── App ───────────────────────────────────────── -->
 <template v-else>
-  <div class="offline-banner" v-if="!monitorRunning">⚠ 监控脚本未运行</div>
+  <div class="offline-banner" v-if="controllerMode && selectedServer && !selectedServer.online">
+    ⚠ 服务器 {{ selectedServerName }} 当前离线<span v-if="selectedServer.connection_error">：{{ selectedServer.connection_error }}</span>
+  </div>
+  <div class="offline-banner" v-else-if="!monitorRunning">⚠ {{ controllerMode ? selectedServerName + ' 的' : '' }}监控脚本未运行</div>
 
   <div class="header">
     <div class="brand-lockup brand-core">
@@ -863,15 +958,25 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
           <span class="brand-name-suffix">OS</span>
         </div>
         <div class="header-host brand-host-line">
-          <span class="brand-edition">Local Control</span>
+          <span class="brand-edition">{{ controllerMode ? 'Control Plane' : 'Local Control' }}</span>
           <span class="brand-host-sep">·</span>
-          <span class="brand-host-text">机器: {{ hostname }}</span>
+          <span class="brand-host-text">机器: {{ controllerMode ? selectedServerName : hostname }}</span>
         </div>
       </div>
     </div>
-    <div style="display:flex;align-items:center;gap:8px">
-      <span class="status-badge" :class="{offline: !monitorRunning}">
-        {{ monitorRunning ? '● 运行中' : '● 未运行' }}
+    <div class="header-actions">
+      <div v-if="controllerMode" class="server-switcher">
+        <span class="server-switcher-label">目标服务器</span>
+        <select class="server-select" v-model="selectedServerId" @change="handleServerSelection($event)">
+          <option v-if="!servers.length" value="">暂无服务器</option>
+          <option v-for="server in servers" :key="server.server_id" :value="server.server_id"
+                  :disabled="!server.enabled">
+            {{ server.online ? '●' : '○' }} {{ server.name }}{{ server.local ? '（本机）' : '' }}{{ server.enabled ? '' : '（已禁用）' }}
+          </option>
+        </select>
+      </div>
+      <span class="status-badge" :class="{offline: !targetRunning}">
+        {{ targetStatusText }}
       </span>
       <div class="dropdown" ref="headerDropdown">
         <button class="menu-btn" @click="dropdownOpen = !dropdownOpen" title="操作菜单">⚙</button>
@@ -898,10 +1003,98 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     </div>
   </div>
 
-  <div class="tabs">
+  <div class="tabs" :class="{'controller-tabs': controllerMode}">
     <div v-for="t in visibleTabs" :key="t.id" class="tab" :class="{active: currentTab === t.id}"
          @click="switchTab(t.id)">
       {{ t.label }}<span v-if="t.id === 'agent' && agentUnread" class="tab-unread" aria-label="有新回复"></span>
+    </div>
+  </div>
+
+  <!-- ── Controller overview pane ── -->
+  <div v-if="controllerMode" class="pane" :class="{active: currentTab === 'overview'}" id="paneOverview">
+    <div class="controller-toolbar">
+      <div class="controller-toolbar-copy">
+        <div class="controller-title">全部服务器</div>
+        <div class="controller-subtitle">通过 Tailscale 内网统一查看各节点的最新监控状态</div>
+      </div>
+      <div class="controller-actions">
+        <button class="back-btn" @click="loadServers(true)" :disabled="serversLoading">{{ serversLoading ? '刷新中…' : '刷新状态' }}</button>
+        <button class="add-btn" @click="switchTab('servers'); startAddServer()">管理服务器</button>
+      </div>
+    </div>
+
+    <div class="server-summary-grid">
+      <div class="card server-summary-card">
+        <div class="server-summary-value">{{ enabledServerCount }}</div>
+        <div class="server-summary-label">已启用服务器</div>
+      </div>
+      <div class="card server-summary-card">
+        <div class="server-summary-value" style="color:var(--ok-fg)">{{ onlineServerCount }}</div>
+        <div class="server-summary-label">在线</div>
+      </div>
+      <div class="card server-summary-card">
+        <div class="server-summary-value" :style="offlineServerCount ? 'color:var(--danger-fg)' : ''">{{ offlineServerCount }}</div>
+        <div class="server-summary-label">离线</div>
+      </div>
+      <div class="card server-summary-card">
+        <div class="server-summary-value">{{ totalGpuCount }}</div>
+        <div class="server-summary-label">可见 GPU</div>
+      </div>
+      <div class="card server-summary-card">
+        <div class="server-summary-value" :style="incompatibleServerCount ? 'color:var(--warn-fg)' : ''">{{ incompatibleServerCount }}</div>
+        <div class="server-summary-label">协议不兼容</div>
+      </div>
+    </div>
+
+    <div v-if="serversError" class="notice-msg error" style="display:block">{{ serversError }}</div>
+    <div v-if="!servers.length && !serversLoading" class="card" style="padding:28px;text-align:center;color:var(--fg-3)">
+      尚未添加服务器。请进入“节点”页面添加首个 Agent。
+    </div>
+    <div v-else class="server-overview-grid">
+      <article v-for="server in servers" :key="server.server_id"
+               class="card server-overview-card"
+               :class="{'is-offline': server.enabled && !server.online, 'is-disabled': !server.enabled}"
+               @click="server.enabled ? selectServerAndOpen(server.server_id) : editServer(server)">
+        <div class="server-card-head">
+          <div style="min-width:0">
+            <div class="server-card-name">{{ server.name }}</div>
+            <div class="server-card-url">{{ server.url || (server.local ? '本机 Agent' : '—') }}</div>
+          </div>
+          <div class="server-card-badges">
+            <span v-if="server.local" class="server-chip local">本机</span>
+            <span v-if="!server.enabled" class="server-chip disabled">已禁用</span>
+            <span v-else class="server-chip" :class="server.online ? 'online' : 'offline'">{{ server.online ? '在线' : '离线' }}</span>
+            <span v-if="server.compatible === false" class="server-chip disabled" style="color:var(--warn-fg);background:var(--warn-bg)">协议不兼容</span>
+            <span v-if="server.stale && server.state" class="server-chip disabled">数据陈旧</span>
+          </div>
+        </div>
+        <div class="server-metrics">
+          <div class="server-metric">
+            <div class="server-metric-label">CPU</div>
+            <div class="server-metric-value">{{ formatPercent(serverCpuPct(server)) }}</div>
+          </div>
+          <div class="server-metric">
+            <div class="server-metric-label">内存</div>
+            <div class="server-metric-value">{{ formatPercent(serverMemoryPct(server)) }}</div>
+          </div>
+          <div class="server-metric">
+            <div class="server-metric-label">磁盘</div>
+            <div class="server-metric-value">{{ formatPercent(serverDiskPct(server)) }}</div>
+          </div>
+        </div>
+        <div class="server-gpu-summary" v-if="serverGpus(server).length">
+          <span v-for="gpu in serverGpus(server).slice(0, 6)" :key="gpu.index" class="server-gpu-chip">
+            GPU {{ gpu.index }} · {{ gpuMemPct(gpu) }}%
+          </span>
+          <span v-if="serverGpus(server).length > 6" class="server-gpu-chip">+{{ serverGpus(server).length - 6 }}</span>
+        </div>
+        <div v-else class="server-gpu-summary"><span class="server-gpu-chip">无 GPU 数据</span></div>
+        <div class="server-card-foot">
+          <span v-if="server.connection_error || server.partial_error" class="server-card-error" :title="server.connection_error || server.partial_error">{{ server.connection_error || server.partial_error }}</span>
+          <span v-else>Agent {{ server.agent_version || '—' }} · 协议 {{ server.protocol_version || '—' }}</span>
+          <span>{{ server.online ? '更新 ' + formatLastSeen(server.sampled_at || server.last_seen_at) : '最后在线 ' + formatLastSeen(server.last_seen_at) }}</span>
+        </div>
+      </article>
     </div>
   </div>
 
@@ -1372,7 +1565,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   <div class="pane" :class="{active: currentTab === 'pids'}" id="panePids">
     <div class="card settings-section">
       <div class="card-header">
-        <span>监控 PID 列表</span>
+        <span>监控 PID 列表<span v-if="controllerMode" class="target-context"> · {{ selectedServerName }}</span></span>
         <div style="display:flex;align-items:center;gap:10px">
           <span style="font-size:13px;color:#94a3b8;font-weight:400">{{ pidData.length }} 个</span>
           <button v-if="deadPidCount > 0" class="back-btn"
@@ -1407,6 +1600,113 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     </div>
   </div>
 
+  <!-- ── Controller server management pane ── -->
+  <div v-if="controllerMode" class="pane" :class="{active: currentTab === 'servers'}" id="paneServers">
+    <div class="controller-toolbar">
+      <div class="controller-toolbar-copy">
+        <div class="controller-title">服务器管理</div>
+        <div class="controller-subtitle">添加 Agent 的 Tailscale 地址和配对令牌；令牌保存后不会在页面回显</div>
+      </div>
+      <div class="controller-actions">
+        <button class="back-btn" @click="loadServers(true)" :disabled="serversLoading">刷新列表</button>
+        <button class="add-btn" @click="startAddServer()">添加服务器</button>
+      </div>
+    </div>
+
+    <div class="server-manage-layout">
+      <div class="card server-form-card">
+        <div class="card-header">{{ serverForm.server_id ? '编辑服务器' : '添加服务器' }}</div>
+        <div class="server-form-grid">
+          <div class="server-form-field">
+            <label>显示名称</label>
+            <input class="setting-input" v-model="serverForm.name" placeholder="例如：训练机 B">
+          </div>
+          <div class="server-form-field">
+            <label>Agent URL</label>
+            <input class="setting-input" v-model="serverForm.url"
+                   :disabled="serverForm.local"
+                   placeholder="例如：http://100.64.0.12:6780">
+            <div class="server-form-help">推荐填写 Tailscale IP 或 MagicDNS 名称；无需在末尾添加 API 路径。</div>
+          </div>
+          <div class="server-form-field">
+            <label>配对令牌</label>
+            <input class="setting-input" v-model="serverForm.token" type="password"
+                   :disabled="serverForm.local"
+                   :placeholder="serverForm.server_id ? '留空则保留现有令牌' : 'Agent 安装时生成的令牌'"
+                   autocomplete="new-password">
+          </div>
+          <div class="setting-row-toggle" style="padding:2px 0">
+            <div>
+              <div class="setting-label" style="margin-bottom:2px">启用轮询</div>
+              <div class="server-form-help">禁用后主控不再连接此 Agent</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" v-model="serverForm.enabled">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div v-if="serverManageMsg.text" class="notice-msg" :class="serverManageMsg.kind" style="display:block">
+            {{ serverManageMsg.text }}
+          </div>
+          <div class="server-form-actions">
+            <button class="add-btn" @click="saveServer()" :disabled="serverFormBusy">{{ serverFormBusy ? '保存中…' : '保存' }}</button>
+            <button v-if="serverForm.server_id" class="back-btn" @click="startAddServer()">取消编辑</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="server-manage-list">
+        <div v-if="!servers.length && !serversLoading" class="card" style="padding:24px;color:var(--fg-3);text-align:center">暂无服务器记录</div>
+        <article v-for="server in servers" :key="server.server_id" class="card server-manage-card">
+          <div class="server-card-head">
+            <div style="min-width:0">
+              <div class="server-card-name">{{ server.name }}</div>
+              <div class="server-card-url">{{ server.url || (server.local ? '本机 Agent' : '—') }}</div>
+            </div>
+            <div class="server-card-badges">
+              <span v-if="server.local" class="server-chip local">本机</span>
+              <span v-if="!server.enabled" class="server-chip disabled">已禁用</span>
+              <span v-else class="server-chip" :class="server.online ? 'online' : 'offline'">{{ server.online ? '在线' : '离线' }}</span>
+              <span v-if="server.compatible === false" class="server-chip disabled" style="color:var(--warn-fg);background:var(--warn-bg)">协议不兼容</span>
+              <span v-if="server.stale && server.state" class="server-chip disabled">数据陈旧</span>
+            </div>
+          </div>
+          <div class="server-manage-meta">
+            <div class="server-manage-meta-item">
+              <div class="server-manage-meta-label">Server ID</div>
+              <div class="server-manage-meta-value">{{ server.server_id }}</div>
+            </div>
+            <div class="server-manage-meta-item">
+              <div class="server-manage-meta-label">Agent / 协议</div>
+              <div class="server-manage-meta-value">{{ server.agent_version || '—' }} / {{ server.protocol_version || '—' }}</div>
+            </div>
+            <div class="server-manage-meta-item">
+              <div class="server-manage-meta-label">最近在线 / 延迟</div>
+              <div class="server-manage-meta-value">{{ formatLastSeen(server.last_seen_at) }} · {{ server.latency_ms != null ? server.latency_ms + ' ms' : '—' }}</div>
+            </div>
+          </div>
+          <div v-if="server.connection_error" class="notice-msg error" style="display:block;margin-bottom:10px">{{ server.connection_error }}</div>
+          <div v-else-if="server.partial_error" class="notice-msg warn" style="display:block;margin-bottom:10px">{{ server.partial_error }}</div>
+          <div v-if="serverTestResults[server.server_id]" class="notice-msg"
+               :class="serverTestResults[server.server_id].ok ? 'success' : 'error'" style="display:block;margin-bottom:10px">
+            {{ serverTestResults[server.server_id].text }}
+          </div>
+          <div class="server-manage-actions">
+            <button class="back-btn" @click="selectServerAndOpen(server.server_id)" :disabled="!server.enabled">查看监控</button>
+            <button class="back-btn" @click="testServer(server)" :disabled="serverActionBusy[server.server_id] || !server.enabled">
+              {{ serverActionBusy[server.server_id] === 'test' ? '测试中…' : '测试连接' }}
+            </button>
+            <button v-if="!server.local" class="back-btn" @click="editServer(server)">编辑</button>
+            <button v-if="!server.local" class="back-btn" @click="toggleServerEnabled(server)" :disabled="serverActionBusy[server.server_id]">
+              {{ server.enabled ? '禁用' : '启用' }}
+            </button>
+            <button v-if="!server.local" class="back-btn button-danger" @click="deleteServer(server)" :disabled="serverActionBusy[server.server_id]">删除</button>
+          </div>
+        </article>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Settings pane ── -->
   <div class="pane" :class="{active: currentTab === 'settings'}" id="paneSettings">
     <div class="settings-layout">
@@ -1418,7 +1718,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
       </nav>
       <div class="settings-sections">
     <div class="card settings-section" ref="settingsMonitor">
-      <div class="card-header">监控参数</div>
+      <div class="card-header">监控参数<span v-if="controllerMode" class="target-context">{{ selectedServerName }}</span></div>
       <div class="setting-row setting-row-toggle">
         <div>
           <div class="setting-label" style="margin-bottom:2px">显存阈值监控</div>
@@ -1472,7 +1772,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     <button class="save-btn" @click="saveMonitorSettings()" style="margin-top:0">保存监控参数</button>
     <div v-if="monitorSaveMsg.text" class="notice-msg" :class="monitorSaveMsg.kind" style="display:block">{{ monitorSaveMsg.text }}</div>
 	    <div class="card settings-section" ref="settingsNotify">
-      <div class="card-header">通知渠道</div>
+      <div class="card-header">通知渠道<span v-if="controllerMode" class="target-context">{{ selectedServerName }}</span></div>
       <div class="setting-row">
         <div class="setting-label">Server Chan 密钥（每行一个，支持多个）</div>
         <div style="font-size:12px;color:#94a3b8;margin-bottom:6px">
@@ -1498,7 +1798,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 
     <!-- Agent config -->
     <div class="card settings-section" ref="settingsAgent">
-      <div class="card-header">Agent · LLM 配置</div>
+      <div class="card-header">{{ controllerMode ? '主控 Agent · LLM 配置' : 'Agent · LLM 配置' }}</div>
       <div class="setting-row setting-row-toggle">
         <div>
           <div class="setting-label" style="margin-bottom:2px">启用 Agent</div>
@@ -1556,7 +1856,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     <template v-if="logView === 'list'">
       <div class="card">
         <div class="card-header">
-          <span>事件日志</span>
+          <span>事件日志<span v-if="controllerMode" class="target-context"> · {{ selectedServerName }}</span></span>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
             <span style="font-size:13px;color:#94a3b8;font-weight:400">最近 200 条</span>
             <button v-if="logEntries.length" class="back-btn log-clear-btn"
@@ -1590,7 +1890,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
             <div style="font-size:12px;color:#94a3b8">{{ (a.size_bytes/1024).toFixed(1) }} KB</div>
           </div>
           <div class="archive-actions">
-            <a :href="'/api/log/archives/' + encodeURIComponent(a.filename)" download>
+            <a :href="archiveDownloadUrl(a.filename)" download>
               <button class="dl-btn">下载</button>
             </a>
             <button class="archive-del-btn" @click="deleteArchive(a.filename)">删除</button>
@@ -1650,7 +1950,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
         <div class="agent-window-heading">
           <span class="agent-window-mark" aria-hidden="true">AI</span>
           <div>
-            <div class="agent-window-title" id="agentChatTitle">AI 助手</div>
+            <div class="agent-window-title" id="agentChatTitle">AI 助手<span v-if="controllerMode"> · {{ selectedServerName }}</span></div>
             <div class="agent-window-status" :class="{busy: agentBusy}">
               <span class="agent-status-dot" aria-hidden="true"></span>
               {{ agentBusy ? '响应中' : '已就绪' }}
@@ -1789,6 +2089,18 @@ createApp({
         {id:'log', label:'日志'},
       ],
       currentTab: 'gpu',
+      nodeRole: 'standalone',
+      controllerConfig: {},
+      servers: [],
+      selectedServerId: '',
+      _activeServerId: '',
+      serversLoading: false,
+      serversError: '',
+      serverForm: {server_id:'', name:'', url:'', token:'', enabled:true, local:false},
+      serverFormBusy: false,
+      serverManageMsg: {text:'', kind:''},
+      serverActionBusy: {},
+      serverTestResults: {},
       hostname: '',
       monitorRunning: false,
       _refreshTimer: null,
@@ -1908,8 +2220,46 @@ createApp({
   },
 
   computed: {
+    controllerMode() {
+      return this.nodeRole === 'controller';
+    },
+    selectedServer() {
+      return this.servers.find(server => server.server_id === this.selectedServerId) || null;
+    },
+    selectedServerName() {
+      return this.selectedServer?.name || this.hostname || '未选择';
+    },
+    targetRunning() {
+      if (!this.controllerMode) return this.monitorRunning;
+      return !!(this.selectedServer?.online && this.monitorRunning);
+    },
+    targetStatusText() {
+      if (!this.controllerMode) return this.monitorRunning ? '● 运行中' : '● 未运行';
+      if (!this.selectedServer) return '○ 未选择';
+      if (!this.selectedServer.online) return '○ 离线';
+      return this.monitorRunning ? '● 运行中' : '● 监控未运行';
+    },
+    enabledServerCount() {
+      return this.servers.filter(server => server.enabled).length;
+    },
+    onlineServerCount() {
+      return this.servers.filter(server => server.enabled && server.online).length;
+    },
+    offlineServerCount() {
+      return this.servers.filter(server => server.enabled && !server.online).length;
+    },
+    incompatibleServerCount() {
+      return this.servers.filter(server => server.enabled && server.compatible === false).length;
+    },
+    totalGpuCount() {
+      return this.servers
+        .filter(server => server.enabled && server.online)
+        .reduce((count, server) => count + this.serverGpus(server).length, 0);
+    },
     visibleTabs() {
-      const tabs = [...this.tabs];
+      const tabs = this.controllerMode
+        ? [{id:'overview', label:'总览'}, ...this.tabs, {id:'servers', label:'节点'}]
+        : [...this.tabs];
       if (this.isMobileAgent && this.agentEnabled) tabs.push({id:'agent', label:'Agent'});
       return tabs;
     },
@@ -2075,9 +2425,37 @@ createApp({
 
   methods: {
     // ── API ──────────────────────────────────────────
-    async api(path, opts = {}) {
-      const r = await fetch(path, opts);
-      if (r.status === 401 && path !== '/api/auth/login') location.reload();
+    isScopedOperationalPath(path) {
+      const pathname = String(path || '').split(/[?#]/, 1)[0];
+      const roots = [
+        '/api/state', '/api/config', '/api/sysinfo', '/api/gpu', '/api/log',
+        '/api/settings', '/api/pids', '/api/release-commands', '/api/notify/test',
+      ];
+      return roots.some(root => pathname === root || pathname.startsWith(root + '/'));
+    },
+
+    apiPath(path, scoped = true) {
+      if (!scoped || !this.controllerMode || !this.selectedServerId || !this.isScopedOperationalPath(path)) {
+        return path;
+      }
+      return `/api/servers/${encodeURIComponent(this.selectedServerId)}${path.slice(4)}`;
+    },
+
+    async api(path, opts = {}, scoped = true) {
+      const targetServerId = this.selectedServerId;
+      const resolvedPath = this.apiPath(path, scoped);
+      const r = await fetch(resolvedPath, opts);
+      const scopedAgentRequest = this.controllerMode
+        && resolvedPath.startsWith('/api/servers/')
+        && this.isScopedOperationalPath(path);
+      if (r.status === 401 && path !== '/api/auth/login' && !scopedAgentRequest) location.reload();
+      const method = String(opts.method || 'GET').toUpperCase();
+      if (scopedAgentRequest && method === 'GET' && targetServerId !== this.selectedServerId) {
+        return new Response(JSON.stringify({error:'目标服务器已切换'}), {
+          status:409,
+          headers:{'Content-Type':'application/json'},
+        });
+      }
       return r;
     },
 
@@ -2110,19 +2488,403 @@ createApp({
     },
 
     // ── Bootstrap ────────────────────────────────────
-    startApp() {
+    async startApp() {
       if (this._appStarted) return;
       this._appStarted = true;
       this.hostname = location.hostname;
+      await this.loadNodeRole();
+      if (this.controllerMode) {
+        await this.loadServers();
+        if (!(new URLSearchParams(location.search)).get('task_id')) this.currentTab = 'overview';
+      }
       this.startStateRefresh();
       this.loadAgentConfig();
       this.openReleaseCommandFromUrl();
+    },
+
+    async loadNodeRole() {
+      try {
+        const r = await fetch('/api/config');
+        if (!r.ok) return;
+        const cfg = await r.json();
+        this.controllerConfig = cfg || {};
+        this.nodeRole = cfg.node_role || 'standalone';
+      } catch(e) {
+        this.nodeRole = 'standalone';
+      }
+    },
+
+    normalizeServer(server) {
+      const raw = server && typeof server === 'object' ? server : {};
+      return {
+        ...raw,
+        server_id: String(raw.server_id || raw.id || ''),
+        name: raw.name || raw.display_name || raw.hostname || raw.server_id || '未命名服务器',
+        url: raw.url || raw.agent_url || '',
+        enabled: raw.enabled !== false,
+        local: !!raw.local,
+        online: !!raw.online,
+        state: raw.state && typeof raw.state === 'object' ? raw.state : null,
+      };
+    },
+
+    async loadServers(showFeedback = false) {
+      if (!this.controllerMode || this.serversLoading) return;
+      this.serversLoading = true;
+      this.serversError = '';
+      try {
+        const previousActiveId = this._activeServerId;
+        const previousSessionId = this.agentSessionId;
+        const r = await this.api(showFeedback ? '/api/servers/refresh' : '/api/servers', showFeedback ? {method:'POST'} : {});
+        const payload = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(payload.error || '获取服务器列表失败');
+        const list = Array.isArray(payload) ? payload : (payload.servers || []);
+        const previousById = new Map(this.servers.map(server => [server.server_id, server]));
+        this.servers = list.map(server => {
+          const normalized = this.normalizeServer(server);
+          const previousSysinfo = previousById.get(normalized.server_id)?.state?.sysinfo;
+          if (previousSysinfo && normalized.state && !normalized.state.sysinfo) {
+            normalized.state = {...normalized.state, sysinfo:previousSysinfo};
+          }
+          return normalized;
+        }).filter(server => server.server_id);
+
+        const current = this.servers.find(server => server.server_id === this.selectedServerId && server.enabled);
+        if (!current) {
+          const savedId = localStorage.getItem('sserveros.selected_server') || '';
+          const selected = this.servers.find(server => server.server_id === savedId && server.enabled)
+            || this.servers.find(server => server.local && server.enabled)
+            || this.servers.find(server => server.enabled)
+            || this.servers[0]
+            || null;
+          this.selectedServerId = selected?.server_id || '';
+          this._activeServerId = this.selectedServerId;
+          if (this.selectedServerId) localStorage.setItem('sserveros.selected_server', this.selectedServerId);
+        } else if (!this._activeServerId) {
+          this._activeServerId = current.server_id;
+        }
+        if (previousActiveId && this._activeServerId !== previousActiveId) {
+          this.resetTargetData();
+          if (previousSessionId) {
+            const query = `?server_id=${encodeURIComponent(previousActiveId)}`;
+            this.api(`/api/agent/session/${encodeURIComponent(previousSessionId)}${query}`, {method:'DELETE'}).catch(() => {});
+          }
+          this.agentSessionId = null;
+          this.agentHistory = [];
+          this.agentMessages = [];
+          this.agentUnread = false;
+        }
+        this.applySelectedServerSnapshot();
+        if (showFeedback) this.showToast(`已刷新 ${this.servers.length} 台服务器`, true);
+      } catch(e) {
+        this.serversError = e.message || '获取服务器列表失败';
+        if (showFeedback) this.showToast(this.serversError, false);
+      } finally {
+        this.serversLoading = false;
+      }
+    },
+
+    applySelectedServerSnapshot() {
+      if (!this.controllerMode || !this.selectedServer) return;
+      const state = this.selectedServer.state || {};
+      this.hostname = state.hostname || this.selectedServer.name || this.hostname;
+      this.gpus = Array.isArray(state.gpus) ? state.gpus : this.gpus;
+      if (state.monitor_running !== undefined) this.monitorRunning = !!state.monitor_running;
+      const sys = state.sysinfo && typeof state.sysinfo === 'object' ? state.sysinfo : state;
+      if (sys.cpu_pct !== undefined) this.cpuPct = sys.cpu_pct;
+      if (sys.ram_used_mib !== undefined) this.ramUsedMib = sys.ram_used_mib;
+      if (sys.ram_total_mib !== undefined) this.ramTotalMib = sys.ram_total_mib;
+      if (sys.disk_pct !== undefined) this.diskPct = sys.disk_pct;
+      if (sys.disk_used_gb !== undefined) this.diskUsedGb = sys.disk_used_gb;
+      if (sys.disk_total_gb !== undefined) this.diskTotalGb = sys.disk_total_gb;
+    },
+
+    handleServerSelection(event) {
+      const nextId = event?.target?.value || this.selectedServerId;
+      this.switchSelectedServer(nextId).then(changed => {
+        if (!changed) this.selectedServerId = this._activeServerId;
+      });
+    },
+
+    async switchSelectedServer(serverId, force = false) {
+      const next = this.servers.find(server => server.server_id === serverId);
+      if (!next || !next.enabled) return false;
+      if (serverId === this._activeServerId) {
+        this.selectedServerId = serverId;
+        return true;
+      }
+      if (!force && this.hasUnsavedReleaseCommandEdits() && !this.confirmTargetChange(this._activeServerId)) return false;
+
+      const oldSessionId = this.agentSessionId;
+      const oldServerId = this._activeServerId;
+      if (this.agentBusy) this.agentInterrupt();
+      this.selectedServerId = serverId;
+      this._activeServerId = serverId;
+      localStorage.setItem('sserveros.selected_server', serverId);
+      this.resetTargetData();
+      this.applySelectedServerSnapshot();
+      if (oldSessionId) {
+        const query = this.controllerMode && oldServerId ? `?server_id=${encodeURIComponent(oldServerId)}` : '';
+        this.api(`/api/agent/session/${encodeURIComponent(oldSessionId)}${query}`, {method:'DELETE'}).catch(() => {});
+      }
+      this.agentSessionId = null;
+      this.agentHistory = [];
+      this.agentMessages = [];
+      this.agentUnread = false;
+
+      await Promise.all([this.fetchState(), this.fetchSysinfo()]);
+      if (this.currentTab === 'pids') await this.loadPids();
+      if (this.currentTab === 'settings') await Promise.all([this.loadSettings(), this.loadAgentConfig()]);
+      if (this.currentTab === 'log') await Promise.all([this.loadLog(), this.loadArchives()]);
+      return true;
+    },
+
+    confirmTargetChange(serverId) {
+      const name = this.servers.find(server => server.server_id === serverId)?.name || '当前服务器';
+      return confirm(`服务器“${name}”的任务队列有未保存修改，切换服务器将丢失这些修改，是否继续？`);
+    },
+
+    resetTargetData() {
+      this.hostname = this.selectedServerName;
+      this.monitorRunning = false;
+      this.gpus = [];
+      this.gpuView = 'list';
+      this.currentGpuIndex = null;
+      this.gpuDetail = null;
+      this.gpuDetailError = '';
+      this.cpuPct = null;
+      this.cpuCountLogical = 0;
+      this.cpuCountPhysical = 0;
+      this.cpuPerCore = [];
+      this.ramUsedMib = null;
+      this.ramTotalMib = null;
+      this.diskPct = null;
+      this.diskUsedGb = null;
+      this.diskTotalGb = null;
+      this.diskData = [];
+      this.pidData = [];
+      this.logEntries = [];
+      this.archives = [];
+      this.logView = 'list';
+      this.logDetailIdx = null;
+      this.releaseCommands = [];
+      this.releaseCommandDrafts = {};
+      this.pidMsg = {text:'', kind:''};
+      this.monitorSaveMsg = {text:'', kind:''};
+      this.releaseSaveMsg = {text:'', kind:''};
+      this.notifySaveMsg = {text:'', kind:''};
+    },
+
+    async selectServerAndOpen(serverId) {
+      const changed = await this.switchSelectedServer(serverId);
+      if (!changed) return;
+      this.currentTab = 'gpu';
+      this.gpuView = 'list';
+      window.scrollTo({top:0, left:0, behavior:'auto'});
+    },
+
+    serverState(server) {
+      const state = server?.state && typeof server.state === 'object' ? server.state : {};
+      return state.state && typeof state.state === 'object' ? state.state : state;
+    },
+
+    serverSysinfo(server) {
+      const state = this.serverState(server);
+      return state.sysinfo && typeof state.sysinfo === 'object'
+        ? state.sysinfo
+        : (state.system && typeof state.system === 'object' ? state.system : state);
+    },
+
+    serverGpus(server) {
+      const state = this.serverState(server);
+      return Array.isArray(state.gpus) ? state.gpus : [];
+    },
+
+    serverCpuPct(server) {
+      const sys = this.serverSysinfo(server);
+      return sys.cpu_pct ?? sys.cpu_percent ?? null;
+    },
+
+    serverMemoryPct(server) {
+      const sys = this.serverSysinfo(server);
+      if (sys.ram_pct !== undefined) return sys.ram_pct;
+      if (sys.memory_pct !== undefined) return sys.memory_pct;
+      const used = Number(sys.ram_used_mib ?? sys.memory_used_mib);
+      const total = Number(sys.ram_total_mib ?? sys.memory_total_mib);
+      return Number.isFinite(used) && Number.isFinite(total) && total > 0 ? used / total * 100 : null;
+    },
+
+    serverDiskPct(server) {
+      const sys = this.serverSysinfo(server);
+      return sys.disk_pct ?? sys.disk_percent ?? null;
+    },
+
+    formatPercent(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? `${number.toFixed(1)}%` : '—';
+    },
+
+    formatLastSeen(value) {
+      if (!value) return '从未在线';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+      if (seconds < 10) return '刚刚';
+      if (seconds < 60) return `${seconds} 秒前`;
+      if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
+      if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`;
+      return date.toLocaleString('zh-CN', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
+    },
+
+    startAddServer() {
+      this.serverForm = {server_id:'', name:'', url:'', token:'', enabled:true, local:false};
+      this.serverManageMsg = {text:'', kind:''};
+    },
+
+    editServer(server) {
+      if (!server) return;
+      this.currentTab = 'servers';
+      this.serverForm = {
+        server_id: server.server_id,
+        name: server.name || '',
+        url: server.url || '',
+        token: '',
+        enabled: server.enabled !== false,
+        local: !!server.local,
+      };
+      this.serverManageMsg = {text:'', kind:''};
+      window.scrollTo({top:0, left:0, behavior:'smooth'});
+    },
+
+    async saveServer() {
+      if (this.serverFormBusy) return;
+      const name = this.serverForm.name.trim();
+      const url = this.serverForm.url.trim().replace(/\/+$/, '');
+      const token = this.serverForm.token.trim();
+      if (!name) {
+        this.serverManageMsg = {text:'请填写服务器名称', kind:'error'};
+        return;
+      }
+      if (!this.serverForm.local && !url) {
+        this.serverManageMsg = {text:'请填写 Agent URL', kind:'error'};
+        return;
+      }
+      if (!this.serverForm.server_id && !this.serverForm.local && !token) {
+        this.serverManageMsg = {text:'首次添加服务器时必须填写配对令牌', kind:'error'};
+        return;
+      }
+
+      const body = {name, url, enabled: this.serverForm.enabled !== false};
+      if (token) body.token = token;
+      const editing = !!this.serverForm.server_id;
+      const path = editing
+        ? `/api/servers/${encodeURIComponent(this.serverForm.server_id)}`
+        : '/api/servers';
+      this.serverFormBusy = true;
+      try {
+        const r = await this.api(path, {
+          method: editing ? 'PUT' : 'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(body),
+        });
+        const payload = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(payload.error || (editing ? '更新服务器失败' : '添加服务器失败'));
+        const successText = payload.message || (editing ? '服务器已更新' : '服务器已添加');
+        await this.loadServers();
+        if (!editing) this.startAddServer();
+        this.serverManageMsg = {text:successText, kind:'success'};
+        this.showToast(successText, true);
+      } catch(e) {
+        this.serverManageMsg = {text:e.message || '保存失败', kind:'error'};
+      } finally {
+        this.serverFormBusy = false;
+      }
+    },
+
+    setServerBusy(serverId, action) {
+      this.serverActionBusy = {...this.serverActionBusy, [serverId]: action};
+    },
+
+    clearServerBusy(serverId) {
+      const next = {...this.serverActionBusy};
+      delete next[serverId];
+      this.serverActionBusy = next;
+    },
+
+    async testServer(server) {
+      if (!server?.server_id || this.serverActionBusy[server.server_id]) return;
+      this.setServerBusy(server.server_id, 'test');
+      try {
+        const r = await this.api(`/api/servers/${encodeURIComponent(server.server_id)}/test`, {method:'POST'});
+        const payload = await r.json().catch(() => ({}));
+        const ok = r.ok && payload.ok !== false && payload.compatible !== false;
+        const latency = payload.latency_ms != null ? `，${payload.latency_ms} ms` : '';
+        const incompatibleText = payload.compatible === false
+          ? `Agent 可连接，但协议 ${payload.protocol_version ?? '未知'} 与主控不兼容`
+          : '';
+        this.serverTestResults = {
+          ...this.serverTestResults,
+          [server.server_id]: {
+            ok,
+            text: ok ? (payload.message || `连接成功${latency}`) : (incompatibleText || payload.error || '连接失败'),
+          },
+        };
+        if (ok) await this.loadServers();
+      } catch(e) {
+        this.serverTestResults = {
+          ...this.serverTestResults,
+          [server.server_id]: {ok:false, text:e.message || '连接测试失败'},
+        };
+      } finally {
+        this.clearServerBusy(server.server_id);
+      }
+    },
+
+    async toggleServerEnabled(server) {
+      if (!server?.server_id || server.local || this.serverActionBusy[server.server_id]) return;
+      const enabled = !server.enabled;
+      this.setServerBusy(server.server_id, 'toggle');
+      try {
+        const r = await this.api(`/api/servers/${encodeURIComponent(server.server_id)}`, {
+          method:'PUT', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({name:server.name, url:server.url, enabled}),
+        });
+        const payload = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(payload.error || '更新服务器失败');
+        this.showToast(`${server.name} 已${enabled ? '启用' : '禁用'}`, true);
+        await this.loadServers();
+      } catch(e) {
+        this.showToast(e.message || '更新服务器失败', false);
+      } finally {
+        this.clearServerBusy(server.server_id);
+      }
+    },
+
+    async deleteServer(server) {
+      if (!server?.server_id || server.local || this.serverActionBusy[server.server_id]) return;
+      if (!confirm(`确认从主控删除服务器“${server.name}”？该操作不会卸载远端 Agent。`)) return;
+      this.setServerBusy(server.server_id, 'delete');
+      try {
+        const r = await this.api(`/api/servers/${encodeURIComponent(server.server_id)}`, {method:'DELETE'});
+        const payload = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(payload.error || '删除服务器失败');
+        if (this.serverForm.server_id === server.server_id) this.startAddServer();
+        this.showToast('服务器记录已删除', true);
+        await this.loadServers();
+      } catch(e) {
+        this.showToast(e.message || '删除服务器失败', false);
+      } finally {
+        this.clearServerBusy(server.server_id);
+      }
     },
 
     async openReleaseCommandFromUrl() {
       const params = new URLSearchParams(location.search);
       const taskId = params.get('task_id');
       if (!taskId) return;
+      const serverId = params.get('server_id');
+      if (this.controllerMode && serverId) await this.switchSelectedServer(serverId, true);
+      this.currentTab = 'gpu';
       await this.refreshReleaseCommands();
       const task = this.releaseCommands.find(cmd => cmd.id === taskId);
       if (!task) return;
@@ -2146,7 +2908,13 @@ createApp({
     // ── Tab ───────────────────────────────────────────
     switchTab(name) {
       if (name === 'agent' && (!this.isMobileAgent || !this.agentEnabled)) return;
+      if (this.controllerMode && !this.selectedServerId && ['gpu','pids','settings','log','agent'].includes(name)) {
+        this.currentTab = 'servers';
+        this.showToast('请先添加并启用一台服务器', false);
+        return;
+      }
       this.currentTab = name;
+      if (name === 'overview' || name === 'servers') this.loadServers();
       if (name === 'gpu' || name === 'pids') this.fetchState();
       if (name === 'pids') this.loadPids();
       if (name === 'settings') { this.loadSettings(); this.loadAgentConfig(); }
@@ -2220,16 +2988,23 @@ createApp({
     // ── State ─────────────────────────────────────────
     startStateRefresh() {
       if (this._refreshTimer) return;
-      this.fetchState();
-      this.fetchSysinfo();
-      this._refreshTimer = setInterval(() => {
+      if (this.controllerMode) this.loadServers();
+      if (!this.controllerMode || this.selectedServerId) {
         this.fetchState();
         this.fetchSysinfo();
-        this.fetchActiveSystemDetail();
+      }
+      this._refreshTimer = setInterval(() => {
+        if (this.controllerMode) this.loadServers();
+        if (!this.controllerMode || this.selectedServerId) {
+          this.fetchState();
+          this.fetchSysinfo();
+          this.fetchActiveSystemDetail();
+        }
       }, 5000);
     },
 
     async fetchState() {
+      if (this.controllerMode && !this.selectedServerId) return;
       try {
         const r = await this.api('/api/state');
         if (!r.ok) return;
@@ -2254,11 +3029,13 @@ createApp({
 	        this.tmuxStatus = data.tmux_status || this.tmuxStatus;
 	        this.zellijStatus = data.zellij_status || this.zellijStatus;
 	        this.monitorRunning = !!data.monitor_running;
+        this.updateSelectedServerCache(data);
         this.$nextTick(() => this.updateAgentPaneHeight());
       } catch(e) {}
     },
 
     async fetchSysinfo() {
+      if (this.controllerMode && !this.selectedServerId) return;
       try {
         const r = await this.api('/api/sysinfo');
         if (!r.ok) return;
@@ -2271,7 +3048,19 @@ createApp({
         this.diskUsedGb = d.disk_used_gb ?? null;
         this.diskTotalGb = d.disk_total_gb ?? null;
         this.diskData = d.disks || [];
+        this.updateSelectedServerCache({sysinfo: d});
       } catch(e) {}
+    },
+
+    updateSelectedServerCache(statePatch) {
+      if (!this.controllerMode || !this.selectedServerId || !statePatch || typeof statePatch !== 'object') return;
+      const index = this.servers.findIndex(server => server.server_id === this.selectedServerId);
+      if (index < 0) return;
+      const current = this.servers[index];
+      this.servers[index] = {
+        ...current,
+        state: {...(current.state || {}), ...statePatch},
+      };
     },
 
     async fetchCpuDetail() {
@@ -2430,6 +3219,7 @@ createApp({
     },
 
     async removePid(pid) {
+      if (this.controllerMode && !confirm(`确认从服务器“${this.selectedServerName}”移除 PID ${pid} 的监控？`)) return;
       const r = await this.api('/api/pids/remove', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({pid}),
@@ -2445,7 +3235,7 @@ createApp({
     async clearDeadPids() {
       const dead = this.pidData.filter(p => !p.alive);
       if (!dead.length) return;
-      if (!confirm(`确认移除全部 ${dead.length} 个已消失的 PID？`)) return;
+      if (!confirm(`确认从${this.controllerMode ? `服务器“${this.selectedServerName}”` : '当前服务器'}移除全部 ${dead.length} 个已消失的 PID？`)) return;
       const r = await this.api('/api/pids/clear-dead', {method:'POST'});
       const payload = await r.json().catch(() => ({}));
       if (r.ok) {
@@ -2938,7 +3728,7 @@ createApp({
 
     confirmReleaseCommandDraftDiscard() {
       if (!this.hasUnsavedReleaseCommandEdits()) return true;
-      return confirm('任务队列中有未保存的修改，继续操作将丢失这些修改，是否继续？');
+      return confirm(`${this.controllerMode ? `服务器“${this.selectedServerName}”的` : ''}任务队列中有未保存的修改，继续操作将丢失这些修改，是否继续？`);
     },
 
     releaseCommandHasChanges(cmd) {
@@ -2977,7 +3767,7 @@ createApp({
       if (!id) return;
       const cmd = this.releaseCommands.find(item => item.id === id);
       const label = cmd?.note || id;
-      if (!confirm(`确认删除任务“${label}”？`)) return;
+      if (!confirm(`确认从${this.controllerMode ? `服务器“${this.selectedServerName}”` : '当前服务器'}删除任务“${label}”？`)) return;
       const r = await this.api('/api/release-commands/remove', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({id}),
@@ -3037,7 +3827,7 @@ createApp({
 
     async clearReleaseCommands(scope) {
 	      const label = scope === 'pending' ? '待执行任务' : (scope === 'all' ? '全部非运行任务' : '已完成任务');
-      if (!confirm(`确认清理${label}？`)) return;
+	      if (!confirm(`确认清理${this.controllerMode ? `服务器“${this.selectedServerName}”的` : ''}${label}？`)) return;
       const r = await this.api('/api/release-commands/clear', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({scope}),
@@ -3081,8 +3871,8 @@ createApp({
         if (!this.agentEnabled) {
           this.agentChatOpen = false;
           if (this.currentTab === 'agent') {
-            this.currentTab = 'gpu';
-            this.fetchState();
+            this.currentTab = this.controllerMode ? 'overview' : 'gpu';
+            if (!this.controllerMode) this.fetchState();
           }
         }
         this.$nextTick(() => this.updateAgentPaneHeight());
@@ -3127,8 +3917,12 @@ createApp({
       this.archives = await r.json();
     },
 
+    archiveDownloadUrl(filename) {
+      return this.apiPath('/api/log/archives/' + encodeURIComponent(filename));
+    },
+
     async clearEventLog() {
-      if (!confirm('确认清空当前事件日志？历史存档不会被删除。')) return;
+      if (!confirm(`确认清空${this.controllerMode ? `服务器“${this.selectedServerName}”的` : '当前'}事件日志？历史存档不会被删除。`)) return;
       const r = await this.api('/api/log/clear', {method:'POST'});
       const payload = await r.json().catch(() => ({}));
       if (r.ok) {
@@ -3143,7 +3937,7 @@ createApp({
 
     async deleteArchive(filename) {
       if (!filename) return;
-      if (!confirm(`确认删除历史存档 ${filename}？`)) return;
+      if (!confirm(`确认删除${this.controllerMode ? `服务器“${this.selectedServerName}”的` : ''}历史存档 ${filename}？`)) return;
       const r = await this.api('/api/log/archives/' + encodeURIComponent(filename), {method:'DELETE'});
       const payload = await r.json().catch(() => ({}));
       if (r.ok) {
@@ -3156,6 +3950,7 @@ createApp({
 
     // ── Notify ────────────────────────────────────────
     async sendTestNotify() {
+      if (this.controllerMode && !confirm(`确认由服务器“${this.selectedServerName}”发送测试通知？`)) return;
       try {
         const r = await this.api('/api/notify/test', {method:'POST'});
         const payload = await r.json().catch(() => ({}));
@@ -3176,7 +3971,7 @@ createApp({
       const r = await this.api('/api/settings', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({current_password: this.curPwd, new_password: this.newPwd}),
-      });
+      }, false);
       const payload = await r.json().catch(() => ({}));
       if (r.ok) {
         this.pwdMsg = {text: payload.message||'密码已修改', kind:'success'};
@@ -3223,13 +4018,18 @@ createApp({
 
     async agentSend() {
       if (this.agentBusy) return;
+      if (this.controllerMode && !this.selectedServerId) {
+        this.showToast('请先选择目标服务器', false);
+        return;
+      }
       const msg = this.agentInput.trim();
       if (!msg) return;
       this.agentInput = '';
       if (this.$refs.agentInput) this.$refs.agentInput.style.height = '';
 
       if (!this.agentSessionId) {
-        this.agentSessionId = 'sess_' + Math.random().toString(36).slice(2) + Date.now();
+        const serverPart = this.controllerMode ? this.selectedServerId.replace(/[^a-zA-Z0-9_-]/g, '_') + '_' : '';
+        this.agentSessionId = 'sess_' + serverPart + Math.random().toString(36).slice(2) + Date.now();
       }
 
       this.agentMessages.push({role:'user', content:msg});
@@ -3271,7 +4071,11 @@ createApp({
     async _agentSendStream(assistantIdx, msg) {
       const resp = await this.api('/api/agent/chat/stream', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({session_id: this.agentSessionId, message: msg}),
+        body: JSON.stringify({
+          session_id: this.agentSessionId,
+          message: msg,
+          ...(this.controllerMode ? {server_id:this.selectedServerId} : {}),
+        }),
         signal: this.agentAbortCtrl.signal,
       });
       if (!resp.ok) {
@@ -3313,7 +4117,11 @@ createApp({
     async _agentSendSync(assistantIdx, msg) {
       const r = await this.api('/api/agent/chat', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({session_id: this.agentSessionId, message: msg}),
+        body: JSON.stringify({
+          session_id: this.agentSessionId,
+          message: msg,
+          ...(this.controllerMode ? {server_id:this.selectedServerId} : {}),
+        }),
         signal: this.agentAbortCtrl.signal,
       });
       const d = await r.json();
@@ -3338,7 +4146,12 @@ createApp({
       try {
         const r = await this.api('/api/agent/confirm', {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({session_id: this.agentSessionId, approved, rejected}),
+          body: JSON.stringify({
+            session_id: this.agentSessionId,
+            approved,
+            rejected,
+            ...(this.controllerMode ? {server_id:this.selectedServerId} : {}),
+          }),
         });
         const d = await r.json();
         const m = this.agentMessages[msgIdx];
@@ -3359,7 +4172,8 @@ createApp({
 
     async agentClear() {
       if (this.agentSessionId) {
-        await this.api(`/api/agent/session/${this.agentSessionId}`, {method:'DELETE'});
+        const query = this.controllerMode ? `?server_id=${encodeURIComponent(this.selectedServerId)}` : '';
+        await this.api(`/api/agent/session/${encodeURIComponent(this.agentSessionId)}${query}`, {method:'DELETE'});
       }
       this.agentSessionId = null;
       this.agentHistory = [];

@@ -1,0 +1,7 @@
+[Unit]
+Description=sserveros node Agent services
+Wants=sserveros-monitor.service sserveros-agent-api.service
+After=sserveros-monitor.service sserveros-agent-api.service
+
+[Install]
+WantedBy=default.target

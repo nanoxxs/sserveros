@@ -49,6 +49,13 @@ def test_default_monitor_and_release_thresholds(tmp_path):
     from storage import default_config
 
     cfg = default_config()
+    assert cfg['node_role'] == 'standalone'
+    assert cfg['node_id'] == ''
+    assert isinstance(cfg['agent_host'], str)
+    assert isinstance(cfg['agent_port'], int)
+    assert cfg['agent_port'] > 0
+    assert isinstance(cfg['agent_token'], str)
+    assert cfg['controller_servers'] == []
     assert cfg['llm_base_url'] == 'https://api.deepseek.com'
     assert cfg['llm_model'] == 'deepseek-v4-flash'
     assert cfg['mem_threshold_mib'] == 5120
@@ -65,6 +72,43 @@ def test_default_monitor_and_release_thresholds(tmp_path):
     assert monitor.release_command_mem_threshold_mib == 5120
     assert monitor.release_command_check_interval == 120
     assert monitor.release_command_confirm_times == 3
+
+
+def test_existing_config_is_migrated_with_stable_agent_identity(tmp_path):
+    from config_bootstrap import ensure_config
+
+    (tmp_path / 'config.json').write_text(json.dumps({
+        'password_hash': 'existing-password-hash',
+        'secret_key': 'existing-secret-key',
+    }))
+
+    first, generated_password = ensure_config(str(tmp_path))
+    second, second_generated_password = ensure_config(str(tmp_path))
+
+    assert generated_password is None
+    assert second_generated_password is None
+    assert first['node_role'] == 'standalone'
+    assert first['node_id'].startswith('node_')
+    assert len(first['agent_token']) >= 32
+    assert first['controller_servers'] == []
+    assert second['node_id'] == first['node_id']
+    assert second['agent_token'] == first['agent_token']
+
+
+def test_monitor_notification_config_keeps_display_hostname(tmp_path):
+    cfg = {
+        'display_hostname': 'gpu-b',
+        'notification_channels_source': 'config',
+        'serverchan_keys': ['SCTtest'],
+        'bark_configs': [],
+        'watch_pids': [],
+        'gpus': [],
+    }
+    (tmp_path / 'config.json').write_text(json.dumps(cfg))
+    monitor = Monitor(script_dir=str(tmp_path))
+    monitor.load_config()
+
+    assert monitor._notify_cfg()['display_hostname'] == 'gpu-b'
 
 
 def test_release_command_settings_are_independent_per_gpu():
@@ -878,6 +922,12 @@ def test_sserveros_bootstraps_config_when_missing(tmp_path):
         state = _wait_until(lambda: _state_if_matches(project_dir, [0]))
         assert state['gpus'][0]['top_cmd'] == 'python train_zero.py'
         cfg = _read_json(project_dir / 'config.json')
+        assert cfg['node_role'] == 'standalone'
+        assert cfg['node_id'].startswith('node_')
+        assert cfg['agent_host'] == '0.0.0.0'
+        assert cfg['agent_port'] == 6780
+        assert len(cfg['agent_token']) >= 32
+        assert cfg['controller_servers'] == []
         assert cfg['sendkey'] == ''
         assert cfg['mem_threshold_mib'] == 5120
         assert cfg['check_interval'] == 120

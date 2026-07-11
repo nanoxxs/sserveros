@@ -4,6 +4,14 @@ import os
 import threading
 
 DEFAULT_CONFIG = {
+    'node_role': 'standalone',
+    'node_id': '',
+    'agent_host': '0.0.0.0',
+    'agent_port': 6780,
+    'agent_token': '',
+    'controller_poll_interval': 5,
+    'controller_request_timeout': 3,
+    'controller_servers': [],
     'sendkey': '',
     'serverchan_keys': [],
     'bark_configs': [],

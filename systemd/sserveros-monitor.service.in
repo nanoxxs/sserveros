@@ -1,6 +1,6 @@
 [Unit]
 Description=sserveros GPU monitor
-PartOf=sserveros.target
+PartOf=sserveros.target sserveros-controller.target sserveros-agent.target
 After=network-online.target
 Wants=network-online.target
 
@@ -16,4 +16,4 @@ KillSignal=SIGINT
 TimeoutStopSec=30
 
 [Install]
-WantedBy=sserveros.target
+WantedBy=sserveros.target sserveros-controller.target sserveros-agent.target

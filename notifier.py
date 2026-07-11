@@ -70,6 +70,7 @@ def effective_channel_config(cfg: dict, *, environ: dict = None) -> dict:
         'sendkey': cfg.get('sendkey', ''),
         'serverchan_keys': list(cfg.get('serverchan_keys', [])),
         'bark_configs': list(cfg.get('bark_configs', [])),
+        'display_hostname': str(cfg.get('display_hostname') or '').strip(),
     }
     if cfg.get('notification_channels_source') == 'config':
         return effective

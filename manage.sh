@@ -8,8 +8,10 @@ ENV_EXAMPLE="${SCRIPT_DIR}/.env.example"
 CONFIG_FILE="${SCRIPT_DIR}/config.json"
 BACKEND_PID_FILE="${RUNTIME_DIR}/sserveros.pid"
 WEBUI_PID_FILE="${RUNTIME_DIR}/webui.pid"
+AGENT_API_PID_FILE="${RUNTIME_DIR}/agent_api.pid"
 MONITOR_LOG_FILE="${RUNTIME_DIR}/monitor.log"
 WEBUI_LOG_FILE="${RUNTIME_DIR}/webui.log"
+AGENT_API_LOG_FILE="${RUNTIME_DIR}/agent_api.log"
 STOP_CONTEXT_FILE="${RUNTIME_DIR}/stop_context.json"
 SYSTEMD_UNIT_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/systemd/user"
 PLACEHOLDER_SENDKEY="SCTxxxxxxxxxxxxxxxx"
@@ -17,6 +19,7 @@ REPO_URL="https://github.com/nanoxxs/sserveros"
 REPO_ZIP_URL="${REPO_URL}/archive/refs/heads/main.zip"
 PYTHON_BIN=""
 LAST_GENERATED_PASSWORD=""
+LAST_GENERATED_AGENT_TOKEN=""
 COLOR_RESET=""
 COLOR_HIGHLIGHT=""
 COLOR_CYAN=""
@@ -139,7 +142,7 @@ systemd_user_available() {
 }
 
 install_systemd_units() {
-  local python_exec
+  local python_exec target_unit
   systemd_user_available || return 1
   find_python_bin
   python_exec="$(command -v "${PYTHON_BIN}")"
@@ -152,14 +155,24 @@ install_systemd_units() {
       -e "s|__PYTHON_BIN__|${python_exec}|g" \
       "${SCRIPT_DIR}/systemd/sserveros-monitor.service.in" \
       > "${SYSTEMD_UNIT_DIR}/sserveros-monitor.service"
+  sed -e "s|__SCRIPT_DIR__|${SCRIPT_DIR}|g" \
+      -e "s|__PYTHON_BIN__|${python_exec}|g" \
+      "${SCRIPT_DIR}/systemd/sserveros-agent-api.service.in" \
+      > "${SYSTEMD_UNIT_DIR}/sserveros-agent-api.service"
   install -m 0644 "${SCRIPT_DIR}/systemd/sserveros.target" "${SYSTEMD_UNIT_DIR}/sserveros.target"
+  install -m 0644 "${SCRIPT_DIR}/systemd/sserveros-controller.target" "${SYSTEMD_UNIT_DIR}/sserveros-controller.target"
+  install -m 0644 "${SCRIPT_DIR}/systemd/sserveros-agent.target" "${SYSTEMD_UNIT_DIR}/sserveros-agent.target"
   systemctl --user daemon-reload
-  systemctl --user enable sserveros.target >/dev/null
+  target_unit="$(role_target_unit)"
+  systemctl --user disable sserveros.target sserveros-controller.target sserveros-agent.target >/dev/null 2>&1 || true
+  systemctl --user enable "${target_unit}" >/dev/null
 }
 
 start_systemd_target() {
+  local target_unit
   install_systemd_units || return 1
-  systemctl --user start sserveros.target
+  target_unit="$(role_target_unit)"
+  systemctl --user start "${target_unit}"
 }
 
 stop_systemd_unit() {
@@ -227,6 +240,125 @@ set_env_value() {
   set_private_file_mode "${ENV_FILE}"
 }
 
+config_value() {
+  local key="$1"
+  local fallback="$2"
+  local candidate
+
+  [ -f "${CONFIG_FILE}" ] || {
+    printf '%s\n' "${fallback}"
+    return 0
+  }
+
+  for candidate in "${PYTHON_BIN}" python3 python; do
+    [ -n "${candidate}" ] || continue
+    command -v "${candidate}" >/dev/null 2>&1 || continue
+    "${candidate}" -c "
+import json, sys
+try:
+    with open(sys.argv[1], encoding='utf-8') as f:
+        value = json.load(f).get(sys.argv[2], sys.argv[3])
+except Exception:
+    value = sys.argv[3]
+if isinstance(value, bool):
+    print('true' if value else 'false')
+elif isinstance(value, (str, int, float)):
+    print(value)
+else:
+    print(sys.argv[3])
+" "${CONFIG_FILE}" "${key}" "${fallback}"
+    return 0
+  done
+
+  printf '%s\n' "${fallback}"
+}
+
+get_node_role() {
+  local role
+  role="$(config_value node_role standalone)"
+  case "${role}" in
+    standalone|controller|agent) printf '%s\n' "${role}" ;;
+    *) printf 'standalone\n' ;;
+  esac
+}
+
+node_role_label() {
+  case "$1" in
+    controller) printf '主控端 (controller)' ;;
+    agent) printf '分控端 (agent)' ;;
+    *) printf '单机模式 (standalone)' ;;
+  esac
+}
+
+role_target_unit() {
+  case "$(get_node_role)" in
+    controller) printf 'sserveros-controller.target\n' ;;
+    agent) printf 'sserveros-agent.target\n' ;;
+    *) printf 'sserveros.target\n' ;;
+  esac
+}
+
+set_node_role() {
+  local role="$1"
+  check_webui_requirements
+  LAST_GENERATED_AGENT_TOKEN="$("${PYTHON_BIN}" -c "
+import secrets, sys
+sys.path.insert(0, sys.argv[1])
+from storage import load_config_file, save_config_file
+
+path, role = sys.argv[2:]
+cfg = load_config_file(path)
+cfg['node_role'] = role
+generated = ''
+if role in {'controller', 'agent'} and not str(cfg.get('agent_token', '')).strip():
+    generated = secrets.token_urlsafe(32)
+    cfg['agent_token'] = generated
+save_config_file(path, cfg)
+print(generated)
+" "${SCRIPT_DIR}" "${CONFIG_FILE}" "${role}")"
+}
+
+prompt_node_role() {
+  local choice role current
+  current="$(get_node_role)"
+  echo "当前节点角色：$(node_role_label "${current}")"
+  echo "请选择部署角色："
+  echo "1. 单机模式：monitor.py + WebUI（兼容原有部署）"
+  echo "2. 主控端：monitor.py + Agent API + WebUI"
+  echo "3. 分控端：monitor.py + Agent API，不启动 WebUI"
+  printf '输入编号（直接回车保留当前角色）： '
+  read -r choice
+
+  case "${choice}" in
+    '')
+      echo "已保留：$(node_role_label "${current}")。"
+      return 0
+      ;;
+    1) role="standalone" ;;
+    2) role="controller" ;;
+    3) role="agent" ;;
+    *)
+      echo "无效输入，已保留原角色。"
+      return 1
+      ;;
+  esac
+
+  set_node_role "${role}"
+  echo "节点角色已更新为：$(node_role_label "${role}")。"
+  if [ -n "${LAST_GENERATED_AGENT_TOKEN}" ]; then
+    echo "已生成 Agent 配对令牌：${LAST_GENERATED_AGENT_TOKEN}"
+    echo "请妥善保存；也可稍后从 config.json 的 agent_token 字段读取。"
+  elif [ "${role}" != "standalone" ]; then
+    echo "Agent 配对令牌已保留，可从 config.json 的 agent_token 字段读取。"
+  fi
+
+  if systemd_user_available; then
+    install_systemd_units
+    echo "已将用户级 systemd 默认启动目标切换为：$(role_target_unit)"
+    echo "当前正在运行的服务不会自动重启，请使用“一键停止全部服务”后再按新角色启动。"
+  fi
+}
+
 load_env_exports() {
   [ -f "${ENV_FILE}" ] || return 0
   local line key value
@@ -288,8 +420,8 @@ prompt_notify_channel() {
     sc="$(env_value SERVERCHAN_KEYS)"
     bark="$(env_value BARK_CONFIGS)"
     sk="$(env_value SENDKEY)"
-    [ -n "${sc}"   ] && echo "  SERVERCHAN_KEYS: ${sc}"
-    [ -n "${bark}" ] && echo "  BARK_CONFIGS:    ${bark}"
+    [ -n "${sc}"   ] && echo "  SERVERCHAN_KEYS: 已配置（明文已隐藏）"
+    [ -n "${bark}" ] && echo "  BARK_CONFIGS:    已配置（明文已隐藏）"
     [ -n "${sk}"   ] && ! is_placeholder_sendkey "${sk}" && echo "  SENDKEY:         $(mask_value "${sk}")"
     printf '按回车保留；输入 1 重新配置 Server Chan，输入 2 重新配置 Bark [回车保留]: '
     read -r choice
@@ -323,7 +455,7 @@ prompt_notify_channel() {
       fi
       ;;
     0|'')
-      echo "已跳过，请在 WebUI 设置页配置推送渠道后再启动监控脚本。"
+      echo "已跳过。可稍后在主控/单机 WebUI 设置页或 config.json 中配置，再启动监控脚本。"
       ;;
     *)
       echo "无效输入，已跳过。"
@@ -480,6 +612,46 @@ start_backend() {
   wait_for_service "${BACKEND_PID_FILE}" "monitor.py" "${MONITOR_LOG_FILE}"
 }
 
+get_agent_host() {
+  config_value agent_host 0.0.0.0
+}
+
+get_agent_port() {
+  config_value agent_port 6780
+}
+
+start_agent_api() {
+  check_webui_requirements
+  if [ ! -f "${SCRIPT_DIR}/agent_api.py" ]; then
+    echo "错误：未找到 ${SCRIPT_DIR}/agent_api.py，请先拉取包含 Agent API 的完整版本。"
+    return 1
+  fi
+
+  if systemd_user_available; then
+    install_systemd_units
+    systemctl --user start sserveros-agent-api.service
+    return 0
+  fi
+
+  if service_running "${AGENT_API_PID_FILE}"; then
+    echo "Agent API 已在运行。"
+    return 0
+  fi
+
+  local -a existing_pids=()
+  mapfile -t existing_pids < <(pgrep -f "${SCRIPT_DIR}/agent_api.py" || true)
+  if [ "${#existing_pids[@]}" -gt 0 ]; then
+    echo "检测到已有 Agent API 进程在运行（PID: ${existing_pids[*]}），跳过启动。"
+    printf '%s\n' "${existing_pids[0]}" > "${AGENT_API_PID_FILE}"
+    return 0
+  fi
+
+  load_env_exports
+  ensure_runtime_dir
+  nohup "${PYTHON_BIN}" "${SCRIPT_DIR}/agent_api.py" >> "${AGENT_API_LOG_FILE}" 2>&1 &
+  wait_for_service "${AGENT_API_PID_FILE}" "Agent API" "${AGENT_API_LOG_FILE}"
+}
+
 get_webui_port() {
   local candidate
   for candidate in "${PYTHON_BIN}" python3 python; do
@@ -520,6 +692,8 @@ known_service_label() {
   local cmd="$1"
   if [[ "${cmd}" == *"${SCRIPT_DIR}/monitor.py"* ]]; then
     printf 'monitor.py'
+  elif [[ "${cmd}" == *"${SCRIPT_DIR}/agent_api.py"* ]]; then
+    printf 'Agent API'
   elif [[ "${cmd}" == *"${SCRIPT_DIR}/webui.py"* ]]; then
     printf 'webui.py'
   elif [[ "${cmd}" == *"${SCRIPT_DIR}/manage.sh"* ]]; then
@@ -609,7 +783,7 @@ show_pid_details() {
 cleanup_pid_files_for_pid() {
   local pid="$1"
   local recorded_pid pid_file
-  for pid_file in "${BACKEND_PID_FILE}" "${WEBUI_PID_FILE}"; do
+  for pid_file in "${BACKEND_PID_FILE}" "${WEBUI_PID_FILE}" "${AGENT_API_PID_FILE}"; do
     recorded_pid="$(read_pid_file "${pid_file}" 2>/dev/null || true)"
     if [ -n "${recorded_pid}" ] && [ "${recorded_pid}" = "${pid}" ]; then
       rm -f "${pid_file}"
@@ -792,14 +966,21 @@ stop_service() {
 
 stop_all_services() {
   if systemd_user_available; then
-    systemctl --user stop sserveros-monitor.service sserveros-webui.service sserveros.target || true
-    echo "monitor.py 和 WebUI 已停止。"
+    systemctl --user stop \
+      sserveros-monitor.service \
+      sserveros-webui.service \
+      sserveros-agent-api.service \
+      sserveros.target \
+      sserveros-controller.target \
+      sserveros-agent.target || true
+    echo "monitor.py、Agent API 和 WebUI 已停止。"
     return 0
   fi
 
   stop_service "monitor.py" "${BACKEND_PID_FILE}" "${SCRIPT_DIR}/monitor.py"
+  stop_service "Agent API" "${AGENT_API_PID_FILE}" "${SCRIPT_DIR}/agent_api.py"
   stop_service "WebUI" "${WEBUI_PID_FILE}" "${SCRIPT_DIR}/webui.py"
-  echo "monitor.py 和 WebUI 已停止。"
+  echo "monitor.py、Agent API 和 WebUI 已停止。"
 }
 
 port_status_summary() {
@@ -894,6 +1075,8 @@ update_from_zip() {
   local tmpdir archive extracted_dir item
   local -a update_items=(
     manage.sh
+    agent_api.py
+    controller.py
     monitor.py
     notifier.py
     webui.py
@@ -982,8 +1165,11 @@ pull_latest_scripts() {
 }
 
 show_status() {
-  local backend_pid webui_pid backend_state webui_state port
+  local backend_pid webui_pid agent_api_pid backend_state webui_state agent_api_state port role agent_host agent_port
   port="$(get_webui_port)"
+  role="$(get_node_role)"
+  agent_host="$(get_agent_host)"
+  agent_port="$(get_agent_port)"
 
   if systemd_user_available; then
     if systemd_unit_active sserveros-monitor.service; then
@@ -1000,18 +1186,34 @@ show_status() {
     else
       webui_state="未运行 · systemd"
     fi
+    if systemd_unit_active sserveros-agent-api.service; then
+      agent_api_state="运行中 · systemd"
+    elif systemctl --user is-failed --quiet sserveros-agent-api.service; then
+      agent_api_state="失败 · systemd"
+    else
+      agent_api_state="未运行 · systemd"
+    fi
   else
     backend_pid="$(read_pid_file "${BACKEND_PID_FILE}" 2>/dev/null || true)"
     webui_pid="$(read_pid_file "${WEBUI_PID_FILE}" 2>/dev/null || true)"
+    agent_api_pid="$(read_pid_file "${AGENT_API_PID_FILE}" 2>/dev/null || true)"
     if is_pid_running "${backend_pid}"; then backend_state="运行中 (PID ${backend_pid})"; else backend_state="未运行"; fi
     if is_pid_running "${webui_pid}"; then webui_state="运行中 (PID ${webui_pid})"; else webui_state="未运行"; fi
+    if is_pid_running "${agent_api_pid}"; then agent_api_state="运行中 (PID ${agent_api_pid})"; else agent_api_state="未运行"; fi
   fi
 
   menu_rule
   printf '  %s运行状态%s\n' "${COLOR_CYAN}" "${COLOR_RESET}"
+  printf '  %-12s %s\n' '节点角色' "$(node_role_label "${role}")"
   printf '  %-12s %s\n' 'monitor.py' "$(status_badge "${backend_state}")"
+  printf '  %-12s %s\n' 'Agent API' "$(status_badge "${agent_api_state}")"
   printf '  %-12s %s\n' 'WebUI' "$(status_badge "${webui_state}")"
-  printf '  %-12s %s\n' "端口 ${port}" "$(status_badge "$(port_status_summary "${port}")")"
+  if [ "${role}" != "agent" ]; then
+    printf '  %-12s %s\n' "WebUI ${port}" "$(status_badge "$(port_status_summary "${port}")")"
+  fi
+  if [ "${role}" != "standalone" ]; then
+    printf '  %-12s %s:%s\n' 'Agent 监听' "${agent_host}" "${agent_port}"
+  fi
   menu_rule
 }
 
@@ -1072,31 +1274,89 @@ save_config_file(path, cfg)
 }
 
 quick_start_flow() {
-  local webui_port
-  prompt_notify_channel
+  local webui_port role initial_setup="${1:-0}" agent_host agent_port
   bootstrap_config
 
-  if prompt_yes_no "是否启动 WebUI？"; then
-    if systemd_user_available && any_notify_channel_configured; then
-      start_systemd_target
-    elif systemd_user_available; then
-      install_systemd_units
-      systemctl --user start sserveros-webui.service
-    else
-      start_webui
-    fi
-    webui_port="$(get_webui_port)"
-    echo "WebUI 默认地址：http://127.0.0.1:${webui_port}"
-  else
-    echo "已跳过 WebUI 启动。"
+  if [ "${initial_setup}" = "1" ]; then
+    prompt_node_role || true
   fi
 
-  if any_notify_channel_configured; then
-    start_backend
-  else
-    echo "当前尚未配置通知渠道，已跳过 monitor.py 启动。"
-    echo "可以先进入 WebUI → 设置 完成配置，再从菜单启动 monitor.py。"
-  fi
+  role="$(get_node_role)"
+  prompt_notify_channel
+
+  case "${role}" in
+    controller)
+      if prompt_yes_no "是否按主控端角色启动全部服务？"; then
+        if systemd_user_available && any_notify_channel_configured; then
+          start_systemd_target
+        elif systemd_user_available; then
+          install_systemd_units
+          systemctl --user start sserveros-agent-api.service sserveros-webui.service
+        else
+          start_agent_api
+          start_webui
+        fi
+        if ! systemd_user_available && any_notify_channel_configured; then
+          start_backend
+        elif ! any_notify_channel_configured; then
+          echo "当前尚未配置通知渠道，已跳过 monitor.py 启动。"
+          echo "可以先进入 WebUI → 设置 完成配置，再从菜单启动 monitor.py。"
+        fi
+        webui_port="$(get_webui_port)"
+        agent_host="$(get_agent_host)"
+        agent_port="$(get_agent_port)"
+        echo "WebUI 默认地址：http://127.0.0.1:${webui_port}"
+        echo "本机 Agent API：${agent_host}:${agent_port}"
+      else
+        echo "已跳过主控端服务启动。"
+      fi
+      ;;
+    agent)
+      if prompt_yes_no "是否按分控端角色启动 monitor.py 和 Agent API？"; then
+        if systemd_user_available && any_notify_channel_configured; then
+          start_systemd_target
+        elif systemd_user_available; then
+          install_systemd_units
+          systemctl --user start sserveros-agent-api.service
+        else
+          start_agent_api
+        fi
+        if ! systemd_user_available && any_notify_channel_configured; then
+          start_backend
+        elif ! any_notify_channel_configured; then
+          echo "当前尚未配置通知渠道，已跳过 monitor.py 启动；Agent API 已独立启动。"
+        fi
+        agent_host="$(get_agent_host)"
+        agent_port="$(get_agent_port)"
+        echo "Agent API 监听地址：${agent_host}:${agent_port}"
+      else
+        echo "已跳过分控端服务启动。"
+      fi
+      ;;
+    *)
+      if prompt_yes_no "是否启动 WebUI？"; then
+        if systemd_user_available && any_notify_channel_configured; then
+          start_systemd_target
+        elif systemd_user_available; then
+          install_systemd_units
+          systemctl --user start sserveros-webui.service
+        else
+          start_webui
+        fi
+        webui_port="$(get_webui_port)"
+        echo "WebUI 默认地址：http://127.0.0.1:${webui_port}"
+      else
+        echo "已跳过 WebUI 启动。"
+      fi
+
+      if any_notify_channel_configured; then
+        start_backend
+      else
+        echo "当前尚未配置通知渠道，已跳过 monitor.py 启动。"
+        echo "可以先进入 WebUI → 设置 完成配置，再从菜单启动 monitor.py。"
+      fi
+      ;;
+  esac
 
   if [ -n "${LAST_GENERATED_PASSWORD}" ]; then
     echo
@@ -1104,6 +1364,50 @@ quick_start_flow() {
   fi
 
   show_status
+}
+
+agent_api_menu() {
+  local choice agent_host agent_port
+  while true; do
+    clear_screen
+    show_status
+    menu_title '节点 Agent API 服务管理'
+    menu_item '1.' '启动 Agent API'
+    menu_item '2.' '停止 Agent API'
+    menu_item '3.' '显示监听地址和配对令牌'
+    menu_item '0.' '返回上一级'
+    menu_rule
+    printf '  请选择操作： '
+    read -r choice
+    clear_screen
+
+    case "${choice}" in
+      1)
+        bootstrap_config
+        if [ "$(get_node_role)" = "standalone" ]; then
+          echo "提示：当前是单机模式；如需远程接入，请先在主菜单配置节点角色。"
+        fi
+        start_agent_api
+        ;;
+      2)
+        if systemd_user_available; then
+          stop_systemd_unit sserveros-agent-api.service
+        else
+          stop_service "Agent API" "${AGENT_API_PID_FILE}" "${SCRIPT_DIR}/agent_api.py"
+        fi
+        ;;
+      3)
+        bootstrap_config >/dev/null
+        agent_host="$(get_agent_host)"
+        agent_port="$(get_agent_port)"
+        echo "Agent API：${agent_host}:${agent_port}"
+        echo "配对令牌：$(config_value agent_token '')"
+        echo "请仅通过 Tailscale 等可信网络传递令牌。"
+        ;;
+      0) return 0 ;;
+      *) echo "无效输入，请重试。" ;;
+    esac
+  done
 }
 
 backend_menu() {
@@ -1176,11 +1480,13 @@ menu_loop() {
     menu_item '1.' '一键初始化并启动'
     menu_item '2.' '管理 monitor.py'
     menu_item '3.' '管理 WebUI'
-    menu_item '4.' '一键停止前后端'
+    menu_item '4.' '一键停止全部服务'
     printf '\n  %s维护工具%s\n' "${COLOR_CYAN}" "${COLOR_RESET}"
     menu_item '5.' '查看并停止项目相关进程'
     menu_item '6.' '配置推送渠道'
     menu_item '7.' '拉取最新脚本'
+    menu_item '8.' '管理节点 Agent API'
+    menu_item '9.' '配置节点角色'
     menu_item '0.' '退出'
     menu_rule
     printf '  请选择操作： '
@@ -1195,6 +1501,11 @@ menu_loop() {
       5) stop_project_process_from_menu ;;
       6) prompt_notify_channel ;;
       7) pull_latest_scripts ;;
+      8) agent_api_menu ;;
+      9)
+        bootstrap_config
+        prompt_node_role || true
+        ;;
       0) exit 0 ;;
       *) echo "无效输入，请重试。" ;;
     esac
@@ -1206,9 +1517,12 @@ main() {
   init_colors
   ensure_runtime_dir
 
-  if [ ! -f "${CONFIG_FILE}" ] && ! service_running "${BACKEND_PID_FILE}" && ! service_running "${WEBUI_PID_FILE}"; then
+  if [ ! -f "${CONFIG_FILE}" ] \
+    && ! service_running "${BACKEND_PID_FILE}" \
+    && ! service_running "${WEBUI_PID_FILE}" \
+    && ! service_running "${AGENT_API_PID_FILE}"; then
     echo "检测到当前目录尚未初始化，进入一键初始化流程。"
-    quick_start_flow
+    quick_start_flow 1
     exit 0
   fi
 
