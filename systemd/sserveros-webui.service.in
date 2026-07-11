@@ -1,0 +1,19 @@
+[Unit]
+Description=sserveros WebUI
+PartOf=sserveros.target
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__SCRIPT_DIR__
+EnvironmentFile=-__SCRIPT_DIR__/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=__PYTHON_BIN__ __SCRIPT_DIR__/webui.py
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=15
+
+[Install]
+WantedBy=sserveros.target

@@ -67,8 +67,7 @@ runtime/
 
 ```text
 manage.sh
-  ├─ 启动 monitor.py
-  └─ 启动 webui.py
+  └─ 由用户级 systemd `sserveros.target` 统一启动 monitor.py 和 webui.py
 
 monitor.py
   ├─ nvidia-smi --query-gpu
@@ -124,7 +123,7 @@ webui.html
 | Agent 配置 | `webui.py api_agent_config_get()` / `api_agent_config_post()` | `loadAgentConfig()` / `saveAgentConfig()` | `tests/test_webui.py`，必要时补 Agent 配置测试 |
 | Agent 对话 | `webui.py api_agent_chat()` / `api_agent_chat_stream()`，`agent/runner.py AgentRunner.chat()` / `chat_stream()` | 桌面浮窗/手机 Tab 共用 `agentSend()` / `_agentSendStream()` / `_agentSendSync()` | `tests/test_agent_tools.py`，必要时补 runner 测试 |
 | Agent 工具 | `agent/tools/*.py`，`agent/tools/__init__.py`，`agent/schema.py` | Agent 响应式界面工具轨迹展示 | `tests/test_agent_tools.py` |
-| 启动/停止脚本 | `manage.sh quick_start_flow()` / `start_backend()` / `start_webui()` / `stop_service()` | 无 | 手动验证为主 |
+| 启动/停止脚本 | 用户级 systemd `sserveros.target` / `sserveros-monitor.service` / `sserveros-webui.service`，`manage.sh` 安装和控制；systemd 不可用时回退 `start_backend()` / `start_webui()` / `stop_service()` | 无 | 手动验证为主 |
 
 ## Flask API 地图
 

@@ -150,6 +150,24 @@ print('已重置密码为:', new_password)
 PY
 ```
 
+### 用户级 systemd 管理
+
+如果当前用户可用 `systemctl --user`，`manage.sh` 会自动安装并使用以下用户级服务：
+
+- `sserveros-webui.service`：WebUI
+- `sserveros-monitor.service`：GPU 监控
+- `sserveros.target`：统一启动和停止以上服务
+
+首次通过 `manage.sh` 启动后，可以使用：
+
+```bash
+systemctl --user status sserveros.target
+systemctl --user restart sserveros.target
+journalctl --user -u sserveros-webui.service -u sserveros-monitor.service -f
+```
+
+如果用户级 systemd 不可用，`manage.sh` 会回退到原有的后台启动方式。
+
 ## 动态添加 PID 监控
 
 ```bash

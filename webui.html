@@ -90,13 +90,25 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 /* Sysinfo */
 .sysinfo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-@media (max-width: 560px) { .sysinfo-grid { grid-template-columns: 1fr; } }
+@media (max-width: 560px) {
+  .sysinfo-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .sysinfo-card { padding: 8px 5px; border-radius: 9px; }
+  .sysinfo-ring-card { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .sysinfo-ring { width: 56px; height: 56px; }
+  .sysinfo-ring-value { max-width: 100%; font-size: 10px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pane { padding: 10px 12px 20px; gap: 10px; }
+  .gpu-card { padding: 12px; }
+}
 .sysinfo-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
 .sysinfo-card-link { cursor: pointer; transition: border-color .15s, box-shadow .15s; }
 .sysinfo-card-link:hover { border-color: #2563eb; box-shadow: 0 2px 10px rgba(37,99,235,0.12); }
 .sysinfo-label { font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
 .sysinfo-value { font-size: 18px; font-weight: 700; color: #1e293b; margin-bottom: 10px; line-height: 1.2; }
 .sysinfo-sub { font-size: 12px; color: #64748b; margin-top: 5px; }
+.sysinfo-ring { width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; background: conic-gradient(var(--ring-color) 0 var(--ring-progress), var(--bg-3) var(--ring-progress) 100%); }
+.sysinfo-ring::after { content: ''; position: absolute; inset: 6px; border-radius: 50%; background: var(--bg-1); }
+.sysinfo-ring span { position: relative; z-index: 1; color: var(--fg-1); font-size: 11px; font-weight: 700; }
+.sysinfo-ring-value { font-size: 12px; color: var(--fg-2); }
 .sysinfo-section-title { font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .5px; padding: 4px 0 2px; }
 .core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .core-item { border: 1px solid #f1f5f9; border-radius: 8px; padding: 9px 10px; background: #fff; }
@@ -770,6 +782,10 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   .login-console-wrap {
     grid-template-columns: 1fr;
     background: #101827;
+    min-height: 100svh;
+    min-height: 100dvh;
+    overflow-y: auto;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
   }
   .login-console-showcase {
     padding: 22px 18px 0;
@@ -829,7 +845,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
       <div class="login-sub">请输入访问密码</div>
       <input class="login-input" type="password" v-model="loginPwd" placeholder="access token"
              @keydown.enter="doLogin">
-      <button class="login-btn" @click="doLogin">进入 WebUI</button>
+      <button class="login-btn" @click="doLogin">Login</button>
       <div class="login-error" v-if="loginError" v-cloak>密码错误，请重试</div>
     </div>
   </div>
@@ -897,26 +913,17 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     <!-- GPU list -->
     <template v-if="gpuView === 'list'">
       <div class="sysinfo-grid">
-        <div class="sysinfo-card sysinfo-card-link" @click="showCpuDetail()">
-          <div class="sysinfo-label">CPU</div>
-          <div class="sysinfo-value">{{ cpuPct != null ? cpuPct.toFixed(1) + '%' : '—' }}</div>
-          <div class="bar-bg"><div class="bar-fill" :style="{width: (cpuPct||0)+'%', background: barColor(cpuPct||0)}"></div></div>
-          <div class="sysinfo-sub">{{ cpuCountLogical ? cpuCountLogical + ' 线程' : '' }}</div>
-          <div style="font-size:11px;color:#94a3b8;margin-top:6px">点击查看 CPU 详情 ›</div>
+        <div class="sysinfo-card sysinfo-card-link sysinfo-ring-card" @click="showCpuDetail()">
+          <div class="sysinfo-ring" :style="ringStyle(cpuPct || 0)"><span>CPU</span></div>
+          <div class="sysinfo-ring-value">{{ cpuPct != null ? cpuPct.toFixed(1) + '%' : '—' }}</div>
         </div>
-        <div class="sysinfo-card sysinfo-card-link" @click="showMemoryDetail()">
-          <div class="sysinfo-label">内存</div>
-          <div class="sysinfo-value">{{ ramDisplay }}</div>
-          <div class="bar-bg"><div class="bar-fill" :style="{width: ramPct+'%', background: barColor(ramPct)}"></div></div>
-          <div class="sysinfo-sub">{{ ramTotalMib ? ramPct + '%' : '' }}</div>
-          <div style="font-size:11px;color:#94a3b8;margin-top:6px">点击查看内存详情 ›</div>
+        <div class="sysinfo-card sysinfo-card-link sysinfo-ring-card" @click="showMemoryDetail()">
+          <div class="sysinfo-ring" :style="ringStyle(ramPct)"><span>RAM</span></div>
+          <div class="sysinfo-ring-value">{{ ramTotalMib ? ramPct + '%' : '—' }}</div>
         </div>
-        <div class="sysinfo-card sysinfo-card-link" @click="showDiskDetail()">
-          <div class="sysinfo-label">磁盘</div>
-          <div class="sysinfo-value">{{ diskDisplay }}</div>
-          <div class="bar-bg"><div class="bar-fill" :style="{width: (diskPct||0)+'%', background: barColor(diskPct||0)}"></div></div>
-          <div class="sysinfo-sub">{{ diskTotalGb ? (diskPct||0).toFixed(1) + '%' : '' }}</div>
-          <div style="font-size:11px;color:#94a3b8;margin-top:6px">点击查看各分区 ›</div>
+        <div class="sysinfo-card sysinfo-card-link sysinfo-ring-card" @click="showDiskDetail()">
+          <div class="sysinfo-ring" :style="ringStyle(diskPct || 0)"><span>Disk</span></div>
+          <div class="sysinfo-ring-value">{{ diskTotalGb ? (diskPct || 0).toFixed(1) + '%' : '—' }}</div>
         </div>
       </div>
       <div class="sysinfo-section-title">GPU</div>
@@ -2868,13 +2875,15 @@ createApp({
 	    },
 
     async refreshReleaseCommands() {
+      if (!this.confirmReleaseCommandDraftDiscard()) return;
       const r = await this.api('/api/config');
       if (!r.ok) return;
       const cfg = await r.json();
-      this.syncReleaseCommands(cfg.release_commands || [], true);
+      this.syncReleaseCommands(cfg.release_commands || [], true, true);
     },
 
-    syncReleaseCommands(commands, resetDrafts = false) {
+    syncReleaseCommands(commands, resetDrafts = false, discardConfirmed = false) {
+      if (resetDrafts && !discardConfirmed && !this.confirmReleaseCommandDraftDiscard()) return false;
       const next = Array.isArray(commands) ? commands : [];
       const drafts = {...this.releaseCommandDrafts};
       for (const cmd of next) {
@@ -2887,6 +2896,16 @@ createApp({
       }
       this.releaseCommands = next;
       this.releaseCommandDrafts = drafts;
+      return true;
+    },
+
+    hasUnsavedReleaseCommandEdits() {
+      return this.releaseCommands.some(cmd => this.releaseCommandHasChanges(cmd));
+    },
+
+    confirmReleaseCommandDraftDiscard() {
+      if (!this.hasUnsavedReleaseCommandEdits()) return true;
+      return confirm('任务队列中有未保存的修改，继续操作将丢失这些修改，是否继续？');
     },
 
     releaseCommandHasChanges(cmd) {
@@ -2941,6 +2960,7 @@ createApp({
     async toggleReleaseCommandPaused(cmd) {
       if (!cmd?.id || cmd.status !== 'pending') return;
       const paused = !cmd.paused;
+      if (!paused && !this.confirmReleaseCommandDraftDiscard()) return;
       const r = await this.api('/api/release-commands/pause', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({id: cmd.id, paused}),
@@ -2975,6 +2995,10 @@ createApp({
         text: payload.warning || payload.message || (r.ok ? '任务已更新' : '更新失败'),
         kind: r.ok ? (payload.warning ? 'warn' : 'success') : 'error',
       };
+      if (r.ok && payload.command) {
+        cmd.note = payload.command.note || '';
+        cmd.command = payload.command.command || '';
+      }
       await this.refreshReleaseCommands();
     },
 
@@ -3409,6 +3433,12 @@ createApp({
       if (pct >= 80) return 'linear-gradient(90deg,#ef4444,#f87171)';
       if (pct >= 60) return 'linear-gradient(90deg,#f59e0b,#fbbf24)';
       return 'linear-gradient(90deg,#22c55e,#4ade80)';
+    },
+
+    ringStyle(pct) {
+      const value = Math.max(0, Math.min(100, Number(pct) || 0));
+      const color = value >= 80 ? '#ef4444' : (value >= 60 ? '#f59e0b' : '#22c55e');
+      return {'--ring-progress': value + '%', '--ring-color': color};
     },
 
     gpuBadgeStyle(pct) {

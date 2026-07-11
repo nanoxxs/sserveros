@@ -1,0 +1,7 @@
+[Unit]
+Description=sserveros services
+Wants=sserveros-webui.service sserveros-monitor.service
+After=sserveros-webui.service sserveros-monitor.service
+
+[Install]
+WantedBy=default.target

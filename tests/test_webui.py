@@ -138,7 +138,18 @@ def test_index_uses_dark_console_login(client):
     assert 'login-console-wrap' in text
     assert '$ sserveros status' in text
     assert 'Secure Shell' in text
-    assert '进入 WebUI' in text
+    assert '>Login</button>' in text
+
+
+def test_index_contains_compact_mobile_system_rings(client):
+    r = client.get('/')
+    text = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert 'class="sysinfo-ring"' in text
+    assert '>CPU</span>' in text
+    assert '>RAM</span>' in text
+    assert '>Disk</span>' in text
+    assert 'ringStyle(pct)' in text
 
 
 def test_index_contains_responsive_agent_chat(client):
@@ -714,6 +725,24 @@ def test_release_command_edit_requires_paused_pending_task(auth_client, tmp_conf
     assert item['command'] == 'python updated.py'
     assert item['note'] == 'new'
     assert item['paused'] is True
+
+
+def test_release_command_edit_rejects_malformed_input(auth_client, tmp_config, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    cfg['release_commands'] = [
+        {'id': 'cmd_first', 'command': 'python first.py', 'status': 'pending', 'paused': True},
+    ]
+    (tmp_config / 'config.json').write_text(json.dumps(cfg))
+
+    for payload in (
+        [],
+        {'id': 'cmd_first', 'command': None},
+        {'id': 'cmd_first', 'command': 'python updated.py', 'note': None},
+    ):
+        response = auth_client.post('/api/release-commands/edit', json=payload,
+                                    content_type='application/json')
+        assert response.status_code == 400
 
 
 def test_release_command_reorder_persists_queue_order(auth_client, tmp_config, monkeypatch):

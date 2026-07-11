@@ -41,8 +41,8 @@ def _read_log_entries(path: Path):
 
 
 def test_tmux_release_session_name_matches_task_id_prefix():
-    assert tmux_release_session_name('cmd_1a9a24eed892') == 'sserveros_cmd_1a9a24eed892'
-    assert tmux_release_session_name(' cmd/weird value ') == 'sserveros_cmd_weird_value'
+    assert tmux_release_session_name('sserveros_1a9a24eed892') == 'sserveros_1a9a24eed892'
+    assert tmux_release_session_name(' weird/value ') == 'weird_value'
 
 
 def test_default_monitor_and_release_thresholds(tmp_path):
@@ -181,7 +181,7 @@ def test_release_queue_skips_paused_pending_task(tmp_path, monkeypatch):
 def test_zellij_release_command_uses_named_session_layout(tmp_path, monkeypatch):
     monitor = Monitor(script_dir=str(tmp_path))
     (tmp_path / 'runtime').mkdir()
-    log_path = monitor._release_command_log_path('cmd_test')
+    log_path = monitor._release_command_log_path('sserveros_test')
     captured = {}
 
     class FakeProc:
@@ -196,21 +196,21 @@ def test_zellij_release_command_uses_named_session_layout(tmp_path, monkeypatch)
     def fake_popen(args, **kwargs):
         captured['args'] = args
         captured['kwargs'] = kwargs
-        Path(monitor._release_command_aux_path('cmd_test', '.pid')).write_text('12345')
-        Path(monitor._release_command_aux_path('cmd_test', '.pgid')).write_text('12345')
+        Path(monitor._release_command_aux_path('sserveros_test', '.pid')).write_text('12345')
+        Path(monitor._release_command_aux_path('sserveros_test', '.pgid')).write_text('12345')
         return FakeProc()
 
     monkeypatch.setattr('monitor.shutil.which', lambda cmd: '/usr/bin/zellij' if cmd == 'zellij' else None)
     monkeypatch.setattr('monitor.subprocess.Popen', fake_popen)
 
-    info = monitor._start_zellij_release_command('cmd_test', 'echo ok', log_path, '2026-06-11 16:00:00', 0, 0)
+    info = monitor._start_zellij_release_command('sserveros_test', 'echo ok', log_path, '2026-06-11 16:00:00', 0, 0)
 
     assert info['launcher'] == 'zellij'
-    assert info['terminal_session'] == 'sserveros_cmd_test'
-    assert info['zellij_session'] == 'sserveros_cmd_test'
-    assert captured['args'][:4] == ['/usr/bin/zellij', '--session', 'sserveros_cmd_test', '--new-session-with-layout']
+    assert info['terminal_session'] == 'sserveros_test'
+    assert info['zellij_session'] == 'sserveros_test'
+    assert captured['args'][:4] == ['/usr/bin/zellij', '--session', 'sserveros_test', '--new-session-with-layout']
     layout_text = Path(captured['args'][-1]).read_text()
-    assert 'pane command="/bin/bash" name="cmd_test" close_on_exit=true' in layout_text
+    assert 'pane command="/bin/bash" name="sserveros_test" close_on_exit=true' in layout_text
     assert 'launcher=zellij' in layout_text
 
 

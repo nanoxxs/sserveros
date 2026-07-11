@@ -146,7 +146,7 @@ def make_release_command(command: str, note: str = '', target_gpus=None) -> dict
         raise ValueError(f'command is too long (max {COMMAND_MAX_CHARS} chars)')
     target_gpus = validate_gpu_list(target_gpus, 'target_gpus')
     return {
-        'id': 'cmd_' + uuid.uuid4().hex[:12],
+        'id': 'sserveros_' + uuid.uuid4().hex[:12],
         'command': command,
         'note': str(note or '').strip()[:NOTE_MAX_CHARS],
         'target_gpus': target_gpus,

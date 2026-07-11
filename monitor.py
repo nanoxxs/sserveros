@@ -42,7 +42,7 @@ HOSTNAME_TAG = socket.gethostname()
 
 def release_terminal_session_name(command_id: str) -> str:
     safe_id = re.sub(r'[^a-zA-Z0-9_.-]+', '_', str(command_id)).strip('._-') or 'command'
-    return f'sserveros_{safe_id}'
+    return safe_id
 
 
 def tmux_release_session_name(command_id: str) -> str:

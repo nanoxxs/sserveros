@@ -11,6 +11,7 @@ WEBUI_PID_FILE="${RUNTIME_DIR}/webui.pid"
 MONITOR_LOG_FILE="${RUNTIME_DIR}/monitor.log"
 WEBUI_LOG_FILE="${RUNTIME_DIR}/webui.log"
 STOP_CONTEXT_FILE="${RUNTIME_DIR}/stop_context.json"
+SYSTEMD_UNIT_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/systemd/user"
 PLACEHOLDER_SENDKEY="SCTxxxxxxxxxxxxxxxx"
 REPO_URL="https://github.com/nanoxxs/sserveros"
 REPO_ZIP_URL="${REPO_URL}/archive/refs/heads/main.zip"
@@ -18,6 +19,10 @@ PYTHON_BIN=""
 LAST_GENERATED_PASSWORD=""
 COLOR_RESET=""
 COLOR_HIGHLIGHT=""
+COLOR_CYAN=""
+COLOR_GREEN=""
+COLOR_RED=""
+COLOR_DIM=""
 PORT_INSPECT_STATE="free"
 declare -a PORT_INSPECT_PROJECT_PIDS=()
 declare -a PORT_INSPECT_OTHER_PIDS=()
@@ -50,7 +55,34 @@ init_colors() {
   if [ -t 1 ]; then
     COLOR_RESET=$'\033[0m'
     COLOR_HIGHLIGHT=$'\033[1;33m'
+    COLOR_CYAN=$'\033[1;36m'
+    COLOR_GREEN=$'\033[1;32m'
+    COLOR_RED=$'\033[1;31m'
+    COLOR_DIM=$'\033[2m'
   fi
+}
+
+menu_rule() {
+  printf '%s────────────────────────────────────────────────────────%s\n' "${COLOR_DIM}" "${COLOR_RESET}"
+}
+
+menu_title() {
+  local title="$1"
+  printf '\n%s╭────────────────────────────────────────────────────────╮%s\n' "${COLOR_CYAN}" "${COLOR_RESET}"
+  printf '%s│  %-54s│%s\n' "${COLOR_CYAN}" "${title}" "${COLOR_RESET}"
+  printf '%s╰────────────────────────────────────────────────────────╯%s\n' "${COLOR_CYAN}" "${COLOR_RESET}"
+}
+
+menu_item() {
+  printf '  %s%s%s  %s\n' "${COLOR_HIGHLIGHT}" "$1" "${COLOR_RESET}" "$2"
+}
+
+status_badge() {
+  case "$1" in
+    运行中*|active*) printf '%s●%s %s' "${COLOR_GREEN}" "${COLOR_RESET}" "$1" ;;
+    失败*|failed*) printf '%s●%s %s' "${COLOR_RED}" "${COLOR_RESET}" "$1" ;;
+    *) printf '%s○%s %s' "${COLOR_DIM}" "${COLOR_RESET}" "$1" ;;
+  esac
 }
 
 find_python_bin() {
@@ -90,6 +122,47 @@ check_backend_requirements() {
 
 check_webui_requirements() {
   find_python_bin
+}
+
+systemd_user_available() {
+  command -v systemctl >/dev/null 2>&1 || return 1
+  systemctl --user show-environment >/dev/null 2>&1
+}
+
+install_systemd_units() {
+  local python_exec
+  systemd_user_available || return 1
+  find_python_bin
+  python_exec="$(command -v "${PYTHON_BIN}")"
+  mkdir -p "${SYSTEMD_UNIT_DIR}"
+  sed -e "s|__SCRIPT_DIR__|${SCRIPT_DIR}|g" \
+      -e "s|__PYTHON_BIN__|${python_exec}|g" \
+      "${SCRIPT_DIR}/systemd/sserveros-webui.service.in" \
+      > "${SYSTEMD_UNIT_DIR}/sserveros-webui.service"
+  sed -e "s|__SCRIPT_DIR__|${SCRIPT_DIR}|g" \
+      -e "s|__PYTHON_BIN__|${python_exec}|g" \
+      "${SCRIPT_DIR}/systemd/sserveros-monitor.service.in" \
+      > "${SYSTEMD_UNIT_DIR}/sserveros-monitor.service"
+  install -m 0644 "${SCRIPT_DIR}/systemd/sserveros.target" "${SYSTEMD_UNIT_DIR}/sserveros.target"
+  systemctl --user daemon-reload
+  systemctl --user enable sserveros.target >/dev/null
+}
+
+start_systemd_target() {
+  install_systemd_units || return 1
+  systemctl --user start sserveros.target
+}
+
+stop_systemd_unit() {
+  local unit="$1"
+  systemd_user_available || return 1
+  systemctl --user stop "${unit}"
+}
+
+systemd_unit_active() {
+  local unit="$1"
+  systemd_user_available || return 1
+  systemctl --user is-active --quiet "${unit}"
 }
 
 ensure_runtime_dir() {
@@ -369,6 +442,11 @@ start_backend() {
     echo "请先通过 .env 或 WebUI 设置页配置通知渠道，再重新启动 monitor.py。"
     return 0
   fi
+  if systemd_user_available; then
+    install_systemd_units
+    systemctl --user start sserveros-monitor.service
+    return 0
+  fi
   if service_running "${BACKEND_PID_FILE}"; then
     echo "monitor.py 已在运行。"
     return 0
@@ -619,6 +697,12 @@ check_webui_port() {
 start_webui() {
   check_webui_requirements
 
+  if systemd_user_available; then
+    install_systemd_units
+    systemctl --user start sserveros-webui.service
+    return 0
+  fi
+
   local port
   port="$(get_webui_port)"
   check_webui_port "${port}" || return 1
@@ -796,6 +880,7 @@ update_from_zip() {
     config_bootstrap.py
     storage.py
     agent
+    systemd
     README.md
     CONFIG.md
     ARCHITECTURE.md
@@ -877,28 +962,36 @@ pull_latest_scripts() {
 
 show_status() {
   local backend_pid webui_pid backend_state webui_state port
-  backend_pid="$(read_pid_file "${BACKEND_PID_FILE}" 2>/dev/null || true)"
-  webui_pid="$(read_pid_file "${WEBUI_PID_FILE}" 2>/dev/null || true)"
   port="$(get_webui_port)"
 
-  if is_pid_running "${backend_pid}"; then
-    backend_state="运行中 (PID ${backend_pid})"
+  if systemd_user_available; then
+    if systemd_unit_active sserveros-monitor.service; then
+      backend_state="运行中 · systemd"
+    elif systemctl --user is-failed --quiet sserveros-monitor.service; then
+      backend_state="失败 · systemd"
+    else
+      backend_state="未运行 · systemd"
+    fi
+    if systemd_unit_active sserveros-webui.service; then
+      webui_state="运行中 · systemd"
+    elif systemctl --user is-failed --quiet sserveros-webui.service; then
+      webui_state="失败 · systemd"
+    else
+      webui_state="未运行 · systemd"
+    fi
   else
-    backend_state="未运行"
+    backend_pid="$(read_pid_file "${BACKEND_PID_FILE}" 2>/dev/null || true)"
+    webui_pid="$(read_pid_file "${WEBUI_PID_FILE}" 2>/dev/null || true)"
+    if is_pid_running "${backend_pid}"; then backend_state="运行中 (PID ${backend_pid})"; else backend_state="未运行"; fi
+    if is_pid_running "${webui_pid}"; then webui_state="运行中 (PID ${webui_pid})"; else webui_state="未运行"; fi
   fi
 
-  if is_pid_running "${webui_pid}"; then
-    webui_state="运行中 (PID ${webui_pid})"
-  else
-    webui_state="未运行"
-  fi
-
-  echo
-  echo "当前状态"
-  echo "monitor.py:   ${backend_state}"
-  echo "WebUI:       ${webui_state}"
-  echo "端口 ${port}:   $(port_status_summary "${port}")"
-  echo
+  menu_rule
+  printf '  %s运行状态%s\n' "${COLOR_CYAN}" "${COLOR_RESET}"
+  printf '  %-12s %s\n' 'monitor.py' "$(status_badge "${backend_state}")"
+  printf '  %-12s %s\n' 'WebUI' "$(status_badge "${webui_state}")"
+  printf '  %-12s %s\n' "端口 ${port}" "$(status_badge "$(port_status_summary "${port}")")"
+  menu_rule
 }
 
 prompt_yes_no() {
@@ -963,7 +1056,14 @@ quick_start_flow() {
   bootstrap_config
 
   if prompt_yes_no "是否启动 WebUI？"; then
-    start_webui
+    if systemd_user_available && any_notify_channel_configured; then
+      start_systemd_target
+    elif systemd_user_available; then
+      install_systemd_units
+      systemctl --user start sserveros-webui.service
+    else
+      start_webui
+    fi
     webui_port="$(get_webui_port)"
     echo "WebUI 默认地址：http://127.0.0.1:${webui_port}"
   else
@@ -989,11 +1089,12 @@ backend_menu() {
   local choice
   while true; do
     show_status
-    echo "monitor.py 管理："
-    echo "1. 启动"
-    echo "2. 停止"
-    echo "0. 返回上一级"
-    printf '输入编号： '
+    menu_title 'monitor.py 监控服务'
+    menu_item '1.' '启动监控'
+    menu_item '2.' '停止监控'
+    menu_item '0.' '返回上一级'
+    menu_rule
+    printf '  请选择操作： '
     read -r choice
 
     case "${choice}" in
@@ -1001,7 +1102,9 @@ backend_menu() {
         bootstrap_config
         start_backend
         ;;
-      2) stop_service "monitor.py" "${BACKEND_PID_FILE}" "${SCRIPT_DIR}/monitor.py" ;;
+      2)
+        if systemd_user_available; then stop_systemd_unit sserveros-monitor.service; else stop_service "monitor.py" "${BACKEND_PID_FILE}" "${SCRIPT_DIR}/monitor.py"; fi
+        ;;
       0) return 0 ;;
       *) echo "无效输入，请重试。" ;;
     esac
@@ -1012,12 +1115,13 @@ webui_menu() {
   local choice webui_port
   while true; do
     show_status
-    echo "WebUI 管理："
-    echo "1. 启动"
-    echo "2. 停止"
-    echo "3. 修改 WebUI 密码"
-    echo "0. 返回上一级"
-    printf '输入编号： '
+    menu_title 'WebUI 服务管理'
+    menu_item '1.' '启动 WebUI'
+    menu_item '2.' '停止 WebUI'
+    menu_item '3.' '修改访问密码'
+    menu_item '0.' '返回上一级'
+    menu_rule
+    printf '  请选择操作： '
     read -r choice
 
     case "${choice}" in
@@ -1027,7 +1131,9 @@ webui_menu() {
         webui_port="$(get_webui_port)"
         echo "WebUI 默认地址：http://127.0.0.1:${webui_port}"
         ;;
-      2) stop_service "WebUI" "${WEBUI_PID_FILE}" "${SCRIPT_DIR}/webui.py" ;;
+      2)
+        if systemd_user_available; then stop_systemd_unit sserveros-webui.service; else stop_service "WebUI" "${WEBUI_PID_FILE}" "${SCRIPT_DIR}/webui.py"; fi
+        ;;
       3) change_webui_password ;;
       0) return 0 ;;
       *) echo "无效输入，请重试。" ;;
@@ -1039,15 +1145,18 @@ menu_loop() {
   local choice
   while true; do
     show_status
-    echo "请选择操作："
-    echo "1. 一键初始化并启动"
-    echo "2. 管理 monitor.py"
-    echo "3. 管理 WebUI"
-    echo "4. 查看并停止项目相关进程"
-    echo "5. 配置推送渠道"
-    echo "6. 拉取最新脚本"
-    echo "0. 退出"
-    printf '输入编号： '
+    menu_title 'sserveros 本地控制台'
+    printf '  %s服务操作%s\n' "${COLOR_CYAN}" "${COLOR_RESET}"
+    menu_item '1.' '一键初始化并启动'
+    menu_item '2.' '管理 monitor.py'
+    menu_item '3.' '管理 WebUI'
+    printf '\n  %s维护工具%s\n' "${COLOR_CYAN}" "${COLOR_RESET}"
+    menu_item '4.' '查看并停止项目相关进程'
+    menu_item '5.' '配置推送渠道'
+    menu_item '6.' '拉取最新脚本'
+    menu_item '0.' '退出'
+    menu_rule
+    printf '  请选择操作： '
     read -r choice
 
     case "${choice}" in

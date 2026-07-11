@@ -535,16 +535,24 @@ def create_app(script_dir: str = None):
     @app.route('/api/release-commands/edit', methods=['POST'])
     @require_auth
     def api_release_commands_edit():
-        data = request.get_json() or {}
-        command_id = str(data.get('id', '')).strip()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'JSON object required'}), 400
+        if not isinstance(data.get('id'), str):
+            return jsonify({'error': 'id must be a string'}), 400
+        if not isinstance(data.get('command'), str):
+            return jsonify({'error': 'command must be a string'}), 400
+        if 'note' in data and not isinstance(data['note'], str):
+            return jsonify({'error': 'note must be a string'}), 400
+        command_id = data['id'].strip()
         if not command_id:
             return jsonify({'error': 'id required'}), 400
-        command = str(data.get('command', '')).strip()
+        command = data['command'].strip()
         if not command:
             return jsonify({'error': 'command must be non-empty'}), 400
         if len(command) > COMMAND_MAX_CHARS:
             return jsonify({'error': f'command is too long (max {COMMAND_MAX_CHARS} chars)'}), 400
-        note = str(data.get('note', '') or '').strip()[:NOTE_MAX_CHARS]
+        note = data.get('note', '').strip()[:NOTE_MAX_CHARS]
         cfg = load_config_file(_config_path(script_dir))
         queue = normalize_release_commands(cfg.get('release_commands', []))
         target = next((item for item in queue if item.get('id') == command_id), None)
