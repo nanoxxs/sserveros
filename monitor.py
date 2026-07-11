@@ -1097,8 +1097,6 @@ exit "$code"
             f'- 启动前显存占用: `{used_mib} MiB`\n'
             f'- 启动方式: `{_release_launcher_label(launcher)}`\n'
             f'- 进程组 PGID: `{pgid if pgid is not None else "未知"}`\n'
-            f'- 阈值: `{settings["mem_threshold_mib"]} MiB`\n'
-            f'- 判定: 首次发现后再连续复核 {settings["confirm_times"]} 次低于阈值\n'
             f'- 日志文件: `{log_path}`\n\n'
             f'### 启动命令\n```\n{command_text}\n```\n\n'
             f'[点击查看详情]({_task_detail_url(cfg, command_id, gpu)})'

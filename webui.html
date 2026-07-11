@@ -128,10 +128,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .gpu-meta { display: flex; justify-content: space-between; font-size: 13px; color: #64748b; }
 .gpu-cmd { font-size: 12px; color: #94a3b8; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .refresh-hint { text-align: center; font-size: 12px; color: #cbd5e1; }
-.app-footer { max-width: 900px; margin: 0 auto; padding: 0 16px 24px; }
-.app-footer-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; font-size: 13px; line-height: 1.7; color: #64748b; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
-.app-footer-card { display: flex; justify-content: center; align-items: center; }
-.app-footer-card a { display: inline-flex; color: var(--fg-3); line-height: 1; transition: color .15s, transform .15s; }
+.app-footer { position: fixed; left: 0; right: 0; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 20; padding: 0; pointer-events: none; }
+.app-footer-card { display: flex; justify-content: center; align-items: center; padding: 0; background: transparent; border: none; box-shadow: none; }
+.app-footer-card a { display: inline-flex; pointer-events: auto; color: var(--fg-3); line-height: 1; transition: color .15s, transform .15s; }
 .app-footer-card a:hover { color: var(--accent); transform: translateY(-1px); }
 .app-footer-card svg { width: 22px; height: 22px; fill: currentColor; }
 
@@ -518,7 +517,7 @@ body { font-family: var(--font-sans); background: var(--bg-0); color: var(--fg-1
 body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, .dropdown-menu, .agent-window, .agent-bottom, .app-footer-card, .release-section-toggle, .release-group-head {
   transition: background .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease;
 }
-.login-card, .card, .sysinfo-card, .gpu-card, .app-footer-card, .agent-window, .settings-nav {
+.login-card, .card, .sysinfo-card, .gpu-card, .agent-window, .settings-nav {
   background: var(--bg-1);
   border-color: var(--border-default);
   border-radius: var(--radius-lg);
@@ -643,7 +642,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
 }
-[data-glass="on"] .login-card, [data-glass="on"] .card, [data-glass="on"] .sysinfo-card, [data-glass="on"] .gpu-card, [data-glass="on"] .app-footer-card, [data-glass="on"] .agent-window, [data-glass="on"] .modal-box, [data-glass="on"] .dropdown-menu {
+[data-glass="on"] .login-card, [data-glass="on"] .card, [data-glass="on"] .sysinfo-card, [data-glass="on"] .gpu-card, [data-glass="on"] .agent-window, [data-glass="on"] .modal-box, [data-glass="on"] .dropdown-menu {
   background: color-mix(in oklab, var(--bg-1) 58%, transparent);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
