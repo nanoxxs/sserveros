@@ -29,6 +29,7 @@ DEFAULT_CONFIG = {
     'watch_pids': [],
     'webui_host': '0.0.0.0',
     'webui_port': 6777,
+    'display_hostname': '',
     'agent_enabled': False,
     'llm_base_url': 'https://api.deepseek.com',
     'llm_api_key': '',

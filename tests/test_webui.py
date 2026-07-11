@@ -150,6 +150,9 @@ def test_index_contains_compact_mobile_system_rings(client):
     assert '>RAM</span>' in text
     assert '>Disk</span>' in text
     assert 'ringStyle(pct)' in text
+    assert 'v-if="isMobileAgent"' in text
+    assert 'v-else>' in text
+    assert '点击查看 CPU 详情 ›' in text
 
 
 def test_index_contains_responsive_agent_chat(client):

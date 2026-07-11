@@ -32,6 +32,7 @@
 | `watch_pids` | object[] | `[]` | 是（PIDs 页） | 否 | 持久化的监控 PID 列表，格式：`[{"pid": 1234, "note": "备注"}]` |
 | `webui_host` | string | `"0.0.0.0"` | 否 | 否 | WebUI 绑定地址，修改需重启 |
 | `webui_port` | int | `6777` | 否 | 否 | WebUI 监听端口，修改需重启 |
+| `display_hostname` | string | `""` | 是（设置页） | 否 | 通知标题使用的主机名，也用于通知中的 WebUI 详情链接；留空使用系统主机名 |
 | `agent_enabled` | bool | `false` | 是（设置页） | 否 | 是否启用 Agent；开启后电脑端显示右下角浮窗入口，手机端显示 Agent 标签页 |
 | `llm_base_url` | string | `"https://api.deepseek.com"` | 是 | 否 | LLM API 地址（OpenAI 兼容） |
 | `llm_api_key` | string | `""` | 是 | 是 | LLM API Key |

@@ -15,6 +15,7 @@ import threading
 import time
 import traceback
 from datetime import datetime
+from urllib.parse import quote
 
 import notifier
 from config_bootstrap import ensure_config
@@ -43,6 +44,19 @@ HOSTNAME_TAG = socket.gethostname()
 def release_terminal_session_name(command_id: str) -> str:
     safe_id = re.sub(r'[^a-zA-Z0-9_.-]+', '_', str(command_id)).strip('._-') or 'command'
     return safe_id
+
+
+def _display_hostname(cfg: dict) -> str:
+    return str(cfg.get('display_hostname') or HOSTNAME_TAG).strip() or HOSTNAME_TAG
+
+
+def _task_detail_url(cfg: dict, command_id: str, gpu: int | None = None) -> str:
+    host = _display_hostname(cfg)
+    port = int(cfg.get('webui_port', 6777))
+    query = f'task_id={quote(str(command_id), safe="")}'
+    if gpu is not None:
+        query += f'&gpu={int(gpu)}'
+    return f'http://{host}:{port}/?{query}'
 
 
 def tmux_release_session_name(command_id: str) -> str:
@@ -860,6 +874,9 @@ exit "$code"
         zellij_session = ''
         zellij_pane = ''
         trigger_gpu = None
+        trigger_mem_mib = None
+        started_at = ''
+        detail_cfg = {}
         notify_enabled = self.release_command_notify_enabled
         display_pid = display_pid or proc.pid
         with self._release_command_lock:
@@ -876,6 +893,8 @@ exit "$code"
                     zellij_session = item.get('zellij_session') or ''
                     zellij_pane = item.get('zellij_pane') or ''
                     trigger_gpu = item.get('trigger_gpu')
+                    trigger_mem_mib = item.get('trigger_mem_mib')
+                    started_at = item.get('started_at') or ''
                     item['status'] = status
                     item['exit_code'] = exit_code
                     item['finished_at'] = finished_at
@@ -883,21 +902,26 @@ exit "$code"
             cfg['release_commands'] = queue
             save_config_file(self.config_file, cfg)
             self.release_commands = queue
+            detail_cfg = cfg
             if isinstance(trigger_gpu, int) and not isinstance(trigger_gpu, bool):
                 notify_enabled = release_command_settings_for_gpu(cfg, trigger_gpu)['notify_enabled']
 
         tail = self._tail_file(log_path)
         content = (
-            f'## GPU 空闲任务已结束 — {HOSTNAME_TAG}\n\n'
+            f'## {_display_hostname(detail_cfg)}-GPU任务已结束\n\n'
+            f'- 显卡 ID: `{trigger_gpu if trigger_gpu is not None else "未知"}`\n'
             f'- 任务 ID: `{command_id}`\n'
+            f'- 进程 ID: `{display_pid}`\n'
+            f'- 启动时间: `{started_at or "未知"}`\n'
+            f'- 结束时间: `{finished_at}`\n'
+            f'- 启动前显存占用: `{trigger_mem_mib if trigger_mem_mib is not None else "未知"} MiB`\n'
             f'- 启动方式: `{_release_launcher_label(launcher)}`\n'
-            f'- 进程 PID: `{display_pid}`\n'
             f'- 进程组 PGID: `{pgid if pgid is not None else "未知"}`\n'
             f'- 退出码: `{exit_code}`\n'
-            f'- 结束时间: `{finished_at}`\n'
             f'- 状态: `{"成功" if status == "success" else "失败"}`\n'
             f'- 日志文件: `{log_path}`\n\n'
-            f'### 启动命令\n```\n{command_text}\n```'
+            f'### 启动命令\n```\n{command_text}\n```\n\n'
+            f'[点击查看详情]({_task_detail_url(detail_cfg, command_id, trigger_gpu)})'
         )
         if tmux_session:
             content += f'\n\n### tmux\n```\ntmux attach -t {tmux_session}\n```'
@@ -915,7 +939,7 @@ exit "$code"
             content += f'\n\n### 日志尾部\n```\n{tail}\n```'
         if notify_enabled:
             self.send_notification(
-                f'{TITLE_PREFIX} - 任务{"完成" if status == "success" else "失败"} [{HOSTNAME_TAG}]',
+                f'{_display_hostname(detail_cfg)}-GPU任务已结束',
                 content,
                 'command',
             )
@@ -1013,17 +1037,20 @@ exit "$code"
                 save_config_file(self.config_file, cfg)
                 self.release_commands = queue
                 content = (
-                    f'## GPU 空闲任务启动失败 — {HOSTNAME_TAG}\n\n'
+                    f'## {_display_hostname(cfg)}-GPU任务启动失败\n\n'
+                    f'- 显卡 ID: `{gpu}`\n'
                     f'- 任务 ID: `{command_id}`\n'
-                    f'- GPU: `{gpu}`\n'
-                    f'- 当前显存: `{used_mib} MiB`\n'
-                    f'- 检测时间: `{detected_at}`\n\n'
+                    f'- 进程 ID: `未知`\n'
+                    f'- 启动时间: `{started_at}`\n'
+                    f'- 启动前显存占用: `{used_mib} MiB`\n'
+                    f'- 日志文件: `{log_path}`\n\n'
                     f'### 错误\n```\n{exc}\n```\n\n'
-                    f'### 启动命令\n```\n{command_text}\n```'
+                    f'### 启动命令\n```\n{command_text}\n```\n\n'
+                    f'[点击查看详情]({_task_detail_url(cfg, command_id, gpu)})'
                 )
                 if settings['notify_enabled']:
                     self.send_notification(
-                        f'{TITLE_PREFIX} - 任务启动失败 [{HOSTNAME_TAG}]',
+                        f'{_display_hostname(cfg)}-GPU任务启动失败',
                         content,
                         'command',
                     )
@@ -1062,18 +1089,19 @@ exit "$code"
             self.release_commands = queue
 
         content = (
-            f'## GPU 空闲任务已启动 — {HOSTNAME_TAG}\n\n'
+            f'## {_display_hostname(cfg)}-GPU任务已启动\n\n'
+            f'- 显卡 ID: `{gpu}`\n'
             f'- 任务 ID: `{command_id}`\n'
+            f'- 进程 ID: `{display_pid if display_pid is not None else "未知"}`\n'
+            f'- 启动时间: `{started_at}`\n'
+            f'- 启动前显存占用: `{used_mib} MiB`\n'
             f'- 启动方式: `{_release_launcher_label(launcher)}`\n'
-            f'- 进程 PID: `{display_pid if display_pid is not None else "未知"}`\n'
             f'- 进程组 PGID: `{pgid if pgid is not None else "未知"}`\n'
-            f'- 触发 GPU: `{gpu}`\n'
-            f'- 当前显存: `{used_mib} MiB`\n'
             f'- 阈值: `{settings["mem_threshold_mib"]} MiB`\n'
             f'- 判定: 首次发现后再连续复核 {settings["confirm_times"]} 次低于阈值\n'
-            f'- 检测时间: `{detected_at}`\n'
             f'- 日志文件: `{log_path}`\n\n'
-            f'### 启动命令\n```\n{command_text}\n```'
+            f'### 启动命令\n```\n{command_text}\n```\n\n'
+            f'[点击查看详情]({_task_detail_url(cfg, command_id, gpu)})'
         )
         if launcher_warning:
             content += f'\n\n### 启动提示\n```\n{launcher_warning}\n```'
@@ -1091,7 +1119,7 @@ exit "$code"
             content += f'\n\n- terminal pane: `{terminal_pane}`'
         if settings['notify_enabled']:
             self.send_notification(
-                f'{TITLE_PREFIX} - 任务已启动 [{HOSTNAME_TAG}]',
+                f'{_display_hostname(cfg)}-GPU任务已启动',
                 content,
                 'command',
             )

@@ -218,6 +218,8 @@ def create_app(script_dir: str = None):
             cfg.get('release_command_gpu_settings', {})
         )
         cfg['release_commands'] = normalize_release_commands(cfg.get('release_commands', []))
+        for item in cfg['release_commands']:
+            item['log_tail'] = _tail_text(item.get('log_file', ''))
         cfg['tmux_status'] = _tmux_status()
         cfg['zellij_status'] = _zellij_status()
         cfg['env_channel_summary'] = summary
@@ -973,6 +975,15 @@ def create_app(script_dir: str = None):
             if cfg.get('sendkey') != data['sendkey']:
                 runtime_reload_needed = True
             cfg['sendkey'] = data['sendkey']
+        if 'display_hostname' in data:
+            if not isinstance(data['display_hostname'], str):
+                return jsonify({'error': 'invalid display_hostname'}), 400
+            display_hostname = data['display_hostname'].strip()
+            if len(display_hostname) > 128 or any(ord(ch) < 32 for ch in display_hostname):
+                return jsonify({'error': 'invalid display_hostname'}), 400
+            if cfg.get('display_hostname', '') != display_hostname:
+                runtime_reload_needed = True
+            cfg['display_hostname'] = display_hostname
         if 'serverchan_keys' in data:
             keys = data['serverchan_keys']
             if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
@@ -1444,6 +1455,19 @@ def create_app(script_dir: str = None):
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _tail_text(path: str, limit: int = 4000) -> str:
+    if not path:
+        return ''
+    try:
+        with open(path, 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - limit))
+            return f.read().decode('utf-8', errors='replace')[-limit:].strip()
+    except OSError:
+        return ''
 
 
 def _empty_state(cfg: dict) -> dict:

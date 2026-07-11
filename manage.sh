@@ -66,6 +66,15 @@ menu_rule() {
   printf '%s────────────────────────────────────────────────────────%s\n' "${COLOR_DIM}" "${COLOR_RESET}"
 }
 
+clear_screen() {
+  [ -t 1 ] || return 0
+  if command -v clear >/dev/null 2>&1; then
+    clear
+  else
+    printf '\033[2J\033[H'
+  fi
+}
+
 menu_title() {
   local title="$1"
   printf '\n%s╭────────────────────────────────────────────────────────╮%s\n' "${COLOR_CYAN}" "${COLOR_RESET}"
@@ -781,6 +790,18 @@ stop_service() {
   echo "${label} 当前未运行。"
 }
 
+stop_all_services() {
+  if systemd_user_available; then
+    systemctl --user stop sserveros-monitor.service sserveros-webui.service sserveros.target || true
+    echo "monitor.py 和 WebUI 已停止。"
+    return 0
+  fi
+
+  stop_service "monitor.py" "${BACKEND_PID_FILE}" "${SCRIPT_DIR}/monitor.py"
+  stop_service "WebUI" "${WEBUI_PID_FILE}" "${SCRIPT_DIR}/webui.py"
+  echo "monitor.py 和 WebUI 已停止。"
+}
+
 port_status_summary() {
   local port="$1"
 
@@ -1088,6 +1109,7 @@ quick_start_flow() {
 backend_menu() {
   local choice
   while true; do
+    clear_screen
     show_status
     menu_title 'monitor.py 监控服务'
     menu_item '1.' '启动监控'
@@ -1096,6 +1118,7 @@ backend_menu() {
     menu_rule
     printf '  请选择操作： '
     read -r choice
+    clear_screen
 
     case "${choice}" in
       1)
@@ -1114,6 +1137,7 @@ backend_menu() {
 webui_menu() {
   local choice webui_port
   while true; do
+    clear_screen
     show_status
     menu_title 'WebUI 服务管理'
     menu_item '1.' '启动 WebUI'
@@ -1123,6 +1147,7 @@ webui_menu() {
     menu_rule
     printf '  请选择操作： '
     read -r choice
+    clear_screen
 
     case "${choice}" in
       1)
@@ -1144,28 +1169,32 @@ webui_menu() {
 menu_loop() {
   local choice
   while true; do
+    clear_screen
     show_status
     menu_title 'sserveros 本地控制台'
     printf '  %s服务操作%s\n' "${COLOR_CYAN}" "${COLOR_RESET}"
     menu_item '1.' '一键初始化并启动'
     menu_item '2.' '管理 monitor.py'
     menu_item '3.' '管理 WebUI'
+    menu_item '4.' '一键停止前后端'
     printf '\n  %s维护工具%s\n' "${COLOR_CYAN}" "${COLOR_RESET}"
-    menu_item '4.' '查看并停止项目相关进程'
-    menu_item '5.' '配置推送渠道'
-    menu_item '6.' '拉取最新脚本'
+    menu_item '5.' '查看并停止项目相关进程'
+    menu_item '6.' '配置推送渠道'
+    menu_item '7.' '拉取最新脚本'
     menu_item '0.' '退出'
     menu_rule
     printf '  请选择操作： '
     read -r choice
+    clear_screen
 
     case "${choice}" in
       1) quick_start_flow ;;
       2) backend_menu ;;
       3) webui_menu ;;
-      4) stop_project_process_from_menu ;;
-      5) prompt_notify_channel ;;
-      6) pull_latest_scripts ;;
+      4) stop_all_services ;;
+      5) stop_project_process_from_menu ;;
+      6) prompt_notify_channel ;;
+      7) pull_latest_scripts ;;
       0) exit 0 ;;
       *) echo "无效输入，请重试。" ;;
     esac
