@@ -233,6 +233,24 @@ def test_state_no_file(auth_client):
     assert data['gpus'] == []
 
 
+def test_state_release_commands_keep_log_tail_for_auto_refresh(auth_client, tmp_config):
+    log_path = tmp_config / 'runtime' / 'command_logs' / 'sserveros_test.log'
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text('task output\n', encoding='utf-8')
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    cfg['release_commands'] = [{
+        'id': 'sserveros_test',
+        'command': 'cd ~/project && ls -al',
+        'status': 'success',
+        'log_file': str(log_path),
+    }]
+    (tmp_config / 'config.json').write_text(json.dumps(cfg))
+
+    data = auth_client.get('/api/state').get_json()
+
+    assert data['release_commands'][0]['log_tail'] == 'task output'
+
+
 def test_state_reports_tmux_status(auth_client, monkeypatch):
     monkeypatch.setattr(
         'webui.shutil.which',

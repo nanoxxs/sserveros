@@ -184,7 +184,9 @@ def create_app(script_dir: str = None):
             'release_command_gpu_settings',
             normalize_release_command_gpu_settings(cfg.get('release_command_gpu_settings', {})),
         )
-        state.setdefault('release_commands', normalize_release_commands(cfg.get('release_commands', [])))
+        state['release_commands'] = _release_commands_with_log_tails(
+            state.get('release_commands', cfg.get('release_commands', []))
+        )
         state['tmux_status'] = _tmux_status()
         state['zellij_status'] = _zellij_status()
         state.setdefault('hostname', socket.gethostname())
@@ -217,9 +219,9 @@ def create_app(script_dir: str = None):
         cfg['release_command_gpu_settings'] = normalize_release_command_gpu_settings(
             cfg.get('release_command_gpu_settings', {})
         )
-        cfg['release_commands'] = normalize_release_commands(cfg.get('release_commands', []))
-        for item in cfg['release_commands']:
-            item['log_tail'] = _tail_text(item.get('log_file', ''))
+        cfg['release_commands'] = _release_commands_with_log_tails(
+            cfg.get('release_commands', [])
+        )
         cfg['tmux_status'] = _tmux_status()
         cfg['zellij_status'] = _zellij_status()
         cfg['env_channel_summary'] = summary
@@ -1470,6 +1472,13 @@ def _tail_text(path: str, limit: int = 4000) -> str:
         return ''
 
 
+def _release_commands_with_log_tails(commands) -> list[dict]:
+    normalized = normalize_release_commands(commands)
+    for item in normalized:
+        item['log_tail'] = _tail_text(item.get('log_file', ''))
+    return normalized
+
+
 def _empty_state(cfg: dict) -> dict:
     return {
         'monitor_running': False,
@@ -1495,7 +1504,7 @@ def _empty_state(cfg: dict) -> dict:
         'release_command_gpu_settings': normalize_release_command_gpu_settings(
             cfg.get('release_command_gpu_settings', {})
         ),
-        'release_commands': normalize_release_commands(cfg.get('release_commands', [])),
+        'release_commands': _release_commands_with_log_tails(cfg.get('release_commands', [])),
         'tmux_status': _tmux_status(),
         'zellij_status': _zellij_status(),
         'hostname': socket.gethostname(),
