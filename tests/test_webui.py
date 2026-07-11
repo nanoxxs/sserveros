@@ -94,6 +94,7 @@ def test_index_contains_project_links(client):
     assert r.status_code == 200
     assert 'https://github.com/nanoxxs/sserveros' in text
     assert 'aria-label="打开 GitHub 项目仓库"' in text
+    assert '.app-footer { position: fixed;' not in text
     assert 'viewBox="0 0 24 24"' in text
     assert '官方文档' not in text
 
