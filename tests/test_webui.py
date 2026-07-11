@@ -205,8 +205,8 @@ def test_index_contains_gpu_detail_task_queue_and_tmux_controls(client):
     assert 'cfgReleaseCommandLauncher' in text
     assert "setCurrentGpuReleaseLauncher('zellij')" in text
     assert 'cmd.tmux_session' in text
-    assert 'cmd-session' in text
-    assert 'releaseCommandTmuxAttachText' in text
+    assert 'cmd-attach-chip' in text
+    assert 'tmux 连接指令（单击复制）' not in text
     assert 'copyReleaseCommandAttach' in text
     assert 'toggleReleaseCommandPaused' in text
     assert 'dropReleaseCommand' in text

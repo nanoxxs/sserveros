@@ -240,22 +240,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .cmd-main { flex: 1; min-width: 0; }
 .cmd-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; font-weight: 600; color: #1e293b; }
 .cmd-status { font-size: 11px; padding: 2px 7px; border-radius: 999px; font-weight: 600; }
-.cmd-code { font-family: monospace; font-size: 12px; color: #94a3b8; }
+.cmd-code { font-size: 14px; color: #1e293b; font-weight: 800; }
 .cmd-edit-note { width: min(360px, 100%); height: 28px; padding: 4px 7px; font-size: 12px; }
 .cmd-edit-text { height: 40px; min-height: 40px; margin-top: 8px; resize: vertical; }
-.cmd-session { font-family: monospace; font-size: 12px; color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; padding: 2px 7px; }
 .launcher-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; max-width: 420px; }
 .launcher-option { border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #64748b; font-size: 13px; padding: 8px 10px; cursor: pointer; }
 .launcher-option.active { background: #dbeafe; border-color: #93c5fd; color: #2563eb; font-weight: 700; }
 .terminal-status-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
-.cmd-columns-head { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(240px, .85fr); gap: 12px; padding: 8px 16px; border-bottom: 1px solid #f1f5f9; background: #f8fafc; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .45px; }
-.cmd-highlight-grid { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(240px, .85fr); gap: 12px; margin-top: 9px; align-items: stretch; }
-.cmd-highlight-grid.cmd-attach-only { grid-template-columns: 1fr; }
-.cmd-note-label, .cmd-attach-label { display: block; color: #94a3b8; font-size: 10px; font-weight: 700; letter-spacing: .35px; margin-bottom: 3px; }
-.cmd-attach-cell { min-width: 0; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; background: #fff; }
-.cmd-copy-btn { display: block; width: 100%; border: none; background: transparent; color: #2563eb; padding: 0; text-align: left; font: 11px/1.45 monospace; word-break: break-all; cursor: pointer; }
-.cmd-copy-btn:hover { text-decoration: underline; }
-.cmd-attach-empty { color: #94a3b8; font-size: 11px; line-height: 1.45; }
+.cmd-attach-chip { max-width: 100%; border: 1px solid #cbd5e1; border-radius: 7px; padding: 4px 8px; background: #f1f5f9; color: #64748b; font: 11px/1.4 monospace; text-align: left; word-break: break-all; cursor: pointer; }
+.cmd-attach-chip:hover { background: #e2e8f0; color: #475569; }
 .cmd-text { margin-top: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; max-height: 150px; overflow: auto; }
 .cmd-meta { margin-top: 7px; font-size: 11px; color: #94a3b8; line-height: 1.6; }
 .cmd-log-details { margin-top: 8px; font-size: 12px; color: var(--fg-2); }
@@ -276,7 +269,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .release-group-settings { font-size: 11px; color: #94a3b8; margin-top: 3px; }
 .release-empty { padding: 14px 16px; color: #94a3b8; font-size: 13px; }
 @media (max-width: 680px) {
-  .cmd-columns-head { display: none; }
   .cmd-highlight-grid { grid-template-columns: 1fr; gap: 7px; }
   .cmd-row { flex-direction: column; }
   .cmd-actions { width: 100%; justify-content: flex-start; }
@@ -603,8 +595,9 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 .agent-empty-title, .agent-window-title, .cmd-title, .gpu-task-title { color: var(--fg-1); }
 .cmd-note, .cmd-meta { color: var(--fg-3); }
 .detail-body-content, .msg-assistant, .tool-step, .cmd-text { background: var(--bg-2); border-color: var(--border-default); color: var(--fg-2); }
-.cmd-columns-head, .cmd-row.is-paused { background: var(--bg-2); border-color: var(--border-subtle); }
-.cmd-attach-cell { background: var(--bg-1); border-color: var(--border-default); }
+.cmd-row.is-paused { background: var(--bg-2); border-color: var(--border-subtle); }
+.cmd-attach-chip { background: var(--bg-2); border-color: var(--border-default); color: var(--fg-3); }
+.cmd-attach-chip:hover { background: var(--bg-3); color: var(--fg-2); }
 .msg-user { background: var(--accent); color: var(--accent-fg); }
 .agent-bottom { background: var(--bg-1); }
 .agent-window-status, .agent-window-close { color: var(--fg-3); }
@@ -1069,10 +1062,6 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
                 <span class="release-group-stats">待 {{ group.pending }} / 暂停 {{ group.paused }} / 运行 {{ group.running }} / 完成 {{ group.done }}</span>
               </button>
               <div v-show="isReleaseGroupOpen(group.key)">
-                <div class="cmd-columns-head">
-                  <span>备注</span>
-                  <span>tmux 连接指令（单击复制）</span>
-                </div>
                 <div v-for="(cmd, i) in group.commands" :key="cmd.id" class="cmd-row"
                      :class="{
                        'is-paused': cmd.paused,
@@ -1096,20 +1085,11 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
                              v-model="releaseCommandDrafts[cmd.id].note"
                              placeholder="备注（可选）" @click.stop>
                       <span v-else class="cmd-code" :title="cmd.id">{{ cmd.note || cmd.id }}</span>
-                      <span v-if="cmd.terminal_session || cmd.tmux_session || cmd.zellij_session" class="cmd-session">
-                        {{ releaseCommandLauncherLabel(cmd.launcher) }} {{ cmd.terminal_session || cmd.tmux_session || cmd.zellij_session }}
-                      </span>
-                    </div>
-                    <div class="cmd-highlight-grid cmd-attach-only">
-                      <div class="cmd-attach-cell">
-                        <span class="cmd-attach-label">tmux 连接</span>
-                        <button v-if="releaseCommandTmuxAttachText(cmd)" class="cmd-copy-btn"
-                                :title="'单击复制：' + releaseCommandTmuxAttachText(cmd)"
-                                @click="copyReleaseCommandAttach(cmd)">
-                          {{ releaseCommandTmuxAttachText(cmd) }}
-                        </button>
-                        <span v-else class="cmd-attach-empty">{{ cmd.status === 'pending' ? '任务启动后显示连接指令' : '此任务没有可用的 tmux 会话' }}</span>
-                      </div>
+                      <button v-if="releaseCommandAttachText(cmd)" class="cmd-attach-chip"
+                              :title="'单击复制：' + releaseCommandAttachText(cmd)"
+                              @click.stop="copyReleaseCommandAttach(cmd)">
+                        {{ releaseCommandAttachText(cmd) }}
+                      </button>
                     </div>
                     <textarea v-if="cmd.status === 'pending' && cmd.paused"
                               class="setting-input cmd-text cmd-edit-text"
@@ -1124,7 +1104,6 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
                       <span v-if="cmd.trigger_gpu !== null && cmd.trigger_gpu !== undefined">GPU {{ cmd.trigger_gpu }} / {{ cmd.trigger_mem_mib }} MiB · </span>
                       <span>{{ cmd.started_at || cmd.created_at || '未启动' }}</span>
                       <span v-if="cmd.log_file"> · 日志 {{ cmd.log_file }}</span>
-                      <span v-if="releaseCommandAttachText(cmd)"> · {{ releaseCommandAttachText(cmd) }}</span>
                     </div>
                     <details v-if="cmd.log_tail" class="cmd-log-details">
                       <summary>查看日志内容</summary>
@@ -2816,13 +2795,8 @@ createApp({
 	      return `session ${session}`;
 	    },
 
-	    releaseCommandTmuxAttachText(cmd) {
-	      const session = cmd.tmux_session || (cmd.launcher === 'tmux' ? cmd.terminal_session : '') || '';
-	      return session ? `tmux attach -t ${session}` : '';
-	    },
-
 	    async copyReleaseCommandAttach(cmd) {
-	      const attach = this.releaseCommandTmuxAttachText(cmd);
+	      const attach = this.releaseCommandAttachText(cmd);
 	      if (!attach) return;
 	      try {
 	        if (navigator.clipboard?.writeText) {
