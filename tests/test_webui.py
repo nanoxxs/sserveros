@@ -93,8 +93,9 @@ def test_index_contains_project_links(client):
     text = r.get_data(as_text=True)
     assert r.status_code == 200
     assert 'https://github.com/nanoxxs/sserveros' in text
-    assert 'https://github.com/nanoxxs/sserveros/blob/main/README.md' in text
-    assert '第三方教程可能已过时，请以官方文档为准' in text
+    assert 'aria-label="打开 GitHub 项目仓库"' in text
+    assert 'viewBox="0 0 24 24"' in text
+    assert '官方文档' not in text
 
 
 def test_index_contains_gpu_detail_quick_pid_monitor(client):
