@@ -21,6 +21,15 @@ from controller import (
     ControllerRegistry,
     ServerNotFound,
 )
+from enrollment import (
+    BOOTSTRAP_AGENT_FILES,
+    EnrollmentStore,
+    EnrollmentTokenBusy,
+    ExpiredEnrollmentToken,
+    InvalidEnrollmentToken,
+    build_bootstrap_script,
+    build_enrollment_command,
+)
 from release_commands import (
     COMMAND_MAX_CHARS,
     TERMINAL_STATUSES,
@@ -125,6 +134,8 @@ def create_app(
     app.config['AGENT_API_ONLY'] = agent_api_only
     controller_registry = ControllerRegistry(script_dir)
     app.extensions['controller_registry'] = controller_registry
+    enrollment_store = EnrollmentStore(script_dir)
+    app.extensions['enrollment_store'] = enrollment_store
     if (
         start_background
         and not agent_api_only
@@ -390,6 +401,122 @@ def create_app(
             status = 502 if exc.status_code == 401 else exc.status_code
             message = 'Agent 配对令牌无效' if exc.status_code == 401 else str(exc)
             return jsonify({'error': message}), status
+
+    @app.route('/api/enrollments', methods=['GET'])
+    @require_auth
+    def api_enrollments_list():
+        error = _controller_required()
+        if error:
+            return error
+        return jsonify(enrollment_store.list_records())
+
+    @app.route('/api/enrollments', methods=['POST'])
+    @require_auth
+    def api_enrollments_create():
+        error = _controller_required()
+        if error:
+            return error
+        data = request.get_json() or {}
+        try:
+            ttl = data.get('ttl', 600)
+            record = enrollment_store.create(data.get('controller_url'), ttl=ttl)
+            command = build_enrollment_command(record['controller_url'], record['token'])
+            return jsonify({
+                'ok': True,
+                'enrollment_id': record['enrollment_id'],
+                'token': record['token'],
+                'controller_url': record['controller_url'],
+                'expires_at': record['expires_at'],
+                'command': command,
+            }), 201
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+
+    @app.route('/api/enrollments/<enrollment_id>', methods=['DELETE'])
+    @require_auth
+    def api_enrollments_revoke(enrollment_id):
+        error = _controller_required()
+        if error:
+            return error
+        if not enrollment_store.revoke(enrollment_id):
+            return jsonify({'error': '接入令牌不存在或已失效'}), 404
+        return jsonify({'ok': True})
+
+    def _request_bearer_token() -> str:
+        header = request.headers.get('Authorization', '')
+        return header[7:].strip() if header.startswith('Bearer ') else ''
+
+    def _enrollment_token_error(exc):
+        if isinstance(exc, ExpiredEnrollmentToken):
+            return jsonify({'error': str(exc)}), 410
+        if isinstance(exc, EnrollmentTokenBusy):
+            return jsonify({'error': str(exc)}), 409
+        return jsonify({'error': str(exc)}), 401
+
+    @app.route('/api/enroll/bootstrap', methods=['GET'])
+    def api_enroll_bootstrap():
+        if load_config_file(_config_path(script_dir)).get('node_role') != 'controller':
+            return jsonify({'error': '当前节点不是主控端'}), 404
+        token = _request_bearer_token()
+        try:
+            record = enrollment_store.validate(token)
+        except (InvalidEnrollmentToken, ExpiredEnrollmentToken, EnrollmentTokenBusy) as exc:
+            return _enrollment_token_error(exc)
+        script = build_bootstrap_script(record['controller_url'], token)
+        return Response(
+            script,
+            mimetype='text/x-shellscript',
+            headers={
+                'Cache-Control': 'no-store, max-age=0',
+                'Pragma': 'no-cache',
+                'X-Content-Type-Options': 'nosniff',
+            },
+        )
+
+    @app.route('/api/enroll/bootstrap-file/<filename>', methods=['GET'])
+    def api_enroll_bootstrap_file(filename):
+        if load_config_file(_config_path(script_dir)).get('node_role') != 'controller':
+            return jsonify({'error': '当前节点不是主控端'}), 404
+        if filename not in BOOTSTRAP_AGENT_FILES:
+            return jsonify({'error': 'not found'}), 404
+        token = _request_bearer_token()
+        try:
+            enrollment_store.validate(token)
+        except (InvalidEnrollmentToken, ExpiredEnrollmentToken, EnrollmentTokenBusy) as exc:
+            return _enrollment_token_error(exc)
+        path = os.path.join(script_dir, filename)
+        if not os.path.isfile(path):
+            return jsonify({'error': '主控端缺少接入组件'}), 500
+        response = send_file(path, mimetype='text/plain', conditional=False, max_age=0)
+        response.headers['Cache-Control'] = 'no-store, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
+
+    @app.route('/api/enroll/register', methods=['POST'])
+    def api_enroll_register():
+        if load_config_file(_config_path(script_dir)).get('node_role') != 'controller':
+            return jsonify({'error': '当前节点不是主控端'}), 404
+        token = _request_bearer_token()
+        try:
+            record = enrollment_store.claim(token)
+        except (InvalidEnrollmentToken, ExpiredEnrollmentToken, EnrollmentTokenBusy) as exc:
+            return _enrollment_token_error(exc)
+        try:
+            result = controller_registry.register_enrolled_agent(request.get_json(silent=True) or {})
+            enrollment_store.consume(record['enrollment_id'])
+            return jsonify(result), 201 if result.get('created') else 200
+        except AgentRequestError as exc:
+            enrollment_store.release(record['enrollment_id'])
+            status = 502 if exc.status_code == 401 else exc.status_code
+            message = '无法使用节点 Agent 令牌完成反向验证' if exc.status_code == 401 else str(exc)
+            return jsonify({'error': message}), status
+        except ValueError as exc:
+            enrollment_store.release(record['enrollment_id'])
+            return jsonify({'error': str(exc)}), 400
+        except Exception:
+            enrollment_store.release(record['enrollment_id'])
+            return jsonify({'error': '接入注册失败，请稍后重试'}), 500
 
     @app.route(
         '/api/servers/<server_id>/<path:subpath>',

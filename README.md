@@ -51,6 +51,8 @@ sserveros/
 ├── notifier.py          # 推送渠道模块（Server Chan / Bark）
 ├── agent_api.py         # 节点 Agent API 进程
 ├── controller.py        # 主控服务器清单、轮询缓存与 Agent HTTP 客户端
+├── enrollment.py        # 一次性令牌和 bootstrap 脚本生成
+├── enroll_client.py     # 分控端一次性注册客户端
 ├── webui.py             # Web 后端（Flask）
 ├── webui.html           # 前端页面（单文件）
 ├── config_bootstrap.py  # 首启自动生成配置
@@ -86,6 +88,7 @@ runtime/
   webui.pid             # WebUI 进程 PID
   agent_api.pid         # 节点 Agent API 进程 PID
   agent_api.log         # 无 systemd 时的 Agent API 日志
+  enrollment_tokens.json # 主控一次性接入令牌状态（仅保存哈希）
   watch_pids.queue      # 动态添加 PID 队列
   remove_pids.queue     # 动态删除 PID 队列
   agent_sessions.json   # Agent 会话持久化
@@ -139,21 +142,47 @@ bash ./manage.sh
 
 首次角色选择输入 `2`（主控端）。主控会同时启动本机 Agent，因此 A 自身也与远端节点走相同的数据访问路径。主控固定通过 `127.0.0.1:<agent_port>` 访问本机 Agent，可把 A 的 `agent_host` 设为 `127.0.0.1`；WebUI 默认仍为 `http://<A 的 Tailscale IP>:6777`。
 
-### 2. 在 B/C/D/E 部署分控端
+### 2. 在 A 生成一键接入命令
 
-每台服务器执行相同安装命令，首次角色选择输入 `3`（分控端）。默认 Agent API 监听 `0.0.0.0:6780`；建议把 `config.json` 的 `agent_host` 改为该机器的 Tailscale IP，或使用防火墙保证 6780 端口只允许 Tailnet 访问。
+登录 A 的 WebUI，在服务器管理中生成一次性接入命令。命令结构如下，实际界面会填入主控地址和一次性令牌：
 
-在 `manage.sh` 主菜单选择“管理节点 Agent API → 显示监听地址和配对令牌”，记录每台机器的令牌。令牌保存在权限受限的 `config.json` 中，不会通过 WebUI 配置 API 回显。
+```bash
+curl -fsSL --connect-timeout 10 --noproxy '*' \
+  -H 'Authorization: Bearer <ONE_TIME_TOKEN>' \
+  '<CONTROLLER_URL>/api/enroll/bootstrap' | bash
+```
 
-### 3. 在 A 添加分控端
+`CONTROLLER_URL` 必须是 B 能访问的 A 的 Tailscale 地址，例如 `http://100.64.0.10:6777` 或 MagicDNS 地址。一次性令牌默认 10 分钟过期，也可在 WebUI 中提前撤销；它属于敏感信息，不要发到聊天记录或公共日志，注册成功后即被消费。
 
-登录 A 的 WebUI，在服务器管理界面依次填写：
+### 3. 在 B/C/D/E 执行命令
 
-- 名称，例如 `gpu-b`
-- Agent URL，例如 `http://100.64.0.12:6780` 或 `http://gpu-b:6780`
-- 对应分控端的配对令牌
+在每台分控服务器上粘贴 A 生成的命令即可。A 返回的 bootstrap 脚本会：
 
-保存后在服务器卡片上点击“测试连接”。主控默认每 5 秒并发轮询所有启用节点，单次请求超时为 3 秒；某台离线不会阻塞其他节点，并会保留该节点最后一次成功快照和最后在线时间。
+- 显式设置 `$SSERVEROS_DIR` 时优先使用该目录。
+- 未设置时，当前目录已有 `manage.sh` 和 `monitor.py` 就直接复用，兼容升级早于 Agent API 的旧单机仓库。
+- 两者都不满足时默认使用 `$HOME/sserveros`。
+- 已有 Git 仓库执行 `git pull --ff-only`，没有仓库则从 GitHub `main` 分支克隆。
+- 主控会用同一枚一次性令牌下发 `manage.sh`、`enroll_client.py` 和 `monitor.py`；因此即使 A 的新版尚未推送到 GitHub，B 也能执行一键接入。
+- 最后执行 `bash manage.sh join --controller-url ... --token ...` 完成角色切换、服务启动和注册。
+
+`join` 是非交互命令。它会保留已经运行的 `monitor.py`、tmux/zellij 会话和 GPU 任务，启动节点 Agent API，并在条件允许时启动 monitor；只有主控确认注册成功后，才会停止 B 上不再需要的 WebUI。它不会停止 monitor，也不会停止任何 systemd target。注册失败时 WebUI 同样保持原状，方便排查和重试。
+
+需要手动排障时，也可在已更新的项目目录直接运行：
+
+```bash
+bash manage.sh join \
+  --controller-url 'http://<A-Tailscale-IP>:6777' \
+  --token '<ONE_TIME_TOKEN>'
+```
+
+完成后服务器会自动出现在 A 的服务器列表中，无需再手工复制 Agent Token。主控默认每 5 秒并发轮询所有启用节点，单次请求超时为 3 秒；某台离线不会阻塞其他节点，并会保留该节点最后一次成功快照和最后在线时间。
+
+### 接入前提
+
+- A 和 B 已登录同一 Tailnet，B 能访问 A 的 WebUI 地址，A 能访问 B 的 Agent 端口 `6780`。
+- B 已安装 `bash`、`curl`、`git`、Python 3 和项目 Python 依赖；启动监控还需要 NVIDIA 驱动及可用的 `nvidia-smi`。
+- 首次克隆时 B 能访问 GitHub；如果不能，应提前把项目放到 `$SSERVEROS_DIR` 或当前目录。
+- 默认 Agent API 监听 `0.0.0.0:6780`；建议绑定 B 的 Tailscale IP，或用防火墙保证 6780 只允许 Tailnet 访问。
 
 也可从主控机器直接验证 Agent：
 
@@ -184,7 +213,9 @@ nohup python "$(pwd)/agent_api.py" >> "$(pwd)/runtime/agent_api.log" 2>&1 &
 
 或直接使用 `manage.sh`，它会自动处理初始化和启停。
 
-如果当前尚未配置任何通知渠道，`monitor.py` 不会启动；可以先启动 WebUI 完成设置。
+分控端自动接入使用 `bash manage.sh join --controller-url URL --token TOKEN`。该子命令只用于 A 生成的一次性令牌，不会进入交互菜单。
+
+普通交互启动在尚未配置通知渠道时会跳过 `monitor.py`；可以先启动 WebUI 完成设置。`join` 是例外，它会为主控状态采集尝试启动 monitor，但不会发送通知。
 分控端没有 WebUI 时，也可以直接编辑 `config.json` 配置通知渠道，再通过 `manage.sh` 启动监控。
 
 ## WebUI

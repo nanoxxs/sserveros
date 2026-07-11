@@ -274,3 +274,94 @@ def test_disabled_server_rejects_writes_without_creating_client(tmp_path):
 
     assert exc_info.value.status_code == 409
     assert '禁用' in str(exc_info.value)
+
+
+def test_enrolled_agent_with_existing_node_id_updates_same_server(tmp_path):
+    _write_config(tmp_path, controller_servers=[{
+        'server_id': 'srv_existing',
+        'node_id': 'node_gpu_b',
+        'name': 'Old B',
+        'url': 'http://100.64.0.2:6780',
+        'token': 'old-agent-token',
+        'enabled': False,
+    }])
+    candidates = []
+
+    class HealthyClient:
+        def __init__(self, server, timeout):
+            candidates.append((server.copy(), timeout))
+
+        def get_json(self, path):
+            assert path == 'health'
+            return {
+                'server_id': 'node_gpu_b',
+                'node_role': 'agent',
+                'display_name': 'GPU B',
+                'agent_version': '1.0',
+                'protocol_version': PROTOCOL_VERSION,
+            }
+
+    registry = ControllerRegistry(str(tmp_path), client_factory=HealthyClient)
+
+    result = registry.register_enrolled_agent({
+        'node_id': 'node_gpu_b',
+        'name': 'GPU B rejoined',
+        'agent_url': 'http://100.64.0.22:6780',
+        'agent_token': 'rotated-agent-token',
+    })
+
+    assert result['created'] is False
+    assert result['server']['server_id'] == 'srv_existing'
+    assert result['server']['node_id'] == 'node_gpu_b'
+    assert 'token' not in result['server']
+    assert candidates[0][0]['url'] == 'http://100.64.0.22:6780'
+    assert candidates[0][0]['token'] == 'rotated-agent-token'
+    persisted = json.loads((tmp_path / 'config.json').read_text())['controller_servers']
+    assert persisted == [{
+        'server_id': 'srv_existing',
+        'node_id': 'node_gpu_b',
+        'name': 'GPU B rejoined',
+        'url': 'http://100.64.0.22:6780',
+        'token': 'rotated-agent-token',
+        'enabled': True,
+    }]
+
+
+def test_enrolled_agent_reverse_identity_failure_does_not_persist(tmp_path):
+    _write_config(tmp_path)
+
+    class WrongIdentityClient:
+        def __init__(self, server, timeout):
+            pass
+
+        def get_json(self, path):
+            return {
+                'server_id': 'node_someone_else',
+                'node_role': 'agent',
+                'protocol_version': PROTOCOL_VERSION,
+            }
+
+    registry = ControllerRegistry(str(tmp_path), client_factory=WrongIdentityClient)
+
+    with pytest.raises(AgentRequestError, match='身份校验失败'):
+        registry.register_enrolled_agent({
+            'node_id': 'node_gpu_b',
+            'name': 'GPU B',
+            'agent_url': 'http://100.64.0.2:6780',
+            'agent_token': 'agent-token',
+        })
+
+    assert json.loads((tmp_path / 'config.json').read_text())['controller_servers'] == []
+
+
+def test_enrolled_agent_requires_tailnet_address(tmp_path):
+    _write_config(tmp_path)
+    registry = ControllerRegistry(str(tmp_path))
+
+    with pytest.raises(ValueError, match='Tailscale'):
+        registry.register_enrolled_agent({
+            'node_id': 'node_gpu_b',
+            'name': 'GPU B',
+            'agent_url': 'http://192.168.1.20:6780',
+            'agent_token': 'agent-token',
+        })

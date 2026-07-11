@@ -577,11 +577,15 @@ print(password or '')
 }
 
 start_backend() {
+  local allow_without_notify="${1:-0}"
   check_backend_requirements
-  if ! any_notify_channel_configured; then
+  if ! any_notify_channel_configured && [ "${allow_without_notify}" != "1" ]; then
     echo "当前未配置任何推送渠道，已跳过 monitor.py 启动。"
     echo "请先通过 .env 或 WebUI 设置页配置通知渠道，再重新启动 monitor.py。"
     return 0
+  fi
+  if ! any_notify_channel_configured; then
+    echo "当前未配置推送渠道；仍将启动 monitor.py 供主控采集状态，通知暂不发送。"
   fi
   if systemd_user_available; then
     install_systemd_units
@@ -1077,6 +1081,8 @@ update_from_zip() {
     manage.sh
     agent_api.py
     controller.py
+    enrollment.py
+    enroll_client.py
     monitor.py
     notifier.py
     webui.py
@@ -1366,6 +1372,151 @@ quick_start_flow() {
   show_status
 }
 
+join_usage() {
+  cat <<'EOF'
+用法：
+  bash manage.sh join --controller-url <主控地址> --token <一次性接入令牌>
+
+说明：
+  将当前节点切换为 agent，保留已有 monitor.py / tmux / zellij 任务，启动 Agent API，
+  向主控完成注册；注册成功后只停止本机 WebUI。
+EOF
+}
+
+project_script_running() {
+  local pid_file="$1"
+  local script_path="$2"
+  service_running "${pid_file}" || pgrep -f "${script_path}" >/dev/null 2>&1
+}
+
+ensure_join_agent_api() {
+  if systemd_user_available; then
+    install_systemd_units
+  fi
+
+  if project_script_running "${AGENT_API_PID_FILE}" "${SCRIPT_DIR}/agent_api.py"; then
+    echo "Agent API 已在运行，保留现有进程。"
+    return 0
+  fi
+
+  start_agent_api
+}
+
+ensure_join_monitor() {
+  if project_script_running "${BACKEND_PID_FILE}" "${SCRIPT_DIR}/monitor.py"; then
+    echo "monitor.py 已在运行，保留现有监控和任务队列。"
+    return 0
+  fi
+
+  if ! (start_backend 1); then
+    echo "警告：monitor.py 当前无法启动；节点仍会继续注册，可在修复依赖后从 manage.sh 菜单启动。"
+  fi
+}
+
+stop_join_webui_only() {
+  if systemd_user_available; then
+    systemctl --user stop sserveros-webui.service >/dev/null 2>&1 || true
+  fi
+  if pgrep -f "${SCRIPT_DIR}/webui.py" >/dev/null 2>&1; then
+    stop_service "WebUI" "${WEBUI_PID_FILE}" "${SCRIPT_DIR}/webui.py"
+  else
+    rm -f "${WEBUI_PID_FILE}"
+    echo "WebUI 当前未运行。"
+  fi
+}
+
+join_flow() {
+  local controller_url="" token=""
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --controller-url)
+        if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+          echo "错误：--controller-url 缺少参数。" >&2
+          join_usage >&2
+          return 2
+        fi
+        controller_url="$2"
+        shift 2
+        ;;
+      --controller-url=*)
+        controller_url="${1#*=}"
+        shift
+        ;;
+      --token)
+        if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+          echo "错误：--token 缺少参数。" >&2
+          join_usage >&2
+          return 2
+        fi
+        token="$2"
+        shift 2
+        ;;
+      --token=*)
+        token="${1#*=}"
+        shift
+        ;;
+      -h|--help)
+        join_usage
+        return 0
+        ;;
+      --)
+        shift
+        if [ "$#" -gt 0 ]; then
+          echo "错误：join 不接受位置参数。" >&2
+          join_usage >&2
+          return 2
+        fi
+        ;;
+      *)
+        echo "错误：join 不支持参数 $1。" >&2
+        join_usage >&2
+        return 2
+        ;;
+    esac
+  done
+
+  if [ -z "${controller_url}" ] || [ -z "${token}" ]; then
+    echo "错误：join 必须同时提供 --controller-url 和 --token。" >&2
+    join_usage >&2
+    return 2
+  fi
+  case "${controller_url}" in
+    http://*|https://*) ;;
+    *)
+      echo "错误：主控地址必须以 http:// 或 https:// 开头。" >&2
+      return 2
+      ;;
+  esac
+  if [ ! -f "${SCRIPT_DIR}/enroll_client.py" ]; then
+    echo "错误：未找到 ${SCRIPT_DIR}/enroll_client.py，请先更新到支持一键接入的完整版本。" >&2
+    return 1
+  fi
+
+  echo "正在初始化分控端配置……"
+  bootstrap_config
+  set_node_role agent
+  echo "节点角色已设置为：$(node_role_label agent)。"
+
+  ensure_join_agent_api
+  ensure_join_monitor
+
+  echo "正在向主控注册节点……"
+  if ! "${PYTHON_BIN}" "${SCRIPT_DIR}/enroll_client.py" \
+    --controller-url "${controller_url}" \
+    --token "${token}"; then
+    token=""
+    echo "错误：主控注册失败；现有 monitor.py、tmux 任务和 WebUI 均未停止。" >&2
+    return 1
+  fi
+  token=""
+
+  echo "节点注册成功，正在关闭分控端不需要的 WebUI……"
+  stop_join_webui_only
+  echo "接入完成：monitor.py 和 Agent API 保持运行，现有 tmux/zellij 任务未受影响。"
+  show_status
+}
+
 agent_api_menu() {
   local choice agent_host agent_port
   while true; do
@@ -1516,6 +1667,12 @@ main() {
   check_manage_requirements
   init_colors
   ensure_runtime_dir
+
+  if [ "${1:-}" = "join" ]; then
+    shift
+    join_flow "$@"
+    return $?
+  fi
 
   if [ ! -f "${CONFIG_FILE}" ] \
     && ! service_running "${BACKEND_PID_FILE}" \

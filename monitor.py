@@ -131,6 +131,7 @@ class Monitor:
         self.bark_configs: list = []
         self.notification_channels_source = ''
         self.display_hostname = ''
+        self.node_role = 'standalone'
 
         # GPU 状态
         self.gpu_low_count: dict[int, int] = {}
@@ -281,6 +282,7 @@ class Monitor:
             self.bark_configs = cfg.get('bark_configs', [])
         self.notification_channels_source = cfg.get('notification_channels_source', '')
         self.display_hostname = str(cfg.get('display_hostname') or '').strip()
+        self.node_role = str(cfg.get('node_role') or 'standalone')
         watch_pids_cfg = cfg.get('watch_pids', [])
         for wp in watch_pids_cfg:
             pid = int(wp['pid'])
@@ -356,6 +358,7 @@ class Monitor:
             self.gpu_mem_monitor_enabled = cfg.get('gpu_mem_monitor_enabled', True)
             self.main_pid_monitor_enabled = cfg.get('main_pid_monitor_enabled', True)
             self.display_hostname = str(cfg.get('display_hostname') or '').strip()
+            self.node_role = str(cfg.get('node_role') or 'standalone')
             self.release_command_enabled = cfg.get('release_command_enabled', True)
             self.release_command_notify_enabled = cfg.get('release_command_notify_enabled', True)
             self.release_command_launcher = normalize_release_command_launcher(cfg)
@@ -1580,8 +1583,10 @@ exit "$code"
         self.load_config()
 
         if not notifier.has_any_channel(self._notify_cfg()):
-            print('错误：未配置任何推送渠道（SERVERCHAN_KEYS / BARK_CONFIGS / SENDKEY）', file=sys.stderr)
-            sys.exit(1)
+            if self.node_role == 'standalone':
+                print('错误：未配置任何推送渠道（SERVERCHAN_KEYS / BARK_CONFIGS / SENDKEY）', file=sys.stderr)
+                sys.exit(1)
+            print('警告：当前未配置推送渠道；继续采集状态，但不会发送通知。', file=sys.stderr)
 
         if not self.gpus:
             self.gpus = self._detect_all_gpus()

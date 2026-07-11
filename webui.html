@@ -720,6 +720,27 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 .server-manage-meta-item { min-width: 0; }
 .server-manage-meta-label { color: var(--fg-3); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
 .server-manage-meta-value { color: var(--fg-2); font-family: var(--font-mono); font-size: 11px; margin-top: 3px; overflow-wrap: anywhere; }
+.enrollment-card { overflow: visible; }
+.enrollment-body { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; }
+.enrollment-input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.enrollment-command-box { border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--bg-2); padding: 12px; }
+.enrollment-command-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.enrollment-command-title { color: var(--fg-1); font-size: 13px; font-weight: 700; }
+.enrollment-command {
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-1);
+  color: var(--fg-1);
+  padding: 11px 12px;
+  font: 11px/1.6 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.enrollment-meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--fg-3); font-size: 11px; margin-top: 9px; }
+.enrollment-note { border-left: 3px solid var(--warn-fg); border-radius: var(--radius-sm); background: var(--warn-bg); color: var(--warn-fg); padding: 9px 11px; font-size: 12px; line-height: 1.55; }
 .button-danger { color: var(--danger-fg) !important; border-color: color-mix(in oklab, var(--danger-fg) 30%, var(--border-default)) !important; }
 .button-danger:hover { background: var(--danger-bg) !important; }
 .target-context { color: var(--accent); font-weight: 650; }
@@ -735,6 +756,8 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   .tabs.controller-tabs .tab { flex: 0 0 auto; min-width: 72px; }
   .server-overview-grid { grid-template-columns: 1fr; }
   .server-manage-meta { grid-template-columns: 1fr; }
+  .enrollment-input-row { grid-template-columns: 1fr; }
+  .enrollment-input-row .add-btn { width: 100%; }
 }
 @media (max-width: 460px) {
   .server-select { width: 116px; }
@@ -1609,7 +1632,58 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
       </div>
       <div class="controller-actions">
         <button class="back-btn" @click="loadServers(true)" :disabled="serversLoading">刷新列表</button>
+        <button class="back-btn" @click="openEnrollmentPanel()">生成接入命令</button>
         <button class="add-btn" @click="startAddServer()">添加服务器</button>
+      </div>
+    </div>
+
+    <div v-if="enrollmentPanelOpen" class="card enrollment-card">
+      <div class="card-header">
+        <span>一条命令接入 Agent</span>
+        <button class="back-btn" @click="enrollmentPanelOpen=false" title="收起">×</button>
+      </div>
+      <div class="enrollment-body">
+        <div class="enrollment-input-row">
+          <div class="server-form-field">
+            <label>Agent 可访问的主控 URL</label>
+            <input class="setting-input" v-model="enrollmentControllerUrl"
+                   placeholder="例如：http://100.64.0.1:6777"
+                   @keydown.enter="generateEnrollment()">
+            <div class="server-form-help">默认使用当前页面地址；如远端不能访问该地址，请改为主控的 Tailscale IP 或 MagicDNS URL。</div>
+          </div>
+          <button class="add-btn" @click="generateEnrollment()" :disabled="enrollmentLoading">
+            {{ enrollmentLoading ? '生成中…' : (enrollmentCommand ? '重新生成' : '生成接入命令') }}
+          </button>
+        </div>
+
+        <div class="enrollment-note">
+          接入命令是一次性的，并将在 10 分钟后自动失效。它不会停止目标机现有的监控服务、训练进程或 tmux/zellij 会话。
+        </div>
+
+        <div v-if="enrollmentMsg.text" class="notice-msg" :class="enrollmentMsg.kind" style="display:block;text-align:left;margin-top:0">
+          {{ enrollmentMsg.text }}
+        </div>
+
+        <div v-if="enrollmentCommand" class="enrollment-command-box">
+          <div class="enrollment-command-head">
+            <div class="enrollment-command-title">在待接入服务器的终端中执行</div>
+            <div class="server-card-badges">
+              <span class="server-chip local">一次性</span>
+              <span class="server-chip disabled" style="color:var(--warn-fg);background:var(--warn-bg)">10 分钟有效</span>
+            </div>
+          </div>
+          <pre class="enrollment-command">{{ enrollmentCommand }}</pre>
+          <div class="enrollment-meta">
+            <span>到期时间：{{ formatEnrollmentExpiry(enrollmentExpiresAt, enrollmentExpiresIn) }}</span>
+            <div class="server-manage-actions">
+              <button class="back-btn" @click="copyEnrollmentCommand()">复制命令</button>
+              <button v-if="enrollmentId" class="back-btn button-danger"
+                      @click="revokeEnrollment()" :disabled="enrollmentRevoking">
+                {{ enrollmentRevoking ? '撤销中…' : '撤销命令' }}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -2101,6 +2175,15 @@ createApp({
       serverManageMsg: {text:'', kind:''},
       serverActionBusy: {},
       serverTestResults: {},
+      enrollmentPanelOpen: false,
+      enrollmentControllerUrl: '',
+      enrollmentLoading: false,
+      enrollmentRevoking: false,
+      enrollmentId: '',
+      enrollmentCommand: '',
+      enrollmentExpiresAt: '',
+      enrollmentExpiresIn: 600,
+      enrollmentMsg: {text:'', kind:''},
       hostname: '',
       monitorRunning: false,
       _refreshTimer: null,
@@ -2734,6 +2817,132 @@ createApp({
       if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`;
       if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`;
       return date.toLocaleString('zh-CN', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
+    },
+
+    openEnrollmentPanel() {
+      this.enrollmentPanelOpen = true;
+      if (!this.enrollmentControllerUrl) this.enrollmentControllerUrl = location.origin;
+      this.enrollmentMsg = {text:'', kind:''};
+    },
+
+    normalizedEnrollmentControllerUrl() {
+      const value = this.enrollmentControllerUrl.trim().replace(/\/+$/, '');
+      if (!value) throw new Error('请填写 Agent 可访问的主控 URL');
+      let parsed;
+      try {
+        parsed = new URL(value);
+      } catch(e) {
+        throw new Error('主控 URL 格式不正确');
+      }
+      if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) {
+        throw new Error('主控 URL 必须是有效的 http:// 或 https:// 地址');
+      }
+      if (parsed.username || parsed.password) throw new Error('主控 URL 不能包含用户名或密码');
+      if (parsed.search || parsed.hash || !['', '/'].includes(parsed.pathname)) {
+        throw new Error('主控 URL 只填写协议、主机和端口');
+      }
+      return value;
+    },
+
+    async generateEnrollment() {
+      if (!this.controllerMode || this.enrollmentLoading) return;
+      let controllerUrl;
+      try {
+        controllerUrl = this.normalizedEnrollmentControllerUrl();
+      } catch(e) {
+        this.enrollmentMsg = {text:e.message || '主控 URL 不正确', kind:'error'};
+        return;
+      }
+
+      this.enrollmentLoading = true;
+      this.enrollmentMsg = {text:'', kind:''};
+      try {
+        const r = await this.api('/api/enrollments', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({controller_url:controllerUrl}),
+        });
+        const payload = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(payload.error || '生成接入命令失败');
+        const enrollment = payload.enrollment && typeof payload.enrollment === 'object'
+          ? payload.enrollment
+          : payload;
+        const command = enrollment.command || enrollment.install_command || payload.command || '';
+        if (!command) throw new Error('主控未返回接入命令');
+        this.enrollmentControllerUrl = controllerUrl;
+        this.enrollmentId = String(
+          enrollment.enrollment_id || enrollment.id || enrollment.token_id
+          || payload.enrollment_id || payload.id || ''
+        );
+        this.enrollmentCommand = String(command);
+        this.enrollmentExpiresAt = enrollment.expires_at || enrollment.expiry || payload.expires_at || '';
+        this.enrollmentExpiresIn = Number(
+          enrollment.expires_in_seconds ?? enrollment.expires_in
+          ?? payload.expires_in_seconds ?? payload.expires_in ?? 600
+        ) || 600;
+        this.enrollmentMsg = {text:'接入命令已生成，请在 10 分钟内于目标服务器执行', kind:'success'};
+      } catch(e) {
+        this.enrollmentMsg = {text:e.message || '生成接入命令失败', kind:'error'};
+      } finally {
+        this.enrollmentLoading = false;
+      }
+    },
+
+    async copyEnrollmentCommand() {
+      if (!this.enrollmentCommand) return;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(this.enrollmentCommand);
+        } else {
+          const input = document.createElement('textarea');
+          input.value = this.enrollmentCommand;
+          input.style.position = 'fixed';
+          input.style.opacity = '0';
+          document.body.appendChild(input);
+          input.select();
+          document.execCommand('copy');
+          input.remove();
+        }
+        this.showToast('接入命令已复制', true);
+      } catch(e) {
+        this.showToast('复制失败，请手动选择命令', false);
+      }
+    },
+
+    formatEnrollmentExpiry(value, expiresIn = 600) {
+      if (value) {
+        const raw = Number(value);
+        const date = Number.isFinite(raw)
+          ? new Date(raw < 1e12 ? raw * 1000 : raw)
+          : new Date(value);
+        if (!Number.isNaN(date.getTime())) return date.toLocaleString('zh-CN');
+        return String(value);
+      }
+      const seconds = Number(expiresIn);
+      return Number.isFinite(seconds) && seconds > 0
+        ? `约 ${Math.max(1, Math.ceil(seconds / 60))} 分钟后`
+        : '约 10 分钟后';
+    },
+
+    async revokeEnrollment() {
+      if (!this.enrollmentId || this.enrollmentRevoking) return;
+      if (!confirm('确认撤销这条一次性接入命令？撤销后尚未执行的命令将立即失效。')) return;
+      this.enrollmentRevoking = true;
+      try {
+        const r = await this.api(`/api/enrollments/${encodeURIComponent(this.enrollmentId)}`, {method:'DELETE'});
+        const payload = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(payload.error || '撤销接入命令失败');
+        this.enrollmentId = '';
+        this.enrollmentCommand = '';
+        this.enrollmentExpiresAt = '';
+        this.enrollmentExpiresIn = 600;
+        this.enrollmentMsg = {text:payload.message || '接入命令已撤销', kind:'success'};
+        this.showToast('接入命令已撤销', true);
+      } catch(e) {
+        this.enrollmentMsg = {text:e.message || '撤销接入命令失败', kind:'error'};
+      } finally {
+        this.enrollmentRevoking = false;
+      }
     },
 
     startAddServer() {

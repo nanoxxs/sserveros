@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import ipaddress
+import re
 import socket
 import threading
 import time
@@ -17,6 +19,9 @@ from storage import config_path, load_config_file, save_config_file
 
 
 PROTOCOL_VERSION = 1
+_NODE_ID_RE = re.compile(r'^[A-Za-z0-9_.:-]{3,160}$')
+_TAILSCALE_V4 = ipaddress.ip_network('100.64.0.0/10')
+_TAILSCALE_V6 = ipaddress.ip_network('fd7a:115c:a1e0::/48')
 
 
 class ControllerError(RuntimeError):
@@ -53,6 +58,18 @@ def _public_server(server: dict) -> dict:
     result = copy.deepcopy(server)
     result.pop('token', None)
     return result
+
+
+def _validate_tailnet_agent_url(value: str) -> str:
+    value = _normalize_url(value)
+    hostname = urlparse(value).hostname or ''
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError as exc:
+        raise ValueError('自动接入必须使用 B 的 Tailscale IP 地址') from exc
+    if address not in _TAILSCALE_V4 and address not in _TAILSCALE_V6:
+        raise ValueError('自动接入地址不在 Tailscale 地址范围内')
+    return value
 
 
 class AgentClient:
@@ -143,6 +160,7 @@ class ControllerRegistry:
         if cfg.get('node_role', 'standalone') == 'controller':
             servers.append({
                 'server_id': 'local',
+                'node_id': str(cfg.get('node_id') or ''),
                 'name': str(cfg.get('display_hostname') or socket.gethostname()),
                 'url': f"http://127.0.0.1:{int(cfg.get('agent_port', 6780))}",
                 'token': str(cfg.get('agent_token') or ''),
@@ -157,6 +175,7 @@ class ControllerRegistry:
                 continue
             servers.append({
                 'server_id': server_id,
+                'node_id': str(raw.get('node_id') or '').strip(),
                 'name': str(raw.get('name') or server_id).strip(),
                 'url': str(raw.get('url') or '').strip().rstrip('/'),
                 'token': str(raw.get('token') or ''),
@@ -234,6 +253,81 @@ class ControllerRegistry:
         existing.append(item)
         save_config_file(self.config_file, cfg)
         return _public_server({**item, 'local': False})
+
+    def register_enrolled_agent(self, payload: dict) -> dict:
+        if not isinstance(payload, dict):
+            raise ValueError('注册内容必须是对象')
+        node_id = str(payload.get('node_id') or '').strip()
+        if not _NODE_ID_RE.fullmatch(node_id):
+            raise ValueError('Agent node_id 无效')
+        name = str(payload.get('name') or payload.get('hostname') or node_id).strip()
+        if not name or len(name) > 80:
+            raise ValueError('Agent 名称无效')
+        url = _validate_tailnet_agent_url(payload.get('agent_url'))
+        token = str(payload.get('agent_token') or '').strip()
+        if not token or len(token) > 1024:
+            raise ValueError('Agent 令牌无效')
+
+        candidate = {
+            'server_id': 'enrollment-check',
+            'node_id': node_id,
+            'name': name,
+            'url': url,
+            'token': token,
+            'enabled': True,
+            'local': False,
+        }
+        health = self._client(candidate).get_json('health')
+        if health.get('protocol_version') != PROTOCOL_VERSION:
+            raise AgentRequestError('Agent 协议版本不兼容', status_code=409)
+        if str(health.get('server_id') or '') != node_id:
+            raise AgentRequestError('Agent 身份校验失败', status_code=409)
+        if health.get('node_role') != 'agent':
+            raise AgentRequestError('目标节点尚未切换为分控端', status_code=409)
+
+        cfg = self._config()
+        servers = cfg.setdefault('controller_servers', [])
+        node_target = next(
+            (
+                item for item in servers
+                if isinstance(item, dict) and str(item.get('node_id') or '') == node_id
+            ),
+            None,
+        )
+        url_target = next(
+            (
+                item for item in servers
+                if isinstance(item, dict) and str(item.get('url') or '').rstrip('/') == url
+            ),
+            None,
+        )
+        if node_target is not None and url_target is not None and node_target is not url_target:
+            raise ValueError('该 Tailscale 地址已属于另一台服务器')
+        target = node_target or url_target
+        created = target is None
+        if target is None:
+            target = {'server_id': f"srv_{uuid.uuid4().hex[:12]}"}
+            servers.append(target)
+        target.update({
+            'node_id': node_id,
+            'name': name,
+            'url': url,
+            'token': token,
+            'enabled': True,
+        })
+        save_config_file(self.config_file, cfg)
+        with self._lock:
+            self._cache.pop(target['server_id'], None)
+        return {
+            'ok': True,
+            'created': created,
+            'server': _public_server({**target, 'local': False}),
+            'health': {
+                'agent_version': health.get('agent_version', ''),
+                'protocol_version': health.get('protocol_version'),
+                'display_name': health.get('display_name', ''),
+            },
+        }
 
     def update_server(self, server_id: str, payload: dict) -> dict:
         if server_id == 'local':
