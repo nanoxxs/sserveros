@@ -89,7 +89,7 @@ webui.html
   ├─ 设置页写 /api/settings 和 /api/agent/config
   ├─ PID 页写 /api/pids/*
   ├─ 释放队列写 /api/release-commands/*
-  └─ Agent 页写 /api/agent/chat/stream 或 /api/agent/chat
+  └─ 响应式 Agent UI 写 /api/agent/chat/stream 或 /api/agent/chat
 ```
 
 ## 进程和信号约定
@@ -122,8 +122,8 @@ webui.html
 | 释放队列任务增删 | `webui.py api_release_commands_*()`，`release_commands.py make_release_command()` / `normalize_release_commands()` | `addReleaseCommand()` / `removeReleaseCommand()` / `clearReleaseCommands()` / `requeueReleaseCommand()` | `tests/test_webui.py` release command 用例 |
 | 释放队列执行 | `monitor.py check_release_commands_once()` / `_start_next_release_command()` / `_finish_release_command()` / `_reconcile_release_commands_locked()` | 设置页释放队列状态展示 | `tests/test_sserveros.py` release command 用例 |
 | Agent 配置 | `webui.py api_agent_config_get()` / `api_agent_config_post()` | `loadAgentConfig()` / `saveAgentConfig()` | `tests/test_webui.py`，必要时补 Agent 配置测试 |
-| Agent 对话 | `webui.py api_agent_chat()` / `api_agent_chat_stream()`，`agent/runner.py AgentRunner.chat()` / `chat_stream()` | Agent 页 `agentSend()` / `_agentSendStream()` / `_agentSendSync()` | `tests/test_agent_tools.py`，必要时补 runner 测试 |
-| Agent 工具 | `agent/tools/*.py`，`agent/tools/__init__.py`，`agent/schema.py` | Agent 页工具轨迹展示 | `tests/test_agent_tools.py` |
+| Agent 对话 | `webui.py api_agent_chat()` / `api_agent_chat_stream()`，`agent/runner.py AgentRunner.chat()` / `chat_stream()` | 桌面浮窗/手机 Tab 共用 `agentSend()` / `_agentSendStream()` / `_agentSendSync()` | `tests/test_agent_tools.py`，必要时补 runner 测试 |
+| Agent 工具 | `agent/tools/*.py`，`agent/tools/__init__.py`，`agent/schema.py` | Agent 响应式界面工具轨迹展示 | `tests/test_agent_tools.py` |
 | 启动/停止脚本 | `manage.sh quick_start_flow()` / `start_backend()` / `start_webui()` / `stop_service()` | 无 | 手动验证为主 |
 
 ## Flask API 地图
@@ -170,7 +170,7 @@ webui.html
 | PIDs | `#panePids` | `loadPids()` / `addPid()` / `removePid()` / `clearDeadPids()` |
 | 设置 | `#paneSettings` | `loadSettings()` / `saveMonitorSettings()` / `saveReleaseSettings()` / `saveNotifySettings()` / `saveAgentConfig()` |
 | 日志 | `#paneLog` | `loadLog()` / `loadArchives()` |
-| Agent | `#paneAgent` | `agentSend()` / `_agentSendStream()` / `_agentSendSync()` / `agentConfirm()` / `agentClear()` |
+| Agent | `#agentChatPanel` / `.agent-launcher` / 动态 Agent Tab | `handleViewportChange()` / `openAgentChat()` / `agentSend()` / `_agentSendStream()` / `_agentSendSync()` / `agentConfirm()` / `agentClear()` |
 | 密码弹窗 | `.modal-overlay` | `changePassword()` |
 | Toast | `.toast` | `showToast()` |
 
@@ -217,7 +217,7 @@ webui.html
 
 ## Agent 架构
 
-Agent 默认关闭。开启后，前端请求：
+Agent 默认关闭，未启用时桌面入口和手机 Tab 都不渲染。启用后，桌面端通过右下角按钮打开固定浮窗，移动端在顶部导航中增加独立 Agent 标签；两种布局共用同一套消息和会话状态。前端请求：
 
 ```text
 webui.html

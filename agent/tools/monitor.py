@@ -102,9 +102,9 @@ def monitor_settings(script_dir: str) -> dict:
     return {
         'ok': True,
         'settings': {
-            'mem_threshold_mib': cfg.get('mem_threshold_mib', 10240),
+            'mem_threshold_mib': cfg.get('mem_threshold_mib', 5120),
             'check_interval': cfg.get('check_interval', 120),
-            'confirm_times': cfg.get('confirm_times', 2),
+            'confirm_times': cfg.get('confirm_times', 3),
             'gpu_mem_monitor_enabled': cfg.get('gpu_mem_monitor_enabled', True),
             'main_pid_monitor_enabled': cfg.get('main_pid_monitor_enabled', True),
             'release_command_enabled': cfg.get('release_command_enabled', True),
@@ -114,7 +114,7 @@ def monitor_settings(script_dir: str) -> dict:
             'release_command_gpus': cfg.get('release_command_gpus', []),
             'release_command_mem_threshold_mib': cfg.get(
                 'release_command_mem_threshold_mib',
-                cfg.get('mem_threshold_mib', 10240),
+                cfg.get('mem_threshold_mib', 5120),
             ),
             'release_command_check_interval': cfg.get(
                 'release_command_check_interval',
@@ -122,7 +122,7 @@ def monitor_settings(script_dir: str) -> dict:
             ),
             'release_command_confirm_times': cfg.get(
                 'release_command_confirm_times',
-                cfg.get('confirm_times', 2),
+                cfg.get('confirm_times', 3),
             ),
             'release_command_gpu_settings': normalize_release_command_gpu_settings(
                 cfg.get('release_command_gpu_settings', {})

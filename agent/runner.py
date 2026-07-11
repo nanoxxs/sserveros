@@ -180,7 +180,7 @@ class AgentRunner:
             {k: v for k, v in m.items() if k != 'staged'} for m in session.messages
         ]
 
-        base_url = self._cfg.get('llm_base_url', 'https://api.deepseek.com/v1').rstrip('/')
+        base_url = self._cfg.get('llm_base_url', 'https://api.deepseek.com').rstrip('/')
         api_key = self._cfg.get('llm_api_key', '')
         model = self._cfg.get('llm_model', 'deepseek-v4-flash')
         max_iter = max(1, min(int(self._cfg.get('llm_max_iterations', 8)), 20))
@@ -291,7 +291,7 @@ class AgentRunner:
             {k: v for k, v in m.items() if k != 'staged'} for m in session.messages
         ]
 
-        base_url = self._cfg.get('llm_base_url', 'https://api.deepseek.com/v1').rstrip('/')
+        base_url = self._cfg.get('llm_base_url', 'https://api.deepseek.com').rstrip('/')
         api_key = self._cfg.get('llm_api_key', '')
         model = self._cfg.get('llm_model', 'deepseek-v4-flash')
         max_iter = max(1, min(int(self._cfg.get('llm_max_iterations', 8)), 20))

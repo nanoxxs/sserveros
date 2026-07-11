@@ -12,8 +12,8 @@
 | `sendkey` | string | `""` | 是 | 是 | Server Chan 推送密钥，也可通过 `SENDKEY` 环境变量设置 |
 | `notification_channels_source` | string | `""` | 是（隐式） | 否 | WebUI 保存通知渠道后写为 `"config"`，表示后续以 `config.json` 渠道为准 |
 | `check_interval` | int | `120` | 是 | 否 | 主循环检测间隔（秒） |
-| `mem_threshold_mib` | int | `10240` | 是 | 否 | GPU 显存低于此值触发告警（MiB） |
-| `confirm_times` | int | `2` | 是 | 否 | 连续 N 次检测到才触发通知 |
+| `mem_threshold_mib` | int | `5120` | 是 | 否 | GPU 显存低于此值触发告警（MiB） |
+| `confirm_times` | int | `3` | 是 | 否 | 连续 N 次检测到才触发通知 |
 | `log_max_size_mb` | int | `10` | 是 | 否 | `runtime/log.json` 超过此大小时自动压缩（MB） |
 | `log_archive_keep` | int | `5` | 是 | 否 | 保留的历史压缩存档数量 |
 | `gpus` | int[] | `[]` | 是 | 否 | 监控的 GPU 索引列表，空数组表示自动检测全部 |
@@ -24,7 +24,7 @@
 | `release_command_gpus` | int[] | `[]` | 是 | 否 | 任务队列监控的 GPU 索引列表，空数组表示自动检测全部 |
 | `release_command_mem_threshold_mib` | int | `5120` | 是 | 否 | 任务队列默认空闲判定阈值（MiB） |
 | `release_command_check_interval` | int | `120` | 是 | 否 | 任务队列默认检测间隔（秒） |
-| `release_command_confirm_times` | int | `2` | 是 | 否 | 首次发现空闲后的复核次数；默认总计检测 3 次 |
+| `release_command_confirm_times` | int | `3` | 是 | 否 | 首次发现空闲后的复核次数；默认总计检测 4 次 |
 | `release_command_gpu_settings` | object | `{}` | 是 | 否 | 每 GPU 独立任务配置，可覆盖启用、通知、启动器、阈值、间隔和复核次数 |
 | `release_command_launcher` | string | `"detached"` | 是 | 否 | 任务启动器：`detached` 后台日志、`tmux` tmux 会话、`zellij` zellij 会话；启动失败时自动回退后台日志模式 |
 | `release_command_tmux_enabled` | bool | `false` | 是 | 否 | 旧版兼容字段；未设置 `release_command_launcher` 时，`true` 等价于 `release_command_launcher="tmux"` |
@@ -32,8 +32,8 @@
 | `watch_pids` | object[] | `[]` | 是（PIDs 页） | 否 | 持久化的监控 PID 列表，格式：`[{"pid": 1234, "note": "备注"}]` |
 | `webui_host` | string | `"0.0.0.0"` | 否 | 否 | WebUI 绑定地址，修改需重启 |
 | `webui_port` | int | `6777` | 否 | 否 | WebUI 监听端口，修改需重启 |
-| `agent_enabled` | bool | `false` | 是（设置页） | 否 | 是否启用 Agent Tab |
-| `llm_base_url` | string | `"https://api.deepseek.com/v1"` | 是 | 否 | LLM API 地址（OpenAI 兼容） |
+| `agent_enabled` | bool | `false` | 是（设置页） | 否 | 是否启用 Agent；开启后电脑端显示右下角浮窗入口，手机端显示 Agent 标签页 |
+| `llm_base_url` | string | `"https://api.deepseek.com"` | 是 | 否 | LLM API 地址（OpenAI 兼容） |
 | `llm_api_key` | string | `""` | 是 | 是 | LLM API Key |
 | `llm_model` | string | `"deepseek-v4-flash"` | 是 | 否 | 模型名称 |
 | `llm_max_iterations` | int | `8` | 是 | 否 | 最大工具调用轮次（1-20） |

@@ -22,8 +22,8 @@ def tmp_config(tmp_path):
         'password_hash': generate_password_hash('default'),
         'sendkey': 'SCTtest',
         'check_interval': 120,
-        'mem_threshold_mib': 10240,
-        'confirm_times': 2,
+        'mem_threshold_mib': 5120,
+        'confirm_times': 3,
         'log_max_size_mb': 10,
         'log_archive_keep': 5,
         'gpu_mem_monitor_enabled': True,
@@ -141,12 +141,27 @@ def test_index_uses_dark_console_login(client):
     assert '进入 WebUI' in text
 
 
-def test_index_contains_agent_empty_welcome(client):
+def test_index_contains_responsive_agent_chat(client):
     r = client.get('/')
     text = r.get_data(as_text=True)
     assert r.status_code == 200
+    assert 'v-show="agentEnabled" class="agent-floating"' in text
+    assert 'id="agentChatPanel"' in text
+    assert 'aria-controls="agentChatPanel"' in text
+    assert 'v-for="t in visibleTabs"' in text
+    assert "this.isMobileAgent && this.agentEnabled" in text
+    assert "tabs.push({id:'agent', label:'Agent'})" in text
+    assert 'v-show="!isMobileAgent" ref="agentLauncher"' in text
+    assert '.agent-floating { position: static;' in text
+    assert '.agent-launcher { display: none !important; }' in text
+    assert 'agentPanelVisible' in text
+    assert 'agentChatOpen' in text
+    assert 'agentUnread' in text
     assert 'agentMessages.length === 0' in text
     assert '你可以向我提问' in text
+    tabs_block = text.split('tabs: [', 1)[1].split('],', 1)[0]
+    assert "id:'agent'" not in tabs_block
+    assert 'id="paneAgent"' not in text
 
 
 def test_index_contains_cpu_and_memory_detail_views(client):
@@ -673,6 +688,34 @@ def test_release_command_pause_and_resume(auth_client, tmp_config, monkeypatch):
     assert json.loads((tmp_config / 'config.json').read_text())['release_commands'][0]['paused'] is False
 
 
+def test_release_command_edit_requires_paused_pending_task(auth_client, tmp_config, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    cfg['release_commands'] = [
+        {'id': 'cmd_first', 'command': 'python first.py', 'note': 'old', 'status': 'pending', 'paused': False},
+    ]
+    (tmp_config / 'config.json').write_text(json.dumps(cfg))
+
+    rejected = auth_client.post('/api/release-commands/edit', json={
+        'id': 'cmd_first', 'command': 'python updated.py', 'note': 'new',
+    }, content_type='application/json')
+    assert rejected.status_code == 409
+
+    paused = auth_client.post('/api/release-commands/pause', json={
+        'id': 'cmd_first', 'paused': True,
+    }, content_type='application/json')
+    assert paused.status_code == 200
+
+    edited = auth_client.post('/api/release-commands/edit', json={
+        'id': 'cmd_first', 'command': 'python updated.py', 'note': 'new',
+    }, content_type='application/json')
+    item = json.loads((tmp_config / 'config.json').read_text())['release_commands'][0]
+    assert edited.status_code == 200
+    assert item['command'] == 'python updated.py'
+    assert item['note'] == 'new'
+    assert item['paused'] is True
+
+
 def test_release_command_reorder_persists_queue_order(auth_client, tmp_config, monkeypatch):
     monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
     cfg = json.loads((tmp_config / 'config.json').read_text())
@@ -1023,9 +1066,9 @@ def test_notify_test_sends_request(auth_client, monkeypatch):
     assert 'message' in data
     assert captured['title'] == 'sserveros 测试通知'
     assert '## 当前监控参数' in captured['content']
-    assert '- 显存告警阈值: 10240 MiB' in captured['content']
+    assert '- 显存告警阈值: 5120 MiB' in captured['content']
     assert '- 检测间隔: 120 秒' in captured['content']
-    assert '- 确认次数: 2' in captured['content']
+    assert '- 确认次数: 3' in captured['content']
 
 
 def test_notify_test_uses_env_channels_without_persisting(auth_client, tmp_config, monkeypatch):

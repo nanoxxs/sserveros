@@ -97,8 +97,8 @@ class Monitor:
 
         # 运行参数（从 config.json 加载）
         self.check_interval = 120
-        self.confirm_times = 2
-        self.mem_threshold_mib = 10240
+        self.confirm_times = 3
+        self.mem_threshold_mib = 5120
         self.gpu_mem_monitor_enabled = True
         self.main_pid_monitor_enabled = True
         self.release_command_enabled = True
@@ -108,7 +108,7 @@ class Monitor:
         self.release_command_gpus: list[int] = []
         self.release_command_mem_threshold_mib = 5120
         self.release_command_check_interval = 120
-        self.release_command_confirm_times = 2
+        self.release_command_confirm_times = 3
         self.release_command_gpu_settings: dict[str, dict] = {}
         self.release_commands: list[dict] = []
         self.gpus: list[int] = []

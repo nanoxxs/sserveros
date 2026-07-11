@@ -109,7 +109,7 @@ def release_command_default_settings(cfg: dict) -> dict:
         ),
         'confirm_times': _positive_int(
             cfg.get('release_command_confirm_times'),
-            _positive_int(cfg.get('confirm_times'), 2),
+            _positive_int(cfg.get('confirm_times'), 3),
         ),
         'enabled': cfg.get('release_command_enabled', True) is not False,
         'notify_enabled': cfg.get('release_command_notify_enabled', True) is not False,

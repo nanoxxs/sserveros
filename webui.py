@@ -14,7 +14,9 @@ import notifier
 from agent.runner import AgentRunner, SessionStore
 from config_bootstrap import ensure_config
 from release_commands import (
+    COMMAND_MAX_CHARS,
     TERMINAL_STATUSES,
+    NOTE_MAX_CHARS,
     make_release_command,
     normalize_release_command_launcher,
     normalize_release_command_gpu_settings,
@@ -176,7 +178,7 @@ def create_app(script_dir: str = None):
         )
         state.setdefault(
             'release_command_confirm_times',
-            cfg.get('release_command_confirm_times', cfg.get('confirm_times', 2)),
+            cfg.get('release_command_confirm_times', cfg.get('confirm_times', 3)),
         )
         state.setdefault(
             'release_command_gpu_settings',
@@ -210,7 +212,7 @@ def create_app(script_dir: str = None):
         )
         cfg['release_command_confirm_times'] = cfg.get(
             'release_command_confirm_times',
-            cfg.get('confirm_times', 2),
+            cfg.get('confirm_times', 3),
         )
         cfg['release_command_gpu_settings'] = normalize_release_command_gpu_settings(
             cfg.get('release_command_gpu_settings', {})
@@ -528,6 +530,39 @@ def create_app(script_dir: str = None):
             pending_message=f'任务已{action}并保存，但监控脚本未运行；脚本启动后才会使用新队列',
         )
         payload['paused'] = target['paused']
+        return jsonify(payload), status
+
+    @app.route('/api/release-commands/edit', methods=['POST'])
+    @require_auth
+    def api_release_commands_edit():
+        data = request.get_json() or {}
+        command_id = str(data.get('id', '')).strip()
+        if not command_id:
+            return jsonify({'error': 'id required'}), 400
+        command = str(data.get('command', '')).strip()
+        if not command:
+            return jsonify({'error': 'command must be non-empty'}), 400
+        if len(command) > COMMAND_MAX_CHARS:
+            return jsonify({'error': f'command is too long (max {COMMAND_MAX_CHARS} chars)'}), 400
+        note = str(data.get('note', '') or '').strip()[:NOTE_MAX_CHARS]
+        cfg = load_config_file(_config_path(script_dir))
+        queue = normalize_release_commands(cfg.get('release_commands', []))
+        target = next((item for item in queue if item.get('id') == command_id), None)
+        if not target:
+            return jsonify({'error': 'command not found'}), 404
+        if target.get('status') != 'pending' or target.get('paused') is not True:
+            return jsonify({'error': '只有已暂停的待执行任务可以编辑'}), 409
+        target['command'] = command
+        target['note'] = note
+        cfg['release_commands'] = queue
+        save_config_file(_config_path(script_dir), cfg)
+        signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
+        payload, status = _runtime_feedback(
+            signal_result,
+            applied_message='任务已更新',
+            pending_message='任务已更新，但监控脚本未运行；脚本下次启动时会使用新配置',
+        )
+        payload['command'] = target
         return jsonify(payload), status
 
     @app.route('/api/release-commands/reorder', methods=['POST'])
@@ -1292,7 +1327,7 @@ def create_app(script_dir: str = None):
         cfg = load_config_file(_config_path(script_dir))
         return jsonify({
             'agent_enabled': cfg.get('agent_enabled', False),
-            'llm_base_url': cfg.get('llm_base_url', 'https://api.deepseek.com/v1'),
+            'llm_base_url': cfg.get('llm_base_url', 'https://api.deepseek.com'),
             'llm_api_key': _mask_key(cfg.get('llm_api_key', '')),
             'llm_model': cfg.get('llm_model', 'deepseek-v4-flash'),
             'llm_max_iterations': cfg.get('llm_max_iterations', 8),
@@ -1423,7 +1458,7 @@ def _empty_state(cfg: dict) -> dict:
         ),
         'release_command_confirm_times': cfg.get(
             'release_command_confirm_times',
-            cfg.get('confirm_times', 2),
+            cfg.get('confirm_times', 3),
         ),
         'release_command_gpu_settings': normalize_release_command_gpu_settings(
             cfg.get('release_command_gpu_settings', {})
@@ -1464,16 +1499,16 @@ def _build_test_notify_content(cfg: dict, summary: dict) -> str:
         '## 当前监控参数\n'
         f'- 显存阈值监控: {"开启" if cfg.get("gpu_mem_monitor_enabled", True) else "关闭"}\n'
         f'- 主 PID 监控: {"开启" if cfg.get("main_pid_monitor_enabled", True) else "关闭"}\n'
-        f'- 显存告警阈值: {cfg.get("mem_threshold_mib", 10240)} MiB\n'
+        f'- 显存告警阈值: {cfg.get("mem_threshold_mib", 5120)} MiB\n'
         f'- 检测间隔: {cfg.get("check_interval", 120)} 秒\n'
-        f'- 确认次数: {cfg.get("confirm_times", 2)}\n'
+        f'- 确认次数: {cfg.get("confirm_times", 3)}\n'
         f'- 监控 GPU: {gpu_text}\n'
         f'- 任务队列: {"开启" if cfg.get("release_command_enabled", True) else "关闭"}\n'
         f'- 任务队列通知: {"开启" if cfg.get("release_command_notify_enabled", True) else "关闭"}\n'
         f'- 任务队列启动器: {normalize_release_command_launcher(cfg)}\n'
         f'- 空闲判定阈值: {cfg.get("release_command_mem_threshold_mib", 5120)} MiB\n'
         f'- 任务队列检测间隔: {cfg.get("release_command_check_interval", cfg.get("check_interval", 120))} 秒\n'
-        f'- 首次发现后的空闲复核次数: {cfg.get("release_command_confirm_times", cfg.get("confirm_times", 2))}\n'
+        f'- 首次发现后的空闲复核次数: {cfg.get("release_command_confirm_times", cfg.get("confirm_times", 3))}\n'
         f'- 日志压缩触发大小: {cfg.get("log_max_size_mb", 10)} MB\n'
         f'- 历史存档保留数量: {cfg.get("log_archive_keep", 5)}\n\n'
         '## 本次测试使用的通知渠道\n'

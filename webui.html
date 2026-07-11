@@ -228,6 +228,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .cmd-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; font-weight: 600; color: #1e293b; }
 .cmd-status { font-size: 11px; padding: 2px 7px; border-radius: 999px; font-weight: 600; }
 .cmd-code { font-family: monospace; font-size: 12px; color: #94a3b8; }
+.cmd-edit-note { width: min(360px, 100%); height: 28px; padding: 4px 7px; font-size: 12px; }
+.cmd-edit-text { height: 40px; min-height: 40px; margin-top: 8px; resize: vertical; }
 .cmd-session { font-family: monospace; font-size: 12px; color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; padding: 2px 7px; }
 .launcher-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; max-width: 420px; }
 .launcher-option { border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #64748b; font-size: 13px; padding: 8px 10px; cursor: pointer; }
@@ -235,10 +237,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .terminal-status-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .cmd-columns-head { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(240px, .85fr); gap: 12px; padding: 8px 16px; border-bottom: 1px solid #f1f5f9; background: #f8fafc; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .45px; }
 .cmd-highlight-grid { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(240px, .85fr); gap: 12px; margin-top: 9px; align-items: stretch; }
-.cmd-note-primary { min-width: 0; border-left: 3px solid #2563eb; background: #eff6ff; border-radius: 8px; padding: 9px 11px; }
+.cmd-highlight-grid.cmd-attach-only { grid-template-columns: 1fr; }
 .cmd-note-label, .cmd-attach-label { display: block; color: #94a3b8; font-size: 10px; font-weight: 700; letter-spacing: .35px; margin-bottom: 3px; }
-.cmd-note-value { display: block; color: #1e3a8a; font-size: 14px; line-height: 1.35; word-break: break-word; }
-.cmd-note-value.is-empty { color: #94a3b8; font-weight: 500; }
 .cmd-attach-cell { min-width: 0; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; background: #fff; }
 .cmd-copy-btn { display: block; width: 100%; border: none; background: transparent; color: #2563eb; padding: 0; text-align: left; font: 11px/1.45 monospace; word-break: break-all; cursor: pointer; }
 .cmd-copy-btn:hover { text-decoration: underline; }
@@ -307,13 +307,18 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .detail-body-content { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 13px; color: #334155; line-height: 1.6; white-space: pre; font-family: monospace; max-height: 50vh; overflow-x: auto; overflow-y: auto; }
 
 /* Agent */
-#paneAgent { padding: 0 !important; gap: 0 !important; overflow: hidden; }
-#paneAgent.active { display: flex; flex-direction: column; }
-@media (min-width: 640px) {
-  #paneAgent { padding: 12px !important; max-width: 900px; margin: 0 auto; width: 100%; }
-  .agent-layout { border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
-}
-.agent-layout { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #fff; min-height: 0; }
+.agent-floating { position: fixed; right: 20px; right: calc(20px + env(safe-area-inset-right)); bottom: 20px; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 90; display: flex; flex-direction: column; align-items: flex-end; gap: 12px; pointer-events: none; }
+.agent-window { pointer-events: auto; width: min(420px, calc(100vw - 32px)); height: min(680px, calc(100vh - 112px)); height: min(680px, calc(100dvh - 112px)); min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; box-shadow: 0 18px 48px rgba(15,23,42,.22); }
+.agent-window-header { min-height: 52px; padding: 10px 12px 10px 14px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }
+.agent-window-heading { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.agent-window-mark { width: 30px; height: 30px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 30px; background: linear-gradient(135deg, #1e293b, #2563eb); color: #fff; font-family: monospace; font-size: 12px; font-weight: 800; }
+.agent-window-title { color: #1e293b; font-size: 14px; font-weight: 700; line-height: 1.2; }
+.agent-window-status { margin-top: 3px; display: flex; align-items: center; gap: 5px; color: #64748b; font-size: 11px; }
+.agent-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; }
+.agent-window-status.busy .agent-status-dot { background: #2563eb; animation: agent-pulse 1.2s ease-in-out infinite; }
+.agent-window-close { width: 32px; height: 32px; border: 1px solid #e2e8f0; border-radius: 9px; background: transparent; color: #64748b; font-size: 20px; line-height: 1; cursor: pointer; flex-shrink: 0; }
+.agent-window-close:hover { border-color: #94a3b8; color: #1e293b; }
+.agent-layout { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 .agent-messages { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; -webkit-overflow-scrolling: touch; min-height: 0; }
 .agent-empty { flex: 1; min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #94a3b8; padding: 24px 12px; }
 .agent-empty-title { font-size: 18px; font-weight: 700; color: #1e293b; margin-bottom: 8px; }
@@ -363,10 +368,27 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   .agent-send-btn, .agent-interrupt-btn { padding: 10px 12px; font-size: 13px; }
   .msg-user, .msg-assistant, .msg-error { max-width: 95%; }
 }
-.agent-disabled-notice { text-align: center; padding: 60px 20px; color: #94a3b8; font-size: 14px; }
-.agent-disabled-notice a { color: #2563eb; cursor: pointer; text-decoration: underline; }
+.agent-launcher { pointer-events: auto; position: relative; width: 56px; height: 56px; border: none; border-radius: 18px; display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #1e293b, #2563eb); color: #fff; box-shadow: 0 12px 28px rgba(37,99,235,.32); cursor: pointer; font-family: monospace; font-size: 15px; font-weight: 800; transition: transform .15s ease, box-shadow .15s ease, filter .15s ease; }
+.agent-launcher:hover { transform: translateY(-2px); box-shadow: 0 16px 34px rgba(37,99,235,.38); }
+.agent-launcher:focus-visible { outline: 3px solid rgba(37,99,235,.3); outline-offset: 3px; }
+.agent-launcher.open { box-shadow: 0 8px 20px rgba(15,23,42,.24); }
+.agent-launcher-activity, .agent-launcher-unread { position: absolute; border-radius: 50%; pointer-events: none; }
+.agent-launcher-activity { right: 5px; bottom: 5px; width: 10px; height: 10px; background: #22c55e; border: 2px solid #fff; animation: agent-pulse 1.2s ease-in-out infinite; }
+.agent-launcher-unread { right: -2px; top: -2px; width: 13px; height: 13px; background: #ef4444; border: 3px solid #fff; }
+@keyframes agent-pulse { 0%,100%{opacity:.45;transform:scale(.85)} 50%{opacity:1;transform:scale(1)} }
 .streaming-cursor { display: inline-block; width: 2px; height: 14px; background: #2563eb; margin-left: 2px; vertical-align: text-bottom; animation: blink-cursor 1s step-end infinite; }
 @keyframes blink-cursor { 0%,100%{opacity:1} 50%{opacity:0} }
+
+@media (max-width: 640px) {
+  .agent-floating { position: static; inset: auto; width: 100%; padding: 0; z-index: auto; align-items: stretch; gap: 0; }
+  .agent-window { width: 100%; height: calc(100vh - 86px); height: calc(100dvh - 86px); max-height: none; min-height: 0; border: none; border-radius: 0; box-shadow: none; }
+  .agent-window-close { display: none; }
+  .agent-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .agent-launcher { display: none !important; }
+  .agent-messages { padding: 12px; }
+}
+
+.tab-unread { display: inline-block; width: 7px; height: 7px; margin-left: 5px; border-radius: 50%; background: #ef4444; vertical-align: 1px; }
 
 /* Archive */
 .archive-row { padding: 12px 16px; border-bottom: 1px solid #f8fafc; display: flex; justify-content: space-between; align-items: center; }
@@ -420,10 +442,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   --border-subtle: oklch(94% 0.006 260);
   --border-default: oklch(89% 0.010 260);
   --border-strong: oklch(74% 0.014 260);
-  --accent: oklch(54% 0.21 280);
-  --accent-fg: oklch(99% 0.005 280);
-  --accent-bg: oklch(95% 0.04 280);
-  --accent-ring: oklch(54% 0.21 280 / 0.35);
+  --accent: oklch(54% 0.21 245);
+  --accent-fg: oklch(99% 0.005 245);
+  --accent-bg: oklch(95% 0.04 245);
+  --accent-ring: oklch(54% 0.21 245 / 0.35);
   --ok-fg: oklch(48% 0.16 150);
   --ok-bg: oklch(94% 0.05 150);
   --warn-fg: oklch(56% 0.16 75);
@@ -458,10 +480,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   --border-subtle: oklch(28% 0.014 260);
   --border-default: oklch(34% 0.016 260);
   --border-strong: oklch(46% 0.018 260);
-  --accent: oklch(68% 0.20 280);
-  --accent-fg: oklch(96% 0.02 280);
-  --accent-bg: oklch(28% 0.06 280);
-  --accent-ring: oklch(68% 0.20 280 / 0.4);
+  --accent: oklch(68% 0.20 245);
+  --accent-fg: oklch(96% 0.02 245);
+  --accent-bg: oklch(28% 0.06 245);
+  --accent-ring: oklch(68% 0.20 245 / 0.4);
   --ok-fg: oklch(78% 0.18 150);
   --ok-bg: oklch(28% 0.07 150);
   --warn-fg: oklch(82% 0.16 75);
@@ -476,10 +498,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 }
 html { background: var(--bg-0); }
 body { font-family: var(--font-sans); background: var(--bg-0); color: var(--fg-1); -webkit-font-smoothing: antialiased; }
-body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, .dropdown-menu, .agent-layout, .agent-bottom, .app-footer-card, .release-section-toggle, .release-group-head {
+body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, .dropdown-menu, .agent-window, .agent-bottom, .app-footer-card, .release-section-toggle, .release-group-head {
   transition: background .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease;
 }
-.login-card, .card, .sysinfo-card, .gpu-card, .app-footer-card, .agent-layout, .settings-nav {
+.login-card, .card, .sysinfo-card, .gpu-card, .app-footer-card, .agent-window, .settings-nav {
   background: var(--bg-1);
   border-color: var(--border-default);
   border-radius: var(--radius-lg);
@@ -517,7 +539,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   .brand-host-text { max-width: 112px; }
   .status-badge { padding-left: 8px; padding-right: 8px; }
 }
-.card-header, .detail-header, .detail-meta, .gpu-stat-row, .agent-bottom, .release-section-toggle, .release-preset-row, .release-group, .cmd-row { border-color: var(--border-subtle); }
+.card-header, .detail-header, .detail-meta, .gpu-stat-row, .agent-window-header, .agent-bottom, .release-section-toggle, .release-preset-row, .release-group, .cmd-row { border-color: var(--border-subtle); }
 .sysinfo-label, .sysinfo-section-title, .gpu-stat-label, .detail-body-label, .setting-label, .proc-table th {
   color: var(--fg-3);
   letter-spacing: .06em;
@@ -562,14 +584,18 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 .dropdown-segment-btn.active { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
 .proc-table td, .pid-row, .log-row, .archive-row, .setting-row, .cmd-row { border-color: var(--border-subtle); }
 .proc-cmd-cell, .meta-row, .detail-body-content, .msg-assistant, .agent-empty-sub { color: var(--fg-2); }
-.agent-empty-title, .cmd-title, .gpu-task-title { color: var(--fg-1); }
+.agent-empty-title, .agent-window-title, .cmd-title, .gpu-task-title { color: var(--fg-1); }
 .cmd-note, .cmd-meta { color: var(--fg-3); }
 .detail-body-content, .msg-assistant, .tool-step, .cmd-text { background: var(--bg-2); border-color: var(--border-default); color: var(--fg-2); }
 .cmd-columns-head, .cmd-row.is-paused { background: var(--bg-2); border-color: var(--border-subtle); }
-.cmd-note-primary { background: var(--accent-bg); }
-.cmd-note-value { color: var(--accent); }
 .cmd-attach-cell { background: var(--bg-1); border-color: var(--border-default); }
 .msg-user { background: var(--accent); color: var(--accent-fg); }
+.agent-bottom { background: var(--bg-1); }
+.agent-window-status, .agent-window-close { color: var(--fg-3); }
+.agent-window-close { border-color: var(--border-default); }
+.agent-window-close:hover { background: var(--bg-2); border-color: var(--border-strong); color: var(--fg-1); }
+.agent-launcher { background: linear-gradient(135deg, color-mix(in oklab, var(--fg-1) 72%, var(--accent)), var(--accent)); color: var(--accent-fg); }
+.agent-launcher-activity, .agent-launcher-unread { border-color: var(--bg-1); }
 .offline-banner { background: var(--danger-bg); color: var(--danger-fg); }
 .status-badge { background: var(--ok-bg); color: var(--ok-fg); }
 .status-badge.offline { background: var(--danger-bg); color: var(--danger-fg); }
@@ -578,7 +604,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 .archive-del-btn:hover { background: var(--danger-bg); }
 [data-glass="on"] {
   background:
-    radial-gradient(900px 600px at 8% -8%, oklch(82% 0.15 280 / .55), transparent 60%),
+    radial-gradient(900px 600px at 8% -8%, oklch(82% 0.15 245 / .55), transparent 60%),
     radial-gradient(800px 600px at 100% 12%, oklch(86% 0.13 200 / .50), transparent 62%),
     radial-gradient(700px 500px at 30% 110%, oklch(88% 0.13 110 / .45), transparent 60%),
     radial-gradient(900px 700px at 95% 100%, oklch(86% 0.14 30 / .45), transparent 60%),
@@ -587,7 +613,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 }
 [data-glass="on"][data-theme="dark"] {
   background:
-    radial-gradient(900px 600px at 8% -8%, oklch(40% 0.18 280 / .65), transparent 60%),
+    radial-gradient(900px 600px at 8% -8%, oklch(40% 0.18 245 / .65), transparent 60%),
     radial-gradient(800px 600px at 100% 12%, oklch(38% 0.14 200 / .60), transparent 62%),
     radial-gradient(700px 500px at 30% 110%, oklch(42% 0.16 110 / .55), transparent 60%),
     radial-gradient(900px 700px at 95% 100%, oklch(40% 0.16 30 / .55), transparent 60%),
@@ -600,7 +626,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
 }
-[data-glass="on"] .login-card, [data-glass="on"] .card, [data-glass="on"] .sysinfo-card, [data-glass="on"] .gpu-card, [data-glass="on"] .app-footer-card, [data-glass="on"] .agent-layout, [data-glass="on"] .modal-box, [data-glass="on"] .dropdown-menu {
+[data-glass="on"] .login-card, [data-glass="on"] .card, [data-glass="on"] .sysinfo-card, [data-glass="on"] .gpu-card, [data-glass="on"] .app-footer-card, [data-glass="on"] .agent-window, [data-glass="on"] .modal-box, [data-glass="on"] .dropdown-menu {
   background: color-mix(in oklab, var(--bg-1) 58%, transparent);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
@@ -860,8 +886,10 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
   </div>
 
   <div class="tabs">
-    <div v-for="t in tabs" :key="t.id" class="tab" :class="{active: currentTab === t.id}"
-         @click="switchTab(t.id)">{{ t.label }}</div>
+    <div v-for="t in visibleTabs" :key="t.id" class="tab" :class="{active: currentTab === t.id}"
+         @click="switchTab(t.id)">
+      {{ t.label }}<span v-if="t.id === 'agent' && agentUnread" class="tab-unread" aria-label="有新回复"></span>
+    </div>
   </div>
 
   <!-- ── GPU pane ── -->
@@ -920,7 +948,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     <template v-else-if="gpuView === 'detail'">
       <div class="card">
         <div class="detail-header">
-          <button class="back-btn" @click="gpuView='list'">← 返回</button>
+          <button class="back-btn" @click="gpuView='list'">返回</button>
           <span class="detail-title-text" id="gpuDetailTitle">
             GPU {{ currentGpuIndex }}{{ gpuDetail && gpuDetail.gpu_name ? ' — ' + gpuDetail.gpu_name : '' }}
           </span>
@@ -1027,16 +1055,16 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
                       <span class="cmd-status" :style="releaseCommandStatusStyle(cmd)">
                         {{ releaseCommandStatusText(cmd) }}
                       </span>
-                      <span class="cmd-code">{{ cmd.id }}</span>
+                      <input v-if="cmd.status === 'pending' && cmd.paused"
+                             class="setting-input cmd-edit-note"
+                             v-model="releaseCommandDrafts[cmd.id].note"
+                             placeholder="备注（可选）" @click.stop>
+                      <span v-else class="cmd-code" :title="cmd.id">{{ cmd.note || cmd.id }}</span>
                       <span v-if="cmd.terminal_session || cmd.tmux_session || cmd.zellij_session" class="cmd-session">
                         {{ releaseCommandLauncherLabel(cmd.launcher) }} {{ cmd.terminal_session || cmd.tmux_session || cmd.zellij_session }}
                       </span>
                     </div>
-                    <div class="cmd-highlight-grid">
-                      <div class="cmd-note-primary">
-                        <span class="cmd-note-label">备注</span>
-                        <strong class="cmd-note-value" :class="{'is-empty': !cmd.note}">{{ cmd.note || '未填写备注' }}</strong>
-                      </div>
+                    <div class="cmd-highlight-grid cmd-attach-only">
                       <div class="cmd-attach-cell">
                         <span class="cmd-attach-label">tmux 连接</span>
                         <button v-if="releaseCommandTmuxAttachText(cmd)" class="cmd-copy-btn"
@@ -1047,7 +1075,10 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
                         <span v-else class="cmd-attach-empty">{{ cmd.status === 'pending' ? '任务启动后显示连接指令' : '此任务没有可用的 tmux 会话' }}</span>
                       </div>
                     </div>
-                    <pre class="cmd-text">{{ cmd.command }}</pre>
+                    <textarea v-if="cmd.status === 'pending' && cmd.paused"
+                              class="setting-input cmd-text cmd-edit-text"
+                              v-model="releaseCommandDrafts[cmd.id].command" @click.stop></textarea>
+                    <pre v-else class="cmd-text">{{ cmd.command }}</pre>
                     <div class="cmd-meta">
                       <span>目标 {{ releaseCommandTargetLabel(cmd.target_gpus) }} · </span>
                       <span>启动 {{ releaseCommandLauncherLabel(cmd.launcher) }} · </span>
@@ -1063,11 +1094,13 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
                   <div class="cmd-actions">
                     <button v-if="cmd.status === 'pending'" class="back-btn"
                             @click="toggleReleaseCommandPaused(cmd)">{{ cmd.paused ? '恢复' : '暂停' }}</button>
+                    <button v-if="cmd.status === 'pending' && cmd.paused && releaseCommandHasChanges(cmd)"
+                            class="add-btn" @click="saveEditReleaseCommand(cmd)">保存</button>
                     <button v-if="cmd.status === 'success' || cmd.status === 'failed'"
                             class="back-btn" @click="requeueReleaseCommand(cmd.id)">重新排队</button>
-                    <button class="del-btn" :disabled="cmd.status === 'running'"
+                    <button class="back-btn" :disabled="cmd.status === 'running'"
                             :style="cmd.status === 'running' ? 'opacity:.35;cursor:not-allowed' : ''"
-                            @click="removeReleaseCommand(cmd.id)">×</button>
+                            @click="removeReleaseCommand(cmd.id)">删除</button>
                   </div>
                 </div>
               </div>
@@ -1174,7 +1207,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     <template v-else-if="gpuView === 'cpu'">
       <div class="card">
         <div class="detail-header">
-          <button class="back-btn" @click="gpuView='list'">← 返回</button>
+          <button class="back-btn" @click="gpuView='list'">返回</button>
           <span class="detail-title-text">CPU 详情</span>
           <button class="back-btn" @click="fetchCpuDetail()" style="margin-left:auto">刷新</button>
         </div>
@@ -1226,7 +1259,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     <template v-else-if="gpuView === 'memory'">
       <div class="card">
         <div class="detail-header">
-          <button class="back-btn" @click="gpuView='list'">← 返回</button>
+          <button class="back-btn" @click="gpuView='list'">返回</button>
           <span class="detail-title-text">内存详情</span>
           <button class="back-btn" @click="fetchMemoryDetail()" style="margin-left:auto">刷新</button>
         </div>
@@ -1286,7 +1319,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     <template v-else-if="gpuView === 'disk'">
       <div class="card">
         <div class="detail-header">
-          <button class="back-btn" @click="gpuView='list'">← 返回</button>
+          <button class="back-btn" @click="gpuView='list'">返回</button>
           <span class="detail-title-text">磁盘分区详情</span>
         </div>
         <div v-if="!diskData.length" style="padding:16px;color:#94a3b8;font-size:14px">无磁盘数据</div>
@@ -1445,7 +1478,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
       <div class="setting-row setting-row-toggle">
         <div>
           <div class="setting-label" style="margin-bottom:2px">启用 Agent</div>
-          <div style="font-size:12px;color:#94a3b8">开启后「Agent」Tab 可用</div>
+          <div style="font-size:12px;color:#94a3b8">开启后电脑端显示右下角 AI 浮窗，手机端显示 Agent 标签页</div>
         </div>
         <label class="toggle-switch" style="margin-left:16px">
           <input type="checkbox" v-model="cfgAgentEnabled">
@@ -1464,7 +1497,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
       </div>
       <div class="setting-row">
         <div class="setting-label">API Base URL（OpenAI 兼容）</div>
-        <input class="setting-input" v-model="cfgLlmBaseUrl" placeholder="https://api.deepseek.com/v1">
+        <input class="setting-input" v-model="cfgLlmBaseUrl" placeholder="https://api.deepseek.com">
       </div>
       <div class="setting-row">
         <div class="setting-label">API Key</div>
@@ -1545,7 +1578,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     <template v-else-if="logView === 'detail' && logDetail">
       <div class="card">
         <div class="detail-header">
-          <button class="back-btn" @click="logView='list'">← 返回</button>
+          <button class="back-btn" @click="logView='list'">返回</button>
           <span class="detail-title-text">{{ logDetail.title }}</span>
           <span class="log-tag" :class="tagClass(logDetail.type)">{{ tagLabel(logDetail.type) }}</span>
         </div>
@@ -1572,83 +1605,6 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
     </template>
   </div>
 
-  <!-- ── Agent pane ── -->
-  <div class="pane" :class="{active: currentTab === 'agent'}" id="paneAgent"
-       :style="currentTab === 'agent' ? {height: agentPaneHeight + 'px'} : {}">
-    <div v-if="!agentEnabled" class="agent-disabled-notice">
-      Agent 未启用，请前往 <a @click="switchTab('settings')">设置页</a> 开启并填写 LLM 配置。
-    </div>
-    <div v-else class="agent-layout">
-      <div class="agent-messages" ref="agentMessages">
-        <div v-if="agentMessages.length === 0" class="agent-empty">
-          <div class="agent-empty-title">你可以向我提问</div>
-          <div class="agent-empty-sub">比如查看 GPU 状态、分析告警日志、添加 PID 监控，或让 Agent 帮你执行系统运维任务。</div>
-        </div>
-        <template v-for="(msg, i) in agentMessages" :key="i">
-          <div v-if="msg.role === 'user'" class="msg-user">{{ msg.content }}</div>
-          <div v-else-if="msg.role === 'error'" class="msg-error">⚠ {{ msg.content }}</div>
-          <div v-else class="msg-assistant">
-            <!-- thinking dots -->
-            <div v-if="msg.streaming && !msg.content && !msg.toolTrace.length" class="msg-thinking">
-              思考中 <div class="thinking-dots"><span></span><span></span><span></span></div>
-            </div>
-            <!-- tool trace -->
-            <div v-if="msg.toolTrace && msg.toolTrace.length" class="tool-trace">
-              <div class="tool-trace-toggle" @click="msg.traceOpen = !msg.traceOpen">
-                {{ msg.traceOpen ? '▾' : '▸' }} 调用了 {{ msg.toolTrace.length }} 个工具
-              </div>
-              <div v-show="msg.traceOpen">
-                <div v-for="(t, ti) in msg.toolTrace" :key="ti"
-                     class="tool-step" :class="{ok: t.ok, fail: !t.ok}">
-                  {{ t.name }}({{ JSON.stringify(t.args) }}) → {{ t.summary }}
-                </div>
-              </div>
-            </div>
-            <!-- markdown content -->
-            <div v-if="msg.content" v-html="renderMd(msg.content)" class="md-body"></div>
-            <!-- streaming cursor -->
-            <span v-if="msg.streaming && msg.content" class="streaming-cursor"></span>
-            <!-- confirm result -->
-            <div v-if="msg.confirmResult" style="color:#16a34a;font-size:13px;margin-top:8px">
-              {{ msg.confirmResult }}
-            </div>
-            <!-- pending actions -->
-            <div v-else-if="!msg.streaming && msg.pendingActions && msg.pendingActions.length" class="pending-card">
-              <div class="pending-card-title">⏳ 待确认操作（{{ msg.pendingActions.length }} 项）</div>
-              <div v-for="a in msg.pendingActions" :key="a.id" class="pending-action-item">
-                <span class="pending-action-label" v-html="pendingLabel(a)"></span>
-                <span class="pending-action-badge">{{ a.action }}</span>
-              </div>
-              <div class="pending-actions-bar">
-                <button class="confirm-btn"
-                        @click="agentConfirm(msg.pendingActions.map(a => a.id), [], i)">全部确认执行</button>
-                <button class="reject-btn"
-                        @click="agentConfirm([], msg.pendingActions.map(a => a.id), i)">全部忽略</button>
-              </div>
-            </div>
-          </div>
-        </template>
-      </div>
-      <div class="agent-bottom">
-        <div class="agent-toolbar">
-          <button class="agent-tool-btn" @click="agentExport()" title="导出为 Markdown 文件">导出 MD</button>
-          <button class="agent-tool-btn" @click="agentClear()">清空对话</button>
-        </div>
-        <div class="agent-input-row">
-          <div class="agent-input-wrap">
-            <textarea class="agent-input" ref="agentInput" v-model="agentInput"
-                      placeholder="欢迎顶刊一作来找我提问呀~" rows="1"
-                      @keydown="agentInputKeydown"></textarea>
-            <button class="agent-input-resize" type="button" ref="agentResizeHandle"
-                    title="向上拖动调整输入框高度" aria-label="向上拖动调整输入框高度"></button>
-          </div>
-          <button v-if="!agentBusy" class="agent-send-btn" @click="agentSend()">发送</button>
-          <button v-else class="agent-interrupt-btn" @click="agentInterrupt()">停止</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <div class="app-footer" v-if="currentTab !== 'agent'">
     <div class="app-footer-card">
       欢迎访问项目主页：
@@ -1658,6 +1614,103 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
       <a href="https://github.com/nanoxxs/sserveros/blob/main/README.md" target="_blank" rel="noopener noreferrer">官方文档</a>
       查看使用教程和常见问题汇总。第三方教程可能已过时，请以官方文档为准。
     </div>
+  </div>
+
+  <!-- ── Responsive Agent: desktop floating / mobile tab pane ── -->
+  <div v-show="agentEnabled" class="agent-floating" :class="{open: agentChatOpen}">
+    <section v-show="agentPanelVisible" id="agentChatPanel" ref="agentWindow"
+             class="agent-window" role="dialog" aria-modal="false"
+             aria-labelledby="agentChatTitle"
+             :style="isMobileAgent && currentTab === 'agent' ? {height: agentPaneHeight + 'px'} : {}">
+      <div class="agent-window-header">
+        <div class="agent-window-heading">
+          <span class="agent-window-mark" aria-hidden="true">AI</span>
+          <div>
+            <div class="agent-window-title" id="agentChatTitle">AI 助手</div>
+            <div class="agent-window-status" :class="{busy: agentBusy}">
+              <span class="agent-status-dot" aria-hidden="true"></span>
+              {{ agentBusy ? '响应中' : '已就绪' }}
+            </div>
+          </div>
+        </div>
+        <button class="agent-window-close" type="button" @click="closeAgentChat()"
+                title="收起 AI 助手" aria-label="收起 AI 助手">×</button>
+      </div>
+
+      <div class="agent-layout">
+        <div class="agent-messages" ref="agentMessages">
+          <div v-if="agentMessages.length === 0" class="agent-empty">
+            <div class="agent-empty-title">你可以向我提问</div>
+            <div class="agent-empty-sub">比如查看 GPU 状态、分析告警日志、添加 PID 监控，或让 Agent 帮你执行系统运维任务。</div>
+          </div>
+          <template v-for="(msg, i) in agentMessages" :key="i">
+            <div v-if="msg.role === 'user'" class="msg-user">{{ msg.content }}</div>
+            <div v-else-if="msg.role === 'error'" class="msg-error">⚠ {{ msg.content }}</div>
+            <div v-else class="msg-assistant">
+              <div v-if="msg.streaming && !msg.content && !msg.toolTrace.length" class="msg-thinking">
+                思考中 <div class="thinking-dots"><span></span><span></span><span></span></div>
+              </div>
+              <div v-if="msg.toolTrace && msg.toolTrace.length" class="tool-trace">
+                <div class="tool-trace-toggle" @click="msg.traceOpen = !msg.traceOpen">
+                  {{ msg.traceOpen ? '▾' : '▸' }} 调用了 {{ msg.toolTrace.length }} 个工具
+                </div>
+                <div v-show="msg.traceOpen">
+                  <div v-for="(t, ti) in msg.toolTrace" :key="ti"
+                       class="tool-step" :class="{ok: t.ok, fail: !t.ok}">
+                    {{ t.name }}({{ JSON.stringify(t.args) }}) → {{ t.summary }}
+                  </div>
+                </div>
+              </div>
+              <div v-if="msg.content" v-html="renderMd(msg.content)" class="md-body"></div>
+              <span v-if="msg.streaming && msg.content" class="streaming-cursor"></span>
+              <div v-if="msg.confirmResult" style="color:#16a34a;font-size:13px;margin-top:8px">
+                {{ msg.confirmResult }}
+              </div>
+              <div v-else-if="!msg.streaming && msg.pendingActions && msg.pendingActions.length" class="pending-card">
+                <div class="pending-card-title">⏳ 待确认操作（{{ msg.pendingActions.length }} 项）</div>
+                <div v-for="a in msg.pendingActions" :key="a.id" class="pending-action-item">
+                  <span class="pending-action-label" v-html="pendingLabel(a)"></span>
+                  <span class="pending-action-badge">{{ a.action }}</span>
+                </div>
+                <div class="pending-actions-bar">
+                  <button class="confirm-btn"
+                          @click="agentConfirm(msg.pendingActions.map(a => a.id), [], i)">全部确认执行</button>
+                  <button class="reject-btn"
+                          @click="agentConfirm([], msg.pendingActions.map(a => a.id), i)">全部忽略</button>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+        <div class="agent-bottom">
+          <div class="agent-toolbar">
+            <button class="agent-tool-btn" @click="agentExport()" title="导出为 Markdown 文件">导出 MD</button>
+            <button class="agent-tool-btn" @click="agentClear()">清空对话</button>
+          </div>
+          <div class="agent-input-row">
+            <div class="agent-input-wrap">
+              <textarea class="agent-input" ref="agentInput" v-model="agentInput"
+                        placeholder="欢迎顶刊一作来找我提问呀~" rows="1"
+                        @keydown="agentInputKeydown"></textarea>
+              <button class="agent-input-resize" type="button" ref="agentResizeHandle"
+                      title="向上拖动调整输入框高度" aria-label="向上拖动调整输入框高度"></button>
+            </div>
+            <button v-if="!agentBusy" class="agent-send-btn" @click="agentSend()">发送</button>
+            <button v-else class="agent-interrupt-btn" @click="agentInterrupt()">停止</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <button v-show="!isMobileAgent" ref="agentLauncher" class="agent-launcher" :class="{open: agentChatOpen}"
+            type="button" @click="toggleAgentChat()" aria-controls="agentChatPanel"
+            :aria-expanded="agentChatOpen ? 'true' : 'false'"
+            :aria-label="agentChatOpen ? '收起 AI 助手' : '打开 AI 助手'"
+            :title="agentChatOpen ? '收起 AI 助手' : '打开 AI 助手'">
+      AI
+      <span v-if="agentBusy" class="agent-launcher-activity" aria-hidden="true"></span>
+      <span v-if="agentUnread && !agentChatOpen" class="agent-launcher-unread" aria-hidden="true"></span>
+    </button>
   </div>
 </template>
 
@@ -1710,7 +1763,6 @@ createApp({
         {id:'pids', label:'PIDs'},
         {id:'settings', label:'设置'},
         {id:'log', label:'日志'},
-        {id:'agent', label:'Agent'},
       ],
       currentTab: 'gpu',
       hostname: '',
@@ -1760,9 +1812,9 @@ createApp({
       // Settings
       cfgMemMonitor: true,
       cfgMainPidMonitor: true,
-      cfgThreshold: 10240,
+      cfgThreshold: 5120,
       cfgInterval: 120,
-      cfgConfirm: 2,
+      cfgConfirm: 3,
       cfgLogMb: 10,
       cfgLogKeep: 5,
 	      cfgGpus: '',
@@ -1773,7 +1825,7 @@ createApp({
 	      cfgReleaseCommandGpus: '',
       cfgReleaseCommandThreshold: 5120,
       cfgReleaseCommandInterval: 120,
-      cfgReleaseCommandConfirm: 2,
+      cfgReleaseCommandConfirm: 3,
       releaseGpuPresets: [],
 	      releasePanelOpen: {defaults:true, presets:true},
       releaseGroupOpen: {},
@@ -1783,6 +1835,7 @@ createApp({
       newReleaseCommand: '',
       newReleaseCommandNote: '',
       releaseCommandMsg: {text:'', kind:''},
+      releaseCommandDrafts: {},
       draggedReleaseCommandId: '',
       dragOverReleaseCommandId: '',
       dragOverReleaseCommandPosition: 'before',
@@ -1821,12 +1874,24 @@ createApp({
       agentSessionId: null,
       agentHistory: [],
       agentAbortCtrl: null,
+      agentChatOpen: false,
+      agentUnread: false,
+      isMobileAgent: false,
       agentPaneHeight: 600,
       _resizeBound: false,
     };
   },
 
   computed: {
+    visibleTabs() {
+      const tabs = [...this.tabs];
+      if (this.isMobileAgent && this.agentEnabled) tabs.push({id:'agent', label:'Agent'});
+      return tabs;
+    },
+    agentPanelVisible() {
+      if (!this.agentEnabled) return false;
+      return this.isMobileAgent ? this.currentTab === 'agent' : this.agentChatOpen;
+    },
     ramPct() {
       return this.ramTotalMib > 0 ? Math.round(this.ramUsedMib / this.ramTotalMib * 100) : 0;
     },
@@ -1983,17 +2048,6 @@ createApp({
 	    },
   },
 
-  watch: {
-    currentTab(tab) {
-      if (tab === 'agent') {
-        this.$nextTick(() => {
-          this.updateAgentPaneHeight();
-          this.initAgentInputResize();
-        });
-      }
-    },
-  },
-
   methods: {
     // ── API ──────────────────────────────────────────
     async api(path, opts = {}) {
@@ -2036,6 +2090,7 @@ createApp({
       this._appStarted = true;
       this.hostname = location.hostname;
       this.startStateRefresh();
+      this.loadAgentConfig();
     },
 
     // ── Toast ─────────────────────────────────────────
@@ -2047,17 +2102,21 @@ createApp({
 
     // ── Tab ───────────────────────────────────────────
     switchTab(name) {
+      if (name === 'agent' && (!this.isMobileAgent || !this.agentEnabled)) return;
       this.currentTab = name;
       if (name === 'gpu' || name === 'pids') this.fetchState();
       if (name === 'pids') this.loadPids();
       if (name === 'settings') { this.loadSettings(); this.loadAgentConfig(); }
       if (name === 'log') { this.loadLog(); this.loadArchives(); }
       if (name === 'agent') {
+        this.agentUnread = false;
         window.scrollTo({top:0, left:0, behavior:'auto'});
         this.loadAgentConfig();
         this.$nextTick(() => {
           this.updateAgentPaneHeight();
+          this.scrollAgentToBottom();
           this.initAgentInputResize();
+          if (this.$refs.agentInput) this.$refs.agentInput.focus();
         });
       }
     },
@@ -2087,12 +2146,32 @@ createApp({
       this.applyUiAppearance();
     },
 
+    handleViewportChange() {
+      const mobile = window.matchMedia('(max-width: 640px)').matches;
+      const wasMobile = this.isMobileAgent;
+      this.isMobileAgent = mobile;
+      if (mobile && !wasMobile) {
+        this.agentChatOpen = false;
+      } else if (!mobile && wasMobile && this.currentTab === 'agent') {
+        this.currentTab = 'gpu';
+        this.agentChatOpen = this.agentEnabled;
+        this.agentUnread = false;
+      }
+      this.$nextTick(() => {
+        this.updateAgentPaneHeight();
+        if (this.agentPanelVisible) {
+          this.scrollAgentToBottom();
+          this.initAgentInputResize();
+        }
+      });
+    },
+
     updateAgentPaneHeight() {
-      if (this.currentTab !== 'agent') return;
-      const pane = document.getElementById('paneAgent');
-      if (!pane) return;
-      const top = pane.getBoundingClientRect().top;
-      this.agentPaneHeight = Math.max(320, window.innerHeight - top);
+      if (!this.isMobileAgent || this.currentTab !== 'agent') return;
+      const panel = this.$refs.agentWindow;
+      if (!panel) return;
+      const top = panel.getBoundingClientRect().top;
+      this.agentPaneHeight = Math.max(280, window.innerHeight - top);
     },
 
     // ── State ─────────────────────────────────────────
@@ -2115,7 +2194,7 @@ createApp({
 	        this.gpus = data.gpus || [];
 	        if (data.hostname) this.hostname = data.hostname;
 	        if (this.currentTab === 'pids') this.pidData = data.watch_pids || [];
-	        this.releaseCommands = data.release_commands || this.releaseCommands;
+	        this.syncReleaseCommands(data.release_commands || this.releaseCommands);
 	        const editingTaskSettings = (
 	          this.currentTab === 'gpu' && this.gpuView === 'detail' && this.gpuDetailTab === 'taskSettings'
 	        );
@@ -2132,7 +2211,7 @@ createApp({
 	        this.tmuxStatus = data.tmux_status || this.tmuxStatus;
 	        this.zellijStatus = data.zellij_status || this.zellijStatus;
 	        this.monitorRunning = !!data.monitor_running;
-        this.updateAgentPaneHeight();
+        this.$nextTick(() => this.updateAgentPaneHeight());
       } catch(e) {}
     },
 
@@ -2355,9 +2434,9 @@ createApp({
       if (!r.ok) return;
       const cfg = await r.json();
       const env = cfg.env_channel_summary || {};
-      this.cfgThreshold = cfg.mem_threshold_mib ?? 10240;
+      this.cfgThreshold = cfg.mem_threshold_mib ?? 5120;
       this.cfgInterval = cfg.check_interval ?? 120;
-      this.cfgConfirm = cfg.confirm_times ?? 2;
+      this.cfgConfirm = cfg.confirm_times ?? 3;
       this.cfgLogMb = cfg.log_max_size_mb ?? 10;
       this.cfgLogKeep = cfg.log_archive_keep ?? 5;
       this.cfgGpus = (cfg.gpus || []).join(',');
@@ -2370,7 +2449,7 @@ createApp({
 	      this.cfgReleaseCommandGpus = (cfg.release_command_gpus || []).join(',');
       this.cfgReleaseCommandThreshold = cfg.release_command_mem_threshold_mib ?? 5120;
       this.cfgReleaseCommandInterval = cfg.release_command_check_interval ?? (cfg.check_interval ?? 120);
-      this.cfgReleaseCommandConfirm = cfg.release_command_confirm_times ?? (cfg.confirm_times ?? 2);
+      this.cfgReleaseCommandConfirm = cfg.release_command_confirm_times ?? (cfg.confirm_times ?? 3);
       const gpuSettings = cfg.release_command_gpu_settings || {};
       this.releaseGpuPresets = Object.keys(gpuSettings)
         .sort((a, b) => Number(a) - Number(b))
@@ -2385,7 +2464,7 @@ createApp({
           launcher: gpuSettings[gpu].launcher || this.cfgReleaseCommandLauncher,
         }));
 	      this.ensureCurrentGpuReleasePreset();
-	      this.releaseCommands = cfg.release_commands || [];
+	      this.syncReleaseCommands(cfg.release_commands || [], true);
 	      this.tmuxStatus = cfg.tmux_status || this.tmuxStatus;
 	      this.zellijStatus = cfg.zellij_status || this.zellijStatus;
       const envScKeys = env.env_serverchan_keys || [];
@@ -2788,11 +2867,32 @@ createApp({
 	      if (preset) preset.launcher = launcher;
 	    },
 
-	    async refreshReleaseCommands() {
-	      const r = await this.api('/api/config');
+    async refreshReleaseCommands() {
+      const r = await this.api('/api/config');
       if (!r.ok) return;
       const cfg = await r.json();
-      this.releaseCommands = cfg.release_commands || [];
+      this.syncReleaseCommands(cfg.release_commands || [], true);
+    },
+
+    syncReleaseCommands(commands, resetDrafts = false) {
+      const next = Array.isArray(commands) ? commands : [];
+      const drafts = {...this.releaseCommandDrafts};
+      for (const cmd of next) {
+        if (resetDrafts || !drafts[cmd.id] || !(cmd.status === 'pending' && cmd.paused)) {
+          drafts[cmd.id] = {note: cmd.note || '', command: cmd.command || ''};
+        }
+      }
+      for (const id of Object.keys(drafts)) {
+        if (!next.some(cmd => cmd.id === id)) delete drafts[id];
+      }
+      this.releaseCommands = next;
+      this.releaseCommandDrafts = drafts;
+    },
+
+    releaseCommandHasChanges(cmd) {
+      const draft = this.releaseCommandDrafts[cmd?.id];
+      if (!draft) return false;
+      return draft.note !== (cmd.note || '') || draft.command !== (cmd.command || '');
     },
 
     async addReleaseCommand() {
@@ -2823,6 +2923,9 @@ createApp({
 
     async removeReleaseCommand(id) {
       if (!id) return;
+      const cmd = this.releaseCommands.find(item => item.id === id);
+      const label = cmd?.note || id;
+      if (!confirm(`确认删除任务“${label}”？`)) return;
       const r = await this.api('/api/release-commands/remove', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({id}),
@@ -2846,6 +2949,31 @@ createApp({
       this.releaseCommandMsg = {
         text: payload.warning||payload.message||(r.ok ? (paused?'任务已暂停':'任务已恢复') : '操作失败'),
         kind: r.ok ? (payload.warning?'warn':'success') : 'error',
+      };
+      await this.refreshReleaseCommands();
+    },
+
+    async saveEditReleaseCommand(cmd) {
+      if (!cmd || cmd.status !== 'pending' || !cmd.paused) return;
+      const draft = this.releaseCommandDrafts[cmd.id];
+      if (!draft) return;
+      const command = draft.command.trim();
+      if (!command) {
+        this.releaseCommandMsg = {text:'任务指令不能为空', kind:'error'};
+        return;
+      }
+      const r = await this.api('/api/release-commands/edit', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          id: cmd.id,
+          command,
+          note: draft.note.trim(),
+        }),
+      });
+      const payload = await r.json().catch(() => ({}));
+      this.releaseCommandMsg = {
+        text: payload.warning || payload.message || (r.ok ? '任务已更新' : '更新失败'),
+        kind: r.ok ? (payload.warning ? 'warn' : 'success') : 'error',
       };
       await this.refreshReleaseCommands();
     },
@@ -2893,6 +3021,14 @@ createApp({
         this.cfgLlmTemp = cfg.llm_temperature ?? 0.2;
         this.cfgAgentStream = cfg.agent_stream_enabled !== false;
         this.agentEnabled = !!cfg.agent_enabled;
+        if (!this.agentEnabled) {
+          this.agentChatOpen = false;
+          if (this.currentTab === 'agent') {
+            this.currentTab = 'gpu';
+            this.fetchState();
+          }
+        }
+        this.$nextTick(() => this.updateAgentPaneHeight());
       } catch(e) {}
     },
 
@@ -2994,6 +3130,35 @@ createApp({
     },
 
     // ── Agent ─────────────────────────────────────────
+    async openAgentChat() {
+      if (this.isMobileAgent || !this.agentEnabled) return;
+      this.agentChatOpen = true;
+      this.agentUnread = false;
+      await this.loadAgentConfig();
+      this.$nextTick(() => {
+        if (!this.agentPanelVisible) return;
+        this.scrollAgentToBottom();
+        this.initAgentInputResize();
+        if (this.$refs.agentInput) this.$refs.agentInput.focus();
+      });
+    },
+
+    closeAgentChat() {
+      this.agentChatOpen = false;
+      this.$nextTick(() => {
+        if (this.$refs.agentLauncher) this.$refs.agentLauncher.focus();
+      });
+    },
+
+    toggleAgentChat() {
+      if (this.agentChatOpen) this.closeAgentChat();
+      else this.openAgentChat();
+    },
+
+    handleGlobalKeydown(e) {
+      if (e.key === 'Escape' && !this.isMobileAgent && this.agentChatOpen) this.closeAgentChat();
+    },
+
     scrollAgentToBottom() {
       const el = this.$refs.agentMessages;
       if (el) el.scrollTop = el.scrollHeight;
@@ -3039,8 +3204,9 @@ createApp({
         this.agentAbortCtrl = null;
         const m = this.agentMessages[assistantIdx];
         if (m) m.streaming = false;
+        if (!this.agentPanelVisible) this.agentUnread = true;
         this.$nextTick(() => {
-          if (this.$refs.agentInput) this.$refs.agentInput.focus();
+          if (this.agentPanelVisible && this.$refs.agentInput) this.$refs.agentInput.focus();
         });
       }
     },
@@ -3128,6 +3294,7 @@ createApp({
           this.fetchState();
           if (this.currentTab === 'settings') this.loadSettings();
         }
+        if (!this.agentPanelVisible) this.agentUnread = true;
       } catch(e) {
         this.showToast('确认失败：' + e.message, false);
       }
@@ -3140,6 +3307,7 @@ createApp({
       this.agentSessionId = null;
       this.agentHistory = [];
       this.agentMessages = [];
+      this.agentUnread = false;
     },
 
     agentExport() {
@@ -3188,7 +3356,8 @@ createApp({
         const startY = e.clientY;
         const startH = input.offsetHeight;
         const onMove = ev => {
-          const min = 42, max = Math.max(180, Math.floor(window.innerHeight * 0.45));
+          const panelHeight = this.$refs.agentWindow?.clientHeight || window.innerHeight;
+          const min = 42, max = Math.max(96, Math.floor(panelHeight * 0.45));
           input.style.height = Math.max(min, Math.min(max, startH + startY - ev.clientY)) + 'px';
         };
         const onUp = ev => {
@@ -3278,8 +3447,11 @@ createApp({
 
   mounted() {
     this.initUiAppearance();
+    this.handleViewportChange();
     this.checkAuth();
-    window.addEventListener('resize', this.updateAgentPaneHeight);
+    window.addEventListener('resize', this.handleViewportChange);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', this.updateAgentPaneHeight);
+    document.addEventListener('keydown', this.handleGlobalKeydown);
     document.addEventListener('click', e => {
       const dd = this.$refs.headerDropdown;
       if (dd && !dd.contains(e.target)) this.dropdownOpen = false;
@@ -3287,7 +3459,9 @@ createApp({
   },
 
   beforeUnmount() {
-    window.removeEventListener('resize', this.updateAgentPaneHeight);
+    window.removeEventListener('resize', this.handleViewportChange);
+    if (window.visualViewport) window.visualViewport.removeEventListener('resize', this.updateAgentPaneHeight);
+    document.removeEventListener('keydown', this.handleGlobalKeydown);
     if (this._refreshTimer) clearInterval(this._refreshTimer);
   },
 }).mount('#app');

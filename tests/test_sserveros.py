@@ -45,6 +45,28 @@ def test_tmux_release_session_name_matches_task_id_prefix():
     assert tmux_release_session_name(' cmd/weird value ') == 'sserveros_cmd_weird_value'
 
 
+def test_default_monitor_and_release_thresholds(tmp_path):
+    from storage import default_config
+
+    cfg = default_config()
+    assert cfg['llm_base_url'] == 'https://api.deepseek.com'
+    assert cfg['llm_model'] == 'deepseek-v4-flash'
+    assert cfg['mem_threshold_mib'] == 5120
+    assert cfg['check_interval'] == 120
+    assert cfg['confirm_times'] == 3
+    assert cfg['release_command_mem_threshold_mib'] == 5120
+    assert cfg['release_command_check_interval'] == 120
+    assert cfg['release_command_confirm_times'] == 3
+
+    monitor = Monitor(script_dir=str(tmp_path))
+    assert monitor.mem_threshold_mib == 5120
+    assert monitor.check_interval == 120
+    assert monitor.confirm_times == 3
+    assert monitor.release_command_mem_threshold_mib == 5120
+    assert monitor.release_command_check_interval == 120
+    assert monitor.release_command_confirm_times == 3
+
+
 def test_release_command_settings_are_independent_per_gpu():
     cfg = {
         'release_command_enabled': True,
@@ -857,8 +879,12 @@ def test_sserveros_bootstraps_config_when_missing(tmp_path):
         assert state['gpus'][0]['top_cmd'] == 'python train_zero.py'
         cfg = _read_json(project_dir / 'config.json')
         assert cfg['sendkey'] == ''
+        assert cfg['mem_threshold_mib'] == 5120
         assert cfg['check_interval'] == 120
+        assert cfg['confirm_times'] == 3
         assert cfg['release_command_mem_threshold_mib'] == 5120
+        assert cfg['release_command_check_interval'] == 120
+        assert cfg['release_command_confirm_times'] == 3
         assert 'password_hash' in cfg
         assert 'secret_key' in cfg
         assert oct((project_dir / 'config.json').stat().st_mode & 0o777) == '0o600'
