@@ -18,7 +18,7 @@ DEFAULT_CONFIG = {
     'release_command_enabled': True,
     'release_command_notify_enabled': True,
     'release_command_gpus': [],
-    'release_command_mem_threshold_mib': 10240,
+    'release_command_mem_threshold_mib': 5120,
     'release_command_check_interval': 120,
     'release_command_confirm_times': 2,
     'release_command_gpu_settings': {},

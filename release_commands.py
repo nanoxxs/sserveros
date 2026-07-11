@@ -7,7 +7,8 @@ NOTE_MAX_CHARS = 200
 TERMINAL_STATUSES = {'success', 'failed'}
 VALID_STATUSES = {'pending', 'running', *TERMINAL_STATUSES}
 VALID_LAUNCHERS = {'detached', 'tmux', 'zellij'}
-GPU_SETTING_KEYS = ('mem_threshold_mib', 'check_interval', 'confirm_times')
+GPU_NUMERIC_SETTING_KEYS = ('mem_threshold_mib', 'check_interval', 'confirm_times')
+GPU_BOOLEAN_SETTING_KEYS = ('enabled', 'notify_enabled')
 
 
 def now_text() -> str:
@@ -65,13 +66,25 @@ def validate_release_command_gpu_settings(value) -> dict[str, dict]:
         if not isinstance(raw_settings, dict):
             raise ValueError('release_command_gpu_settings values must be objects')
         settings = {}
-        for key in GPU_SETTING_KEYS:
+        for key in GPU_NUMERIC_SETTING_KEYS:
             if key not in raw_settings:
                 continue
             val = raw_settings[key]
             if isinstance(val, bool) or not isinstance(val, int) or val <= 0:
                 raise ValueError(f'{key} must be a positive integer')
             settings[key] = val
+        for key in GPU_BOOLEAN_SETTING_KEYS:
+            if key not in raw_settings:
+                continue
+            val = raw_settings[key]
+            if not isinstance(val, bool):
+                raise ValueError(f'{key} must be boolean')
+            settings[key] = val
+        if 'launcher' in raw_settings:
+            launcher = str(raw_settings['launcher'] or '').strip()
+            if launcher not in VALID_LAUNCHERS:
+                raise ValueError('launcher must be detached, tmux, or zellij')
+            settings['launcher'] = launcher
         if settings:
             normalized[str(gpu)] = settings
     return dict(sorted(normalized.items(), key=lambda kv: int(kv[0])))
@@ -88,7 +101,7 @@ def release_command_default_settings(cfg: dict) -> dict:
     return {
         'mem_threshold_mib': _positive_int(
             cfg.get('release_command_mem_threshold_mib'),
-            _positive_int(cfg.get('mem_threshold_mib'), 10240),
+            5120,
         ),
         'check_interval': _positive_int(
             cfg.get('release_command_check_interval'),
@@ -98,6 +111,9 @@ def release_command_default_settings(cfg: dict) -> dict:
             cfg.get('release_command_confirm_times'),
             _positive_int(cfg.get('confirm_times'), 2),
         ),
+        'enabled': cfg.get('release_command_enabled', True) is not False,
+        'notify_enabled': cfg.get('release_command_notify_enabled', True) is not False,
+        'launcher': normalize_release_command_launcher(cfg),
     }
 
 
@@ -135,6 +151,7 @@ def make_release_command(command: str, note: str = '', target_gpus=None) -> dict
         'note': str(note or '').strip()[:NOTE_MAX_CHARS],
         'target_gpus': target_gpus,
         'status': 'pending',
+        'paused': False,
         'created_at': now_text(),
         'started_at': '',
         'finished_at': '',
@@ -183,6 +200,7 @@ def normalize_release_command(entry: dict, index: int = 0) -> dict | None:
         'note': str(entry.get('note', '') or '').strip()[:NOTE_MAX_CHARS],
         'target_gpus': target_gpus,
         'status': status,
+        'paused': entry.get('paused') is True,
         'created_at': str(entry.get('created_at', '') or ''),
         'started_at': str(entry.get('started_at', '') or ''),
         'finished_at': str(entry.get('finished_at', '') or ''),

@@ -216,8 +216,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .notice-msg.success { color: #16a34a; }
 .notice-msg.warn { color: #d97706; }
 .notice-msg.error { color: #ef4444; }
-.cmd-row { padding: 14px 16px; border-bottom: 1px solid #f8fafc; display: flex; gap: 12px; align-items: flex-start; }
+.cmd-row { padding: 14px 16px; border-bottom: 1px solid #f8fafc; display: flex; gap: 12px; align-items: flex-start; transition: opacity .15s, background .15s, box-shadow .15s; }
 .cmd-row:last-child { border-bottom: none; }
+.cmd-row[draggable="true"] { cursor: grab; }
+.cmd-row[draggable="true"]:active { cursor: grabbing; }
+.cmd-row.is-paused { background: #f8fafc; }
+.cmd-row.is-dragging { opacity: .42; }
+.cmd-row.drop-before { box-shadow: inset 0 3px 0 #2563eb; }
+.cmd-row.drop-after { box-shadow: inset 0 -3px 0 #2563eb; }
 .cmd-main { flex: 1; min-width: 0; }
 .cmd-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; font-weight: 600; color: #1e293b; }
 .cmd-status { font-size: 11px; padding: 2px 7px; border-radius: 999px; font-weight: 600; }
@@ -227,7 +233,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .launcher-option { border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #64748b; font-size: 13px; padding: 8px 10px; cursor: pointer; }
 .launcher-option.active { background: #dbeafe; border-color: #93c5fd; color: #2563eb; font-weight: 700; }
 .terminal-status-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
-.cmd-note { font-size: 12px; color: #64748b; margin-top: 4px; }
+.cmd-columns-head { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(240px, .85fr); gap: 12px; padding: 8px 16px; border-bottom: 1px solid #f1f5f9; background: #f8fafc; color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .45px; }
+.cmd-highlight-grid { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(240px, .85fr); gap: 12px; margin-top: 9px; align-items: stretch; }
+.cmd-note-primary { min-width: 0; border-left: 3px solid #2563eb; background: #eff6ff; border-radius: 8px; padding: 9px 11px; }
+.cmd-note-label, .cmd-attach-label { display: block; color: #94a3b8; font-size: 10px; font-weight: 700; letter-spacing: .35px; margin-bottom: 3px; }
+.cmd-note-value { display: block; color: #1e3a8a; font-size: 14px; line-height: 1.35; word-break: break-word; }
+.cmd-note-value.is-empty { color: #94a3b8; font-weight: 500; }
+.cmd-attach-cell { min-width: 0; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; background: #fff; }
+.cmd-copy-btn { display: block; width: 100%; border: none; background: transparent; color: #2563eb; padding: 0; text-align: left; font: 11px/1.45 monospace; word-break: break-all; cursor: pointer; }
+.cmd-copy-btn:hover { text-decoration: underline; }
+.cmd-attach-empty { color: #94a3b8; font-size: 11px; line-height: 1.45; }
 .cmd-text { margin-top: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; max-height: 150px; overflow: auto; }
 .cmd-meta { margin-top: 7px; font-size: 11px; color: #94a3b8; line-height: 1.6; }
 .cmd-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }
@@ -244,6 +259,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .release-group-stats { color: #64748b; font-size: 12px; white-space: nowrap; }
 .release-group-settings { font-size: 11px; color: #94a3b8; margin-top: 3px; }
 .release-empty { padding: 14px 16px; color: #94a3b8; font-size: 13px; }
+@media (max-width: 680px) {
+  .cmd-columns-head { display: none; }
+  .cmd-highlight-grid { grid-template-columns: 1fr; gap: 7px; }
+  .cmd-row { flex-direction: column; }
+  .cmd-actions { width: 100%; justify-content: flex-start; }
+}
 
 /* Log list */
 .log-row { padding: 12px 16px; border-bottom: 1px solid #f8fafc; display: flex; gap: 10px; align-items: flex-start; cursor: pointer; transition: background .1s; }
@@ -544,6 +565,10 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 .agent-empty-title, .cmd-title, .gpu-task-title { color: var(--fg-1); }
 .cmd-note, .cmd-meta { color: var(--fg-3); }
 .detail-body-content, .msg-assistant, .tool-step, .cmd-text { background: var(--bg-2); border-color: var(--border-default); color: var(--fg-2); }
+.cmd-columns-head, .cmd-row.is-paused { background: var(--bg-2); border-color: var(--border-subtle); }
+.cmd-note-primary { background: var(--accent-bg); }
+.cmd-note-value { color: var(--accent); }
+.cmd-attach-cell { background: var(--bg-1); border-color: var(--border-default); }
 .msg-user { background: var(--accent); color: var(--accent-fg); }
 .offline-banner { background: var(--danger-bg); color: var(--danger-fg); }
 .status-badge { background: var(--ok-bg); color: var(--ok-fg); }
@@ -977,22 +1002,51 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
                   </div>
                   <div class="release-group-settings">{{ group.settingsText }}</div>
                 </div>
-                <span class="release-group-stats">待 {{ group.pending }} / 运行 {{ group.running }} / 完成 {{ group.done }}</span>
+                <span class="release-group-stats">待 {{ group.pending }} / 暂停 {{ group.paused }} / 运行 {{ group.running }} / 完成 {{ group.done }}</span>
               </button>
               <div v-show="isReleaseGroupOpen(group.key)">
-                <div v-for="(cmd, i) in group.commands" :key="cmd.id" class="cmd-row">
+                <div class="cmd-columns-head">
+                  <span>备注</span>
+                  <span>tmux 连接指令（单击复制）</span>
+                </div>
+                <div v-for="(cmd, i) in group.commands" :key="cmd.id" class="cmd-row"
+                     :class="{
+                       'is-paused': cmd.paused,
+                       'is-dragging': draggedReleaseCommandId === cmd.id,
+                       'drop-before': dragOverReleaseCommandId === cmd.id && dragOverReleaseCommandPosition === 'before',
+                       'drop-after': dragOverReleaseCommandId === cmd.id && dragOverReleaseCommandPosition === 'after'
+                     }"
+                     :draggable="cmd.status !== 'running'"
+                     @dragstart="startReleaseCommandDrag($event, cmd)"
+                     @dragover.prevent="overReleaseCommandDrag($event, cmd)"
+                     @drop.prevent="dropReleaseCommand($event, cmd)"
+                     @dragend="endReleaseCommandDrag()">
                   <div class="cmd-main">
                     <div class="cmd-title">
-                      <span>#{{ i + 1 }}</span>
-                      <span class="cmd-status" :style="releaseCommandStatusStyle(cmd.status)">
-                        {{ releaseCommandStatusText(cmd.status) }}
+                      <span title="拖动可调整任务顺序">☰ #{{ i + 1 }}</span>
+                      <span class="cmd-status" :style="releaseCommandStatusStyle(cmd)">
+                        {{ releaseCommandStatusText(cmd) }}
                       </span>
                       <span class="cmd-code">{{ cmd.id }}</span>
                       <span v-if="cmd.terminal_session || cmd.tmux_session || cmd.zellij_session" class="cmd-session">
                         {{ releaseCommandLauncherLabel(cmd.launcher) }} {{ cmd.terminal_session || cmd.tmux_session || cmd.zellij_session }}
                       </span>
                     </div>
-                    <div v-if="cmd.note" class="cmd-note">{{ cmd.note }}</div>
+                    <div class="cmd-highlight-grid">
+                      <div class="cmd-note-primary">
+                        <span class="cmd-note-label">备注</span>
+                        <strong class="cmd-note-value" :class="{'is-empty': !cmd.note}">{{ cmd.note || '未填写备注' }}</strong>
+                      </div>
+                      <div class="cmd-attach-cell">
+                        <span class="cmd-attach-label">tmux 连接</span>
+                        <button v-if="releaseCommandTmuxAttachText(cmd)" class="cmd-copy-btn"
+                                :title="'单击复制：' + releaseCommandTmuxAttachText(cmd)"
+                                @click="copyReleaseCommandAttach(cmd)">
+                          {{ releaseCommandTmuxAttachText(cmd) }}
+                        </button>
+                        <span v-else class="cmd-attach-empty">{{ cmd.status === 'pending' ? '任务启动后显示连接指令' : '此任务没有可用的 tmux 会话' }}</span>
+                      </div>
+                    </div>
                     <pre class="cmd-text">{{ cmd.command }}</pre>
                     <div class="cmd-meta">
                       <span>目标 {{ releaseCommandTargetLabel(cmd.target_gpus) }} · </span>
@@ -1007,6 +1061,8 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
                     </div>
                   </div>
                   <div class="cmd-actions">
+                    <button v-if="cmd.status === 'pending'" class="back-btn"
+                            @click="toggleReleaseCommandPaused(cmd)">{{ cmd.paused ? '恢复' : '暂停' }}</button>
                     <button v-if="cmd.status === 'success' || cmd.status === 'failed'"
                             class="back-btn" @click="requeueReleaseCommand(cmd.id)">重新排队</button>
                     <button class="del-btn" :disabled="cmd.status === 'running'"
@@ -1017,10 +1073,8 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
               </div>
             </div>
             <div class="setting-row">
-              <div class="setting-label">新增任务</div>
-              <input class="setting-input" v-model="newReleaseCommandGpus"
-                     placeholder="目标 GPU，例：0；留空表示任意 GPU"
-                     style="margin-bottom:8px">
+              <div class="setting-label">新增 GPU {{ currentGpuIndex }} 任务</div>
+              <div style="font-size:12px;color:#94a3b8;margin-bottom:8px">任务将自动加入 GPU {{ currentGpuIndex }} 的独立队列</div>
               <input class="setting-input" v-model="newReleaseCommandNote" placeholder="备注（可选）" style="margin-bottom:8px">
               <textarea class="setting-input" v-model="newReleaseCommand" rows="5"
                         placeholder="例：PYTORCH_ALLOC_CONF=expandable_segments:True /home/kzm/unsloth_env/bin/python train.py"
@@ -1040,13 +1094,20 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
           </template>
 
           <template v-else-if="gpuDetailTab === 'taskSettings'">
+            <div class="gpu-task-toolbar">
+              <div>
+                <div class="gpu-task-title">GPU {{ currentGpuIndex }} 独立任务配置</div>
+                <div class="gpu-task-sub">此处修改只影响 GPU {{ currentGpuIndex }}，不会改变其他 GPU</div>
+              </div>
+            </div>
+            <template v-if="currentGpuReleasePreset">
             <div class="setting-row setting-row-toggle">
               <div>
                 <div class="setting-label" style="margin-bottom:2px">GPU 空闲后自动执行</div>
-                <div style="font-size:12px;color:#94a3b8">连续低于空闲判定阈值后，按队列启动一个匹配任务</div>
+                <div style="font-size:12px;color:#94a3b8">首次低于阈值后按间隔复核，全部通过才按队列启动匹配任务</div>
               </div>
               <label class="toggle-switch" style="margin-left:16px">
-                <input type="checkbox" v-model="cfgReleaseCommandEnabled">
+                <input type="checkbox" v-model="currentGpuReleasePreset.enabled">
                 <span class="toggle-slider"></span>
               </label>
             </div>
@@ -1054,21 +1115,21 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
 	              <div>
 	                <div class="setting-label" style="margin-bottom:2px">任务队列通知</div>
 	                <div style="font-size:12px;color:#94a3b8">检测空闲、启动任务、任务结束时推送消息</div>
-	              </div>
+              </div>
               <label class="toggle-switch" style="margin-left:16px">
-                <input type="checkbox" v-model="cfgReleaseCommandNotify">
+                <input type="checkbox" v-model="currentGpuReleasePreset.notify_enabled">
 	                <span class="toggle-slider"></span>
 	              </label>
 	            </div>
 	            <div class="setting-row">
 	              <div class="setting-label" style="margin-bottom:2px">启动器</div>
                 <div class="launcher-options">
-                  <button class="launcher-option" :class="{active: cfgReleaseCommandLauncher === 'detached'}"
-                          @click="setReleaseCommandLauncher('detached')">后台日志</button>
-                  <button class="launcher-option" :class="{active: cfgReleaseCommandLauncher === 'tmux'}"
-                          @click="setReleaseCommandLauncher('tmux')">tmux</button>
-                  <button class="launcher-option" :class="{active: cfgReleaseCommandLauncher === 'zellij'}"
-                          @click="setReleaseCommandLauncher('zellij')">zellij</button>
+                  <button class="launcher-option" :class="{active: currentGpuReleasePreset.launcher === 'detached'}"
+                          @click="setCurrentGpuReleaseLauncher('detached')">后台日志</button>
+                  <button class="launcher-option" :class="{active: currentGpuReleasePreset.launcher === 'tmux'}"
+                          @click="setCurrentGpuReleaseLauncher('tmux')">tmux</button>
+                  <button class="launcher-option" :class="{active: currentGpuReleasePreset.launcher === 'zellij'}"
+                          @click="setCurrentGpuReleaseLauncher('zellij')">zellij</button>
                 </div>
                 <div class="terminal-status-row">
                   <span style="font-size:12px;color:#64748b">tmux</span>
@@ -1082,55 +1143,28 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
                 </div>
                 <div style="font-size:12px;color:#94a3b8;margin-top:4px">tmux/zellij 启动失败或未安装时自动回退后台日志模式</div>
 	            </div>
-	            <div class="setting-row">
-	              <div class="setting-label">任务队列监控 GPU（逗号分隔，留空自动检测）</div>
-              <input class="setting-input" v-model="cfgReleaseCommandGpus" placeholder="例：0,1">
-            </div>
             <div class="setting-row">
               <div class="setting-inline-grid">
                 <div>
-                  <div class="setting-label">默认空闲阈值 (MiB)</div>
-                  <input class="setting-input" v-model.number="cfgReleaseCommandThreshold" type="number">
-                </div>
-                <div>
-                  <div class="setting-label">默认检测间隔 (秒)</div>
-                  <input class="setting-input" v-model.number="cfgReleaseCommandInterval" type="number">
-                </div>
-                <div>
-                  <div class="setting-label">默认确认次数</div>
-                  <input class="setting-input" v-model.number="cfgReleaseCommandConfirm" type="number">
-                </div>
-              </div>
-            </div>
-            <div class="setting-row">
-              <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px">
-                <div>
-                  <div class="setting-label" style="margin-bottom:2px">GPU {{ currentGpuIndex }} 专属预设</div>
-                  <div style="font-size:12px;color:#94a3b8">为空时使用上面的默认空闲判定配置</div>
-                </div>
-                <button v-if="!currentGpuReleasePreset" class="back-btn" @click="addCurrentGpuReleasePreset()">新增预设</button>
-                <button v-else class="back-btn" style="color:#ef4444;border-color:#fecaca"
-                        @click="removeCurrentGpuReleasePreset()">移除预设</button>
-              </div>
-              <div v-if="currentGpuReleasePreset" class="setting-inline-grid">
-                <div>
-                  <div class="setting-label">空闲阈值 (MiB)</div>
+                  <div class="setting-label">GPU {{ currentGpuIndex }} 空闲阈值 (MiB)</div>
                   <input class="setting-input" v-model.number="currentGpuReleasePreset.mem_threshold_mib" type="number">
                 </div>
                 <div>
-                  <div class="setting-label">检测间隔 (秒)</div>
+                  <div class="setting-label">GPU {{ currentGpuIndex }} 检测间隔 (秒)</div>
                   <input class="setting-input" v-model.number="currentGpuReleasePreset.check_interval" type="number">
                 </div>
                 <div>
-                  <div class="setting-label">确认次数</div>
+                  <div class="setting-label">GPU {{ currentGpuIndex }} 确认次数</div>
                   <input class="setting-input" v-model.number="currentGpuReleasePreset.confirm_times" type="number">
+                  <div style="font-size:11px;color:#94a3b8;margin-top:4px">指首次发现后的复核次数；2 次表示总共检测 3 次</div>
                 </div>
               </div>
             </div>
             <div class="setting-row">
-              <button class="save-btn" @click="saveReleaseSettings()" style="margin-top:0">保存任务队列配置</button>
+              <button class="save-btn" @click="saveReleaseSettings()" style="margin-top:0">保存 GPU {{ currentGpuIndex }} 任务配置</button>
               <div v-if="releaseSaveMsg.text" class="notice-msg" :class="releaseSaveMsg.kind" style="display:block">{{ releaseSaveMsg.text }}</div>
             </div>
+            </template>
           </template>
         </template>
       </div>
@@ -1737,7 +1771,7 @@ createApp({
 	      cfgReleaseCommandLauncher: 'detached',
 	      cfgReleaseCommandTmuxEnabled: false,
 	      cfgReleaseCommandGpus: '',
-      cfgReleaseCommandThreshold: 10240,
+      cfgReleaseCommandThreshold: 5120,
       cfgReleaseCommandInterval: 120,
       cfgReleaseCommandConfirm: 2,
       releaseGpuPresets: [],
@@ -1746,10 +1780,12 @@ createApp({
 	      releaseCommands: [],
 	      tmuxStatus: {installed:false, path:'', version:''},
 	      zellijStatus: {installed:false, path:'', version:''},
-      newReleaseCommandGpus: '',
       newReleaseCommand: '',
       newReleaseCommandNote: '',
       releaseCommandMsg: {text:'', kind:''},
+      draggedReleaseCommandId: '',
+      dragOverReleaseCommandId: '',
+      dragOverReleaseCommandPosition: 'before',
       cfgServerchanKeys: '',
       barkConfigs: [],
       monitorSaveMsg: {text:'', kind:''},
@@ -1868,9 +1904,10 @@ createApp({
             target_gpus: gpus,
             commands: [],
             pending: 0,
+            paused: 0,
             running: 0,
             done: 0,
-            settingsText: `${settings.mem_threshold_mib} MiB / ${settings.check_interval} 秒 / ${settings.confirm_times} 次`,
+            settingsText: `${settings.mem_threshold_mib} MiB / ${settings.check_interval} 秒 / 首次发现后复核 ${settings.confirm_times} 次`,
           });
         }
         return groups.get(key);
@@ -1884,7 +1921,8 @@ createApp({
         const gpus = this.releaseCommandTargetGpus(cmd.target_gpus);
         const group = ensure(gpus);
         group.commands.push(cmd);
-        if (cmd.status === 'pending') group.pending += 1;
+        if (cmd.status === 'pending' && cmd.paused) group.paused += 1;
+        else if (cmd.status === 'pending') group.pending += 1;
         else if (cmd.status === 'running') group.running += 1;
         else if (cmd.status === 'success' || cmd.status === 'failed') group.done += 1;
       }
@@ -1911,9 +1949,10 @@ createApp({
 	            target_gpus: gpus,
 	            commands: [],
 	            pending: 0,
+	            paused: 0,
 	            running: 0,
 	            done: 0,
-	            settingsText: `${settings.mem_threshold_mib} MiB / ${settings.check_interval} 秒 / ${settings.confirm_times} 次`,
+	            settingsText: `${settings.mem_threshold_mib} MiB / ${settings.check_interval} 秒 / 首次发现后复核 ${settings.confirm_times} 次`,
 	          });
 	        }
 	        return groups.get(key);
@@ -1923,7 +1962,8 @@ createApp({
 	        if (gpus.length && !gpus.includes(current)) continue;
 	        const group = ensure(gpus);
 	        group.commands.push(cmd);
-	        if (cmd.status === 'pending') group.pending += 1;
+	        if (cmd.status === 'pending' && cmd.paused) group.paused += 1;
+	        else if (cmd.status === 'pending') group.pending += 1;
 	        else if (cmd.status === 'running') group.running += 1;
 	        else if (cmd.status === 'success' || cmd.status === 'failed') group.done += 1;
 	      }
@@ -2164,7 +2204,6 @@ createApp({
 	      this.gpuDetailTab = 'processes';
 	      this.gpuDetail = null;
 	      this.gpuDetailError = '';
-	      this.newReleaseCommandGpus = String(idx);
 	      await Promise.all([this.loadGpuDetail(idx), this.loadPids(), this.loadSettings()]);
 	    },
 
@@ -2329,7 +2368,7 @@ createApp({
 	      this.cfgReleaseCommandLauncher = cfg.release_command_launcher || (cfg.release_command_tmux_enabled === true ? 'tmux' : 'detached');
 	      this.cfgReleaseCommandTmuxEnabled = this.cfgReleaseCommandLauncher === 'tmux';
 	      this.cfgReleaseCommandGpus = (cfg.release_command_gpus || []).join(',');
-      this.cfgReleaseCommandThreshold = cfg.release_command_mem_threshold_mib ?? (cfg.mem_threshold_mib ?? 10240);
+      this.cfgReleaseCommandThreshold = cfg.release_command_mem_threshold_mib ?? 5120;
       this.cfgReleaseCommandInterval = cfg.release_command_check_interval ?? (cfg.check_interval ?? 120);
       this.cfgReleaseCommandConfirm = cfg.release_command_confirm_times ?? (cfg.confirm_times ?? 2);
       const gpuSettings = cfg.release_command_gpu_settings || {};
@@ -2341,7 +2380,11 @@ createApp({
           mem_threshold_mib: gpuSettings[gpu].mem_threshold_mib ?? this.cfgReleaseCommandThreshold,
           check_interval: gpuSettings[gpu].check_interval ?? this.cfgReleaseCommandInterval,
           confirm_times: gpuSettings[gpu].confirm_times ?? this.cfgReleaseCommandConfirm,
+          enabled: gpuSettings[gpu].enabled ?? this.cfgReleaseCommandEnabled,
+          notify_enabled: gpuSettings[gpu].notify_enabled ?? this.cfgReleaseCommandNotify,
+          launcher: gpuSettings[gpu].launcher || this.cfgReleaseCommandLauncher,
         }));
+	      this.ensureCurrentGpuReleasePreset();
 	      this.releaseCommands = cfg.release_commands || [];
 	      this.tmuxStatus = cfg.tmux_status || this.tmuxStatus;
 	      this.zellijStatus = cfg.zellij_status || this.zellijStatus;
@@ -2407,6 +2450,9 @@ createApp({
 	          mem_threshold_mib: this.parsePositiveInt(preset.mem_threshold_mib, `GPU ${gpuText} 空闲判定阈值`),
 	          check_interval: this.parsePositiveInt(preset.check_interval, `GPU ${gpuText} 检测间隔`),
 	          confirm_times: this.parsePositiveInt(preset.confirm_times, `GPU ${gpuText} 确认次数`),
+	          enabled: preset.enabled !== false,
+	          notify_enabled: preset.notify_enabled !== false,
+	          launcher: ['detached', 'tmux', 'zellij'].includes(preset.launcher) ? preset.launcher : 'detached',
 	        };
       }
       return release_command_gpu_settings;
@@ -2479,22 +2525,16 @@ createApp({
     async saveReleaseSettings() {
       let body;
       try {
+        this.ensureCurrentGpuReleasePreset();
         body = {
-	          release_command_mem_threshold_mib: this.parsePositiveInt(this.cfgReleaseCommandThreshold, '空闲判定阈值'),
-	          release_command_check_interval: this.parsePositiveInt(this.cfgReleaseCommandInterval, '任务队列检测间隔'),
-	          release_command_confirm_times: this.parsePositiveInt(this.cfgReleaseCommandConfirm, '连续空闲确认次数'),
-	          release_command_gpus: this.parseGpuList(this.cfgReleaseCommandGpus, '任务队列 GPU 索引'),
+	          release_command_gpus: [],
 	          release_command_gpu_settings: this.collectReleaseGpuSettings(),
-	          release_command_enabled: this.cfgReleaseCommandEnabled,
-	          release_command_notify_enabled: this.cfgReleaseCommandNotify,
-	          release_command_launcher: this.cfgReleaseCommandLauncher,
-	          release_command_tmux_enabled: this.cfgReleaseCommandLauncher === 'tmux',
 	        };
       } catch(err) {
         this.releaseSaveMsg = {text: err.message || '输入不合法', kind:'error'};
         return;
       }
-	      await this.postSettingsPayload(body, 'releaseSaveMsg', '任务队列配置已保存');
+	      await this.postSettingsPayload(body, 'releaseSaveMsg', `GPU ${this.currentGpuIndex} 任务配置已保存`);
     },
 
     async saveNotifySettings() {
@@ -2595,7 +2635,10 @@ createApp({
       };
     },
 
-    releaseCommandStatusText(status) {
+    releaseCommandStatusText(value) {
+      const cmd = value && typeof value === 'object' ? value : null;
+      const status = cmd ? cmd.status : value;
+      if (cmd?.paused && status === 'pending') return '已暂停';
       return {
         pending: '待执行',
         running: '运行中',
@@ -2604,7 +2647,10 @@ createApp({
       }[status] || status || '未知';
     },
 
-	    releaseCommandStatusStyle(status) {
+	    releaseCommandStatusStyle(value) {
+	      const cmd = value && typeof value === 'object' ? value : null;
+	      const status = cmd ? cmd.status : value;
+	      if (cmd?.paused && status === 'pending') return 'background:#e2e8f0;color:#64748b';
 	      if (status === 'running') return 'background:#dbeafe;color:#2563eb';
 	      if (status === 'success') return 'background:#dcfce7;color:#16a34a';
 	      if (status === 'failed') return 'background:#fee2e2;color:#ef4444';
@@ -2625,6 +2671,77 @@ createApp({
 	      return `session ${session}`;
 	    },
 
+	    releaseCommandTmuxAttachText(cmd) {
+	      const session = cmd.tmux_session || (cmd.launcher === 'tmux' ? cmd.terminal_session : '') || '';
+	      return session ? `tmux attach -t ${session}` : '';
+	    },
+
+	    async copyReleaseCommandAttach(cmd) {
+	      const attach = this.releaseCommandTmuxAttachText(cmd);
+	      if (!attach) return;
+	      try {
+	        if (navigator.clipboard?.writeText) {
+	          await navigator.clipboard.writeText(attach);
+	        } else {
+	          const input = document.createElement('textarea');
+	          input.value = attach;
+	          input.style.position = 'fixed';
+	          input.style.opacity = '0';
+	          document.body.appendChild(input);
+	          input.select();
+	          document.execCommand('copy');
+	          input.remove();
+	        }
+	        this.releaseCommandMsg = {text:`已复制：${attach}`, kind:'success'};
+	      } catch (err) {
+	        this.releaseCommandMsg = {text:'复制失败，请手动选择连接指令', kind:'error'};
+	      }
+	    },
+
+	    startReleaseCommandDrag(event, cmd) {
+	      if (cmd.status === 'running') {
+	        event.preventDefault();
+	        return;
+	      }
+	      this.draggedReleaseCommandId = cmd.id;
+	      event.dataTransfer.effectAllowed = 'move';
+	      event.dataTransfer.setData('text/plain', cmd.id);
+	    },
+
+	    overReleaseCommandDrag(event, cmd) {
+	      if (!this.draggedReleaseCommandId || this.draggedReleaseCommandId === cmd.id) {
+	        this.dragOverReleaseCommandId = '';
+	        return;
+	      }
+	      const rect = event.currentTarget.getBoundingClientRect();
+	      this.dragOverReleaseCommandId = cmd.id;
+	      this.dragOverReleaseCommandPosition = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+	      event.dataTransfer.dropEffect = 'move';
+	    },
+
+	    endReleaseCommandDrag() {
+	      this.draggedReleaseCommandId = '';
+	      this.dragOverReleaseCommandId = '';
+	      this.dragOverReleaseCommandPosition = 'before';
+	    },
+
+	    async dropReleaseCommand(event, target) {
+	      const sourceId = this.draggedReleaseCommandId || event.dataTransfer.getData('text/plain');
+	      const position = this.dragOverReleaseCommandPosition;
+	      this.endReleaseCommandDrag();
+	      if (!sourceId || !target?.id || sourceId === target.id) return;
+	      const r = await this.api('/api/release-commands/reorder', {
+	        method:'POST', headers:{'Content-Type':'application/json'},
+	        body: JSON.stringify({source_id: sourceId, target_id: target.id, position}),
+	      });
+	      const payload = await r.json().catch(() => ({}));
+	      this.releaseCommandMsg = {
+	        text: payload.warning||payload.message||(r.ok?'任务顺序已更新':'排序失败'),
+	        kind: r.ok ? (payload.warning?'warn':'success') : 'error',
+	      };
+	      await this.refreshReleaseCommands();
+	    },
+
 	    terminalStatusStyle(status) {
 	      return status?.installed
 	        ? 'background:#dcfce7;color:#16a34a'
@@ -2636,36 +2753,39 @@ createApp({
 	    },
 
 	    taskSummaryForGpu(gpu) {
-	      const stats = {pending: 0, running: 0, done: 0};
+	      const stats = {pending: 0, paused: 0, running: 0, done: 0};
 	      for (const cmd of this.releaseCommands) {
 	        const gpus = this.releaseCommandTargetGpus(cmd.target_gpus);
 	        if (gpus.length && !gpus.includes(gpu)) continue;
 	        if (cmd.status === 'running') stats.running += 1;
+	        else if (cmd.status === 'pending' && cmd.paused) stats.paused += 1;
 	        else if (cmd.status === 'pending') stats.pending += 1;
 	        else if (cmd.status === 'success' || cmd.status === 'failed') stats.done += 1;
 	      }
-	      if (!stats.pending && !stats.running && !stats.done) return '无';
-	      return `待 ${stats.pending} / 运行 ${stats.running} / 完成 ${stats.done}`;
+	      if (!stats.pending && !stats.paused && !stats.running && !stats.done) return '无';
+	      return `待 ${stats.pending} / 暂停 ${stats.paused} / 运行 ${stats.running} / 完成 ${stats.done}`;
 	    },
 
-	    addCurrentGpuReleasePreset() {
+	    ensureCurrentGpuReleasePreset() {
 	      if (this.currentGpuIndex === null || this.currentGpuIndex === undefined) return;
-	      if (this.currentGpuReleasePreset) return;
+	      if (this.currentGpuReleasePreset) return this.currentGpuReleasePreset;
 	      this.releaseGpuPresets.push({
 	        key: 'preset_' + Math.random().toString(36).slice(2) + Date.now(),
 	        gpu: String(this.currentGpuIndex),
 	        mem_threshold_mib: this.cfgReleaseCommandThreshold,
 	        check_interval: this.cfgReleaseCommandInterval,
 	        confirm_times: this.cfgReleaseCommandConfirm,
+	        enabled: this.cfgReleaseCommandEnabled,
+	        notify_enabled: this.cfgReleaseCommandNotify,
+	        launcher: this.cfgReleaseCommandLauncher,
 	      });
+	      return this.currentGpuReleasePreset;
 	    },
 
-	    removeCurrentGpuReleasePreset() {
-	      if (this.currentGpuIndex === null || this.currentGpuIndex === undefined) return;
-	      const key = String(this.currentGpuIndex);
-	      this.releaseGpuPresets = this.releaseGpuPresets.filter(
-	        p => String(p.gpu ?? '').trim() !== key
-	      );
+	    setCurrentGpuReleaseLauncher(launcher) {
+	      if (!['detached', 'tmux', 'zellij'].includes(launcher)) return;
+	      const preset = this.ensureCurrentGpuReleasePreset();
+	      if (preset) preset.launcher = launcher;
 	    },
 
 	    async refreshReleaseCommands() {
@@ -2681,28 +2801,11 @@ createApp({
 	        this.releaseCommandMsg = {text:'任务指令不能为空', kind:'error'};
         return;
       }
-      let target_gpus;
-      try {
-        const parseGpuList = (text, label) => {
-          const gpusStr = String(text || '').trim();
-          const gpus = [];
-          if (!gpusStr) return gpus;
-          const seen = new Set();
-          for (const raw of gpusStr.split(',')) {
-            const token = raw.trim();
-            if (!token) continue;
-            if (!/^\d+$/.test(token)) throw new Error(label + '格式错误，请输入如 0,1');
-            const v = Number(token);
-            if (seen.has(v)) throw new Error(label + '不能重复');
-            seen.add(v); gpus.push(v);
-          }
-          return gpus;
-        };
-        target_gpus = parseGpuList(this.newReleaseCommandGpus, '目标 GPU');
-      } catch(err) {
-        this.releaseCommandMsg = {text: err.message||'目标 GPU 不合法', kind:'error'};
+      if (this.currentGpuIndex === null || this.currentGpuIndex === undefined) {
+        this.releaseCommandMsg = {text:'无法确定当前 GPU', kind:'error'};
         return;
       }
+      const target_gpus = [Number(this.currentGpuIndex)];
       const r = await this.api('/api/release-commands/add', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({command, note: this.newReleaseCommandNote.trim(), target_gpus}),
@@ -2710,9 +2813,6 @@ createApp({
       const payload = await r.json().catch(() => ({}));
       if (r.ok) {
         this.newReleaseCommand = '';
-	        this.newReleaseCommandGpus = (
-	          this.gpuView === 'detail' && this.currentGpuIndex !== null && this.currentGpuIndex !== undefined
-	        ) ? String(this.currentGpuIndex) : '';
 	        this.newReleaseCommandNote = '';
 	        this.releaseCommandMsg = {text: payload.warning||payload.message||'任务已加入队列', kind: payload.warning?'warn':'success'};
         await this.refreshReleaseCommands();
@@ -2730,6 +2830,21 @@ createApp({
       const payload = await r.json().catch(() => ({}));
       this.releaseCommandMsg = {
 	        text: payload.warning||payload.message||(r.ok?'任务已移除':'移除失败'),
+        kind: r.ok ? (payload.warning?'warn':'success') : 'error',
+      };
+      await this.refreshReleaseCommands();
+    },
+
+    async toggleReleaseCommandPaused(cmd) {
+      if (!cmd?.id || cmd.status !== 'pending') return;
+      const paused = !cmd.paused;
+      const r = await this.api('/api/release-commands/pause', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({id: cmd.id, paused}),
+      });
+      const payload = await r.json().catch(() => ({}));
+      this.releaseCommandMsg = {
+        text: payload.warning||payload.message||(r.ok ? (paused?'任务已暂停':'任务已恢复') : '操作失败'),
         kind: r.ok ? (payload.warning?'warn':'success') : 'error',
       };
       await this.refreshReleaseCommands();

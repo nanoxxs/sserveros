@@ -106,7 +106,7 @@ class Monitor:
         self.release_command_launcher = 'detached'
         self.release_command_tmux_enabled = False
         self.release_command_gpus: list[int] = []
-        self.release_command_mem_threshold_mib = 10240
+        self.release_command_mem_threshold_mib = 5120
         self.release_command_check_interval = 120
         self.release_command_confirm_times = 2
         self.release_command_gpu_settings: dict[str, dict] = {}
@@ -212,6 +212,10 @@ class Monitor:
 
     def _release_command_cfg(self) -> dict:
         return {
+            'release_command_enabled': self.release_command_enabled,
+            'release_command_notify_enabled': self.release_command_notify_enabled,
+            'release_command_launcher': self.release_command_launcher,
+            'release_command_tmux_enabled': self.release_command_tmux_enabled,
             'release_command_mem_threshold_mib': self.release_command_mem_threshold_mib,
             'release_command_check_interval': self.release_command_check_interval,
             'release_command_confirm_times': self.release_command_confirm_times,
@@ -855,6 +859,8 @@ exit "$code"
         tmux_pane = ''
         zellij_session = ''
         zellij_pane = ''
+        trigger_gpu = None
+        notify_enabled = self.release_command_notify_enabled
         display_pid = display_pid or proc.pid
         with self._release_command_lock:
             cfg = load_config_file(self.config_file)
@@ -869,6 +875,7 @@ exit "$code"
                     tmux_pane = item.get('tmux_pane') or ''
                     zellij_session = item.get('zellij_session') or ''
                     zellij_pane = item.get('zellij_pane') or ''
+                    trigger_gpu = item.get('trigger_gpu')
                     item['status'] = status
                     item['exit_code'] = exit_code
                     item['finished_at'] = finished_at
@@ -876,6 +883,8 @@ exit "$code"
             cfg['release_commands'] = queue
             save_config_file(self.config_file, cfg)
             self.release_commands = queue
+            if isinstance(trigger_gpu, int) and not isinstance(trigger_gpu, bool):
+                notify_enabled = release_command_settings_for_gpu(cfg, trigger_gpu)['notify_enabled']
 
         tail = self._tail_file(log_path)
         content = (
@@ -904,7 +913,7 @@ exit "$code"
             content += f'\n\n- terminal pane: `{terminal_pane}`'
         if tail:
             content += f'\n\n### 日志尾部\n```\n{tail}\n```'
-        if self.release_command_notify_enabled:
+        if notify_enabled:
             self.send_notification(
                 f'{TITLE_PREFIX} - 任务{"完成" if status == "success" else "失败"} [{HOSTNAME_TAG}]',
                 content,
@@ -916,7 +925,8 @@ exit "$code"
         )
 
     def _start_next_release_command(self, gpu: int, used_mib: int, detected_at: str):
-        if not self.release_command_enabled:
+        settings = self._release_settings_for_gpu(gpu)
+        if not settings['enabled']:
             return 'disabled'
 
         with self._release_command_lock:
@@ -931,6 +941,7 @@ exit "$code"
 
             idx = next((i for i, item in enumerate(queue)
                         if item.get('status', 'pending') == 'pending'
+                        and item.get('paused') is not True
                         and release_command_matches_gpu(item, gpu)), None)
             if idx is None:
                 self.release_commands = queue
@@ -939,11 +950,10 @@ exit "$code"
             item = queue[idx]
             command_id = item['id']
             command_text = item['command']
-            settings = self._release_settings_for_gpu(gpu)
             log_path = self._release_command_log_path(command_id)
             started_at = now_text()
             launcher_warning = ''
-            launcher_mode = self.release_command_launcher
+            launcher_mode = settings['launcher']
             try:
                 if launcher_mode == 'tmux':
                     if shutil.which('tmux'):
@@ -1011,7 +1021,7 @@ exit "$code"
                     f'### 错误\n```\n{exc}\n```\n\n'
                     f'### 启动命令\n```\n{command_text}\n```'
                 )
-                if self.release_command_notify_enabled:
+                if settings['notify_enabled']:
                     self.send_notification(
                         f'{TITLE_PREFIX} - 任务启动失败 [{HOSTNAME_TAG}]',
                         content,
@@ -1060,7 +1070,7 @@ exit "$code"
             f'- 触发 GPU: `{gpu}`\n'
             f'- 当前显存: `{used_mib} MiB`\n'
             f'- 阈值: `{settings["mem_threshold_mib"]} MiB`\n'
-            f'- 判定: 连续 {settings["confirm_times"]} 次低于阈值\n'
+            f'- 判定: 首次发现后再连续复核 {settings["confirm_times"]} 次低于阈值\n'
             f'- 检测时间: `{detected_at}`\n'
             f'- 日志文件: `{log_path}`\n\n'
             f'### 启动命令\n```\n{command_text}\n```'
@@ -1079,7 +1089,7 @@ exit "$code"
             content += f'\n\n- terminal session: `{terminal_session}`'
         if terminal_pane and launcher not in ('tmux', 'zellij'):
             content += f'\n\n- terminal pane: `{terminal_pane}`'
-        if self.release_command_notify_enabled:
+        if settings['notify_enabled']:
             self.send_notification(
                 f'{TITLE_PREFIX} - 任务已启动 [{HOSTNAME_TAG}]',
                 content,
@@ -1235,8 +1245,6 @@ exit "$code"
         self.prev_pid_present.clear()
 
     def check_release_commands_once(self):
-        if not self.release_command_enabled:
-            return
         target_gpus = self._release_target_gpus()
         if not target_gpus:
             return
@@ -1245,6 +1253,10 @@ exit "$code"
         due_gpus = []
         for gpu in target_gpus:
             settings = self._release_settings_for_gpu(gpu)
+            if not settings['enabled']:
+                self.release_gpu_low_count[gpu] = 0
+                self.release_gpu_low_alerted[gpu] = False
+                continue
             if now_mono < self.release_gpu_next_check.get(gpu, 0.0):
                 continue
             due_gpus.append(gpu)
@@ -1262,7 +1274,10 @@ exit "$code"
                 low = self.release_gpu_low_count[gpu]
                 if self.release_gpu_low_alerted.get(gpu):
                     continue
-                if low < settings['confirm_times']:
+                # confirm_times 表示首次发现之后需要完成的复核次数。
+                # 例如间隔 120 秒、确认次数 2：t=0 首次发现，t=120/t=240
+                # 各复核一次，直到第 3 次采样才触发任务。
+                if low <= settings['confirm_times']:
                     continue
 
                 result = self._start_next_release_command(gpu, used, now)

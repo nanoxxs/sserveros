@@ -22,10 +22,10 @@
 | `release_command_enabled` | bool | `true` | 是 | 否 | 是否启用 GPU 空闲后执行任务队列 |
 | `release_command_notify_enabled` | bool | `true` | 是 | 否 | 是否推送任务队列检测、启动和结束通知 |
 | `release_command_gpus` | int[] | `[]` | 是 | 否 | 任务队列监控的 GPU 索引列表，空数组表示自动检测全部 |
-| `release_command_mem_threshold_mib` | int | `10240` | 是 | 否 | 任务队列默认空闲判定阈值（MiB） |
+| `release_command_mem_threshold_mib` | int | `5120` | 是 | 否 | 任务队列默认空闲判定阈值（MiB） |
 | `release_command_check_interval` | int | `120` | 是 | 否 | 任务队列默认检测间隔（秒） |
-| `release_command_confirm_times` | int | `2` | 是 | 否 | 任务队列默认连续空闲确认次数 |
-| `release_command_gpu_settings` | object | `{}` | 是 | 否 | 每 GPU 任务队列预设，键为 GPU index，值可覆盖阈值、间隔和确认次数 |
+| `release_command_confirm_times` | int | `2` | 是 | 否 | 首次发现空闲后的复核次数；默认总计检测 3 次 |
+| `release_command_gpu_settings` | object | `{}` | 是 | 否 | 每 GPU 独立任务配置，可覆盖启用、通知、启动器、阈值、间隔和复核次数 |
 | `release_command_launcher` | string | `"detached"` | 是 | 否 | 任务启动器：`detached` 后台日志、`tmux` tmux 会话、`zellij` zellij 会话；启动失败时自动回退后台日志模式 |
 | `release_command_tmux_enabled` | bool | `false` | 是 | 否 | 旧版兼容字段；未设置 `release_command_launcher` 时，`true` 等价于 `release_command_launcher="tmux"` |
 | `release_commands` | object[] | `[]` | 是 | 否 | GPU 空闲后执行任务队列；每项可用 `target_gpus` 指定触发 GPU，空数组表示任意 GPU |

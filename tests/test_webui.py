@@ -173,15 +173,23 @@ def test_index_contains_gpu_detail_task_queue_and_tmux_controls(client):
     assert 'tmuxStatus.installed' in text
     assert 'zellijStatus.installed' in text
     assert 'cfgReleaseCommandLauncher' in text
-    assert "setReleaseCommandLauncher('zellij')" in text
+    assert "setCurrentGpuReleaseLauncher('zellij')" in text
     assert 'cmd.tmux_session' in text
     assert 'cmd-session' in text
+    assert 'releaseCommandTmuxAttachText' in text
+    assert 'copyReleaseCommandAttach' in text
+    assert 'toggleReleaseCommandPaused' in text
+    assert 'dropReleaseCommand' in text
     assert 'cfgReleaseCommandTmuxEnabled' in text
     assert 'cfgReleaseCommandGpus' in text
     assert 'cfgReleaseCommandThreshold' in text
     assert 'cfgReleaseCommandInterval' in text
     assert 'cfgReleaseCommandConfirm' in text
     assert 'cfgReleaseCommandNotify' in text
+    assert 'newReleaseCommandGpus' not in text
+    assert 'const target_gpus = [Number(this.currentGpuIndex)]' in text
+    assert 'GPU {{ currentGpuIndex }} 独立任务配置' in text
+    assert 'currentGpuReleasePreset.notify_enabled' in text
     assert 'saveMonitorSettings' in text
     assert 'saveReleaseSettings' in text
     assert 'saveNotifySettings' in text
@@ -642,6 +650,46 @@ def test_release_command_requeue_resets_status(auth_client, tmp_config, monkeypa
     assert item['pgid'] is None
     assert item['exit_code'] is None
     assert item['trigger_gpu'] is None
+
+
+def test_release_command_pause_and_resume(auth_client, tmp_config, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    cfg['release_commands'] = [
+        {'id': 'cmd_first', 'command': 'python first.py', 'status': 'pending'},
+    ]
+    (tmp_config / 'config.json').write_text(json.dumps(cfg))
+
+    paused = auth_client.post('/api/release-commands/pause', json={
+        'id': 'cmd_first', 'paused': True,
+    }, content_type='application/json')
+    assert paused.status_code == 200
+    assert json.loads((tmp_config / 'config.json').read_text())['release_commands'][0]['paused'] is True
+
+    resumed = auth_client.post('/api/release-commands/pause', json={
+        'id': 'cmd_first', 'paused': False,
+    }, content_type='application/json')
+    assert resumed.status_code == 200
+    assert json.loads((tmp_config / 'config.json').read_text())['release_commands'][0]['paused'] is False
+
+
+def test_release_command_reorder_persists_queue_order(auth_client, tmp_config, monkeypatch):
+    monkeypatch.setattr('webui._signal_sserveros', lambda *a: SIGNAL_SENT)
+    cfg = json.loads((tmp_config / 'config.json').read_text())
+    cfg['release_commands'] = [
+        {'id': 'cmd_first', 'command': 'python first.py', 'status': 'pending'},
+        {'id': 'cmd_second', 'command': 'python second.py', 'status': 'pending'},
+        {'id': 'cmd_third', 'command': 'python third.py', 'status': 'pending'},
+    ]
+    (tmp_config / 'config.json').write_text(json.dumps(cfg))
+
+    response = auth_client.post('/api/release-commands/reorder', json={
+        'source_id': 'cmd_third', 'target_id': 'cmd_first', 'position': 'before',
+    }, content_type='application/json')
+
+    assert response.status_code == 200
+    saved = json.loads((tmp_config / 'config.json').read_text())['release_commands']
+    assert [item['id'] for item in saved] == ['cmd_third', 'cmd_first', 'cmd_second']
 
 
 def test_release_command_clear_finished(auth_client, tmp_config, monkeypatch):

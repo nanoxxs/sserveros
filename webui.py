@@ -168,7 +168,7 @@ def create_app(script_dir: str = None):
         state.setdefault('release_command_gpus', cfg.get('release_command_gpus', []))
         state.setdefault(
             'release_command_mem_threshold_mib',
-            cfg.get('release_command_mem_threshold_mib', cfg.get('mem_threshold_mib', 10240)),
+            cfg.get('release_command_mem_threshold_mib', 5120),
         )
         state.setdefault(
             'release_command_check_interval',
@@ -202,7 +202,7 @@ def create_app(script_dir: str = None):
         cfg['release_command_gpus'] = cfg.get('release_command_gpus', [])
         cfg['release_command_mem_threshold_mib'] = cfg.get(
             'release_command_mem_threshold_mib',
-            cfg.get('mem_threshold_mib', 10240),
+            5120,
         )
         cfg['release_command_check_interval'] = cfg.get(
             'release_command_check_interval',
@@ -474,6 +474,7 @@ def create_app(script_dir: str = None):
             return jsonify({'error': '任务正在运行，不能重新排队'}), 409
         target.update({
             'status': 'pending',
+            'paused': False,
             'started_at': '',
             'finished_at': '',
             'pid': None,
@@ -496,6 +497,73 @@ def create_app(script_dir: str = None):
             signal_result,
             applied_message='任务已重新排队',
             pending_message='任务已重新排队，但监控脚本未运行；脚本启动后才会使用新队列',
+        )
+        return jsonify(payload), status
+
+    @app.route('/api/release-commands/pause', methods=['POST'])
+    @require_auth
+    def api_release_commands_pause():
+        data = request.get_json() or {}
+        command_id = str(data.get('id', '')).strip()
+        if not command_id:
+            return jsonify({'error': 'id required'}), 400
+        cfg = load_config_file(_config_path(script_dir))
+        queue = normalize_release_commands(cfg.get('release_commands', []))
+        target = next((item for item in queue if item.get('id') == command_id), None)
+        if not target:
+            return jsonify({'error': 'command not found'}), 404
+        if target.get('status') != 'pending':
+            return jsonify({'error': '只有待执行任务可以暂停或恢复'}), 409
+        requested = data.get('paused')
+        if requested is not None and not isinstance(requested, bool):
+            return jsonify({'error': 'paused must be boolean'}), 400
+        target['paused'] = (not target.get('paused', False)) if requested is None else requested
+        cfg['release_commands'] = queue
+        save_config_file(_config_path(script_dir), cfg)
+        signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
+        action = '暂停' if target['paused'] else '恢复'
+        payload, status = _runtime_feedback(
+            signal_result,
+            applied_message=f'任务已{action}',
+            pending_message=f'任务已{action}并保存，但监控脚本未运行；脚本启动后才会使用新队列',
+        )
+        payload['paused'] = target['paused']
+        return jsonify(payload), status
+
+    @app.route('/api/release-commands/reorder', methods=['POST'])
+    @require_auth
+    def api_release_commands_reorder():
+        data = request.get_json() or {}
+        source_id = str(data.get('source_id', '')).strip()
+        target_id = str(data.get('target_id', '')).strip()
+        position = str(data.get('position', 'before')).strip()
+        if not source_id or not target_id:
+            return jsonify({'error': 'source_id and target_id required'}), 400
+        if position not in ('before', 'after'):
+            return jsonify({'error': 'position must be before or after'}), 400
+        cfg = load_config_file(_config_path(script_dir))
+        queue = normalize_release_commands(cfg.get('release_commands', []))
+        source = next((item for item in queue if item.get('id') == source_id), None)
+        target = next((item for item in queue if item.get('id') == target_id), None)
+        if not source or not target:
+            return jsonify({'error': 'command not found'}), 404
+        if source.get('status') == 'running':
+            return jsonify({'error': '运行中的任务不能调整顺序'}), 409
+        if source_id != target_id:
+            queue = [item for item in queue if item.get('id') != source_id]
+            target_index = next(i for i, item in enumerate(queue) if item.get('id') == target_id)
+            if position == 'after':
+                target_index += 1
+            queue.insert(target_index, source)
+            cfg['release_commands'] = queue
+            save_config_file(_config_path(script_dir), cfg)
+            signal_result = _signal_sserveros(script_dir, signal.SIGUSR2)
+        else:
+            signal_result = {'sent': True}
+        payload, status = _runtime_feedback(
+            signal_result,
+            applied_message='任务顺序已更新',
+            pending_message='任务顺序已保存，但监控脚本未运行；脚本启动后才会使用新顺序',
         )
         return jsonify(payload), status
 
@@ -1347,7 +1415,7 @@ def _empty_state(cfg: dict) -> dict:
         'release_command_gpus': cfg.get('release_command_gpus', []),
         'release_command_mem_threshold_mib': cfg.get(
             'release_command_mem_threshold_mib',
-            cfg.get('mem_threshold_mib', 10240),
+            5120,
         ),
         'release_command_check_interval': cfg.get(
             'release_command_check_interval',
@@ -1403,9 +1471,9 @@ def _build_test_notify_content(cfg: dict, summary: dict) -> str:
         f'- 任务队列: {"开启" if cfg.get("release_command_enabled", True) else "关闭"}\n'
         f'- 任务队列通知: {"开启" if cfg.get("release_command_notify_enabled", True) else "关闭"}\n'
         f'- 任务队列启动器: {normalize_release_command_launcher(cfg)}\n'
-        f'- 空闲判定阈值: {cfg.get("release_command_mem_threshold_mib", cfg.get("mem_threshold_mib", 10240))} MiB\n'
+        f'- 空闲判定阈值: {cfg.get("release_command_mem_threshold_mib", 5120)} MiB\n'
         f'- 任务队列检测间隔: {cfg.get("release_command_check_interval", cfg.get("check_interval", 120))} 秒\n'
-        f'- 连续空闲确认次数: {cfg.get("release_command_confirm_times", cfg.get("confirm_times", 2))}\n'
+        f'- 首次发现后的空闲复核次数: {cfg.get("release_command_confirm_times", cfg.get("confirm_times", 2))}\n'
         f'- 日志压缩触发大小: {cfg.get("log_max_size_mb", 10)} MB\n'
         f'- 历史存档保留数量: {cfg.get("log_archive_keep", 5)}\n\n'
         '## 本次测试使用的通知渠道\n'

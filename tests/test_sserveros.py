@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 from monitor import Monitor, tmux_release_session_name
+from release_commands import release_command_settings_for_gpu
 
 
 def _write_exec(path: Path, content: str):
@@ -42,6 +43,117 @@ def _read_log_entries(path: Path):
 def test_tmux_release_session_name_matches_task_id_prefix():
     assert tmux_release_session_name('cmd_1a9a24eed892') == 'sserveros_cmd_1a9a24eed892'
     assert tmux_release_session_name(' cmd/weird value ') == 'sserveros_cmd_weird_value'
+
+
+def test_release_command_settings_are_independent_per_gpu():
+    cfg = {
+        'release_command_enabled': True,
+        'release_command_notify_enabled': True,
+        'release_command_launcher': 'detached',
+        'release_command_mem_threshold_mib': 5120,
+        'release_command_check_interval': 120,
+        'release_command_confirm_times': 2,
+        'release_command_gpu_settings': {
+            '0': {
+                'enabled': False,
+                'notify_enabled': False,
+                'launcher': 'tmux',
+                'mem_threshold_mib': 4096,
+                'check_interval': 60,
+                'confirm_times': 1,
+            },
+            '1': {
+                'enabled': True,
+                'notify_enabled': True,
+                'launcher': 'zellij',
+                'mem_threshold_mib': 8192,
+                'check_interval': 180,
+                'confirm_times': 3,
+            },
+        },
+    }
+
+    gpu0 = release_command_settings_for_gpu(cfg, 0)
+    gpu1 = release_command_settings_for_gpu(cfg, 1)
+
+    assert gpu0 == {
+        'enabled': False, 'notify_enabled': False, 'launcher': 'tmux',
+        'mem_threshold_mib': 4096, 'check_interval': 60, 'confirm_times': 1,
+    }
+    assert gpu1 == {
+        'enabled': True, 'notify_enabled': True, 'launcher': 'zellij',
+        'mem_threshold_mib': 8192, 'check_interval': 180, 'confirm_times': 3,
+    }
+
+
+def test_release_queue_confirm_times_are_rechecks_after_first_detection(tmp_path, monkeypatch):
+    monitor = Monitor(script_dir=str(tmp_path))
+    monitor.release_command_enabled = True
+    monitor.release_command_gpus = [0]
+    monitor.release_command_mem_threshold_mib = 5120
+    monitor.release_command_check_interval = 120
+    monitor.release_command_confirm_times = 2
+    now = [0.0]
+    starts = []
+
+    monkeypatch.setattr('monitor.time.monotonic', lambda: now[0])
+    monkeypatch.setattr(monitor, 'query_gpu_info', lambda _gpus: ({}, {0: 100}))
+    monkeypatch.setattr(
+        monitor,
+        '_start_next_release_command',
+        lambda gpu, used, detected: starts.append((gpu, used, detected)) or 'started',
+    )
+
+    monitor.check_release_commands_once()
+    assert monitor.release_gpu_low_count[0] == 1
+    assert starts == []
+
+    now[0] = 120.0
+    monitor.check_release_commands_once()
+    assert monitor.release_gpu_low_count[0] == 2
+    assert starts == []
+
+    now[0] = 240.0
+    monitor.check_release_commands_once()
+    assert monitor.release_gpu_low_count[0] == 3
+    assert len(starts) == 1
+
+
+def test_release_queue_skips_paused_pending_task(tmp_path, monkeypatch):
+    (tmp_path / 'runtime').mkdir()
+    (tmp_path / 'config.json').write_text(json.dumps({
+        'release_commands': [
+            {'id': 'cmd_paused', 'command': 'python paused.py', 'status': 'pending', 'paused': True},
+            {'id': 'cmd_next', 'command': 'python next.py', 'status': 'pending'},
+        ],
+    }))
+    monitor = Monitor(script_dir=str(tmp_path))
+    monitor.release_command_enabled = True
+    monitor.release_command_notify_enabled = False
+    started = []
+
+    class FakeProc:
+        pid = 12345
+
+    class FakeThread:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+    def fake_start(command_text, *args):
+        started.append(command_text)
+        return {'wait_proc': FakeProc(), 'pid': 12345, 'pgid': 12345, 'launcher': 'detached'}
+
+    monkeypatch.setattr(monitor, '_start_detached_release_command', fake_start)
+    monkeypatch.setattr('monitor.threading.Thread', FakeThread)
+
+    assert monitor._start_next_release_command(0, 100, '2026-07-11 00:00:00') == 'started'
+    assert started == ['python next.py']
+    saved = json.loads((tmp_path / 'config.json').read_text())['release_commands']
+    assert saved[0]['id'] == 'cmd_paused' and saved[0]['status'] == 'pending'
+    assert saved[1]['id'] == 'cmd_next' and saved[1]['status'] == 'running'
 
 
 def test_zellij_release_command_uses_named_session_layout(tmp_path, monkeypatch):
@@ -746,6 +858,7 @@ def test_sserveros_bootstraps_config_when_missing(tmp_path):
         cfg = _read_json(project_dir / 'config.json')
         assert cfg['sendkey'] == ''
         assert cfg['check_interval'] == 120
+        assert cfg['release_command_mem_threshold_mib'] == 5120
         assert 'password_hash' in cfg
         assert 'secret_key' in cfg
         assert oct((project_dir / 'config.json').stat().st_mode & 0o777) == '0o600'

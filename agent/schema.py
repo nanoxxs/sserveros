@@ -113,13 +113,16 @@ TOOL_SCHEMAS = [
                     },
                     'release_command_gpu_settings': {
                         'type': 'object',
-                        'description': '任务队列每 GPU 预设，键是 GPU index 字符串，值可包含 mem_threshold_mib、check_interval、confirm_times 正整数',
+                        'description': '任务队列每 GPU 独立配置，可包含启用、通知、启动器、阈值、间隔和复核次数',
                         'additionalProperties': {
                             'type': 'object',
                             'properties': {
                                 'mem_threshold_mib': {'type': 'integer'},
                                 'check_interval': {'type': 'integer'},
                                 'confirm_times': {'type': 'integer'},
+                                'enabled': {'type': 'boolean'},
+                                'notify_enabled': {'type': 'boolean'},
+                                'launcher': {'type': 'string', 'enum': ['detached', 'tmux', 'zellij']},
                             },
                         },
                     },
