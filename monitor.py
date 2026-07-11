@@ -1437,7 +1437,7 @@ exit "$code"
                         f'### nvidia-smi\n```\n{get_nvs()}\n```'
                     )
                     self.send_notification(
-                        f'{TITLE_PREFIX} - GPU显存低于阈值 [{HOSTNAME_TAG}]', content, 'warn'
+                        f'{_display_hostname(self._notify_cfg())}-GPU显存提醒', content, 'warn'
                     )
                     self.gpu_low_alerted[gpu] = True
                     self.gpu_need_rearm_notify[gpu] = True
@@ -1490,7 +1490,7 @@ exit "$code"
                             f'### nvidia-smi\n```\n{get_nvs()}\n```'
                         )
                     self.send_notification(
-                        f'{TITLE_PREFIX} - GPU恢复高占用 [{HOSTNAME_TAG}]', content, 'recover'
+                        f'{_display_hostname(self._notify_cfg())}-GPU显存提醒', content, 'recover'
                     )
                     self.gpu_low_alerted[gpu] = False
                     self.gpu_need_rearm_notify[gpu] = False
