@@ -1,4 +1,5 @@
 import json
+import threading
 
 import httpx
 import pytest
@@ -60,6 +61,27 @@ def test_agent_client_maps_timeout_to_gateway_timeout(monkeypatch):
     assert '超时' in str(exc_info.value)
 
 
+@pytest.mark.parametrize('path', [
+    '../latest/meta-data',
+    '%2e%2e/%2e%2e/latest/meta-data',
+    '%252e%252e/latest/meta-data',
+])
+def test_agent_client_rejects_paths_that_can_escape_agent_prefix(monkeypatch, path):
+    called = False
+
+    def fake_request(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        return httpx.Response(200, json={'ok': True})
+
+    monkeypatch.setattr('controller.httpx.request', fake_request)
+    client = AgentClient({'url': 'http://100.64.0.2:6780', 'token': 'token'})
+
+    with pytest.raises(AgentRequestError, match='路径无效'):
+        client.request('GET', path)
+    assert called is False
+
+
 def test_registry_crud_persists_tokens_but_never_lists_them(tmp_path):
     _write_config(tmp_path)
     registry = ControllerRegistry(str(tmp_path))
@@ -111,6 +133,10 @@ def test_registry_rejects_agent_api_path_and_duplicate_url_on_update(tmp_path):
     })
     with pytest.raises(ValueError, match='已经存在'):
         registry.update_server(second['server_id'], {'url': first['url']})
+    with pytest.raises(ValueError, match='Tailscale'):
+        registry.add_server({
+            'name': 'Not Tailnet', 'url': 'http://169.254.169.254', 'token': 'x',
+        })
 
 
 def test_registry_controller_role_exposes_local_agent_without_token(tmp_path):
@@ -307,7 +333,7 @@ def test_enrolled_agent_with_existing_node_id_updates_same_server(tmp_path):
         'node_id': 'node_gpu_b',
         'name': 'GPU B rejoined',
         'agent_url': 'http://100.64.0.22:6780',
-        'agent_token': 'rotated-agent-token',
+        'agent_token': 'old-agent-token',
     })
 
     assert result['created'] is False
@@ -315,14 +341,14 @@ def test_enrolled_agent_with_existing_node_id_updates_same_server(tmp_path):
     assert result['server']['node_id'] == 'node_gpu_b'
     assert 'token' not in result['server']
     assert candidates[0][0]['url'] == 'http://100.64.0.22:6780'
-    assert candidates[0][0]['token'] == 'rotated-agent-token'
+    assert candidates[0][0]['token'] == 'old-agent-token'
     persisted = json.loads((tmp_path / 'config.json').read_text())['controller_servers']
     assert persisted == [{
         'server_id': 'srv_existing',
         'node_id': 'node_gpu_b',
         'name': 'GPU B rejoined',
         'url': 'http://100.64.0.22:6780',
-        'token': 'rotated-agent-token',
+        'token': 'old-agent-token',
         'enabled': True,
     }]
 
@@ -365,3 +391,88 @@ def test_enrolled_agent_requires_tailnet_address(tmp_path):
             'agent_url': 'http://192.168.1.20:6780',
             'agent_token': 'agent-token',
         })
+
+
+def test_enrolled_agent_cannot_take_over_existing_node_id_with_new_token(tmp_path):
+    _write_config(tmp_path, controller_servers=[{
+        'server_id': 'srv_existing',
+        'node_id': 'node_gpu_b',
+        'name': 'GPU B',
+        'url': 'http://100.64.0.2:6780',
+        'token': 'existing-agent-token',
+        'enabled': True,
+    }])
+
+    class HealthyClient:
+        def __init__(self, _server, timeout):
+            pass
+
+        def get_json(self, _path):
+            return {
+                'server_id': 'node_gpu_b',
+                'node_role': 'agent',
+                'protocol_version': PROTOCOL_VERSION,
+            }
+
+    registry = ControllerRegistry(str(tmp_path), client_factory=HealthyClient)
+    with pytest.raises(ValueError, match='令牌不匹配'):
+        registry.register_enrolled_agent({
+            'node_id': 'node_gpu_b',
+            'name': 'Imposter',
+            'agent_url': 'http://100.64.0.22:6780',
+            'agent_token': 'new-agent-token',
+        })
+
+    [persisted] = json.loads((tmp_path / 'config.json').read_text())['controller_servers']
+    assert persisted['url'] == 'http://100.64.0.2:6780'
+    assert persisted['token'] == 'existing-agent-token'
+
+
+def test_concurrent_enrollment_registration_keeps_both_nodes(tmp_path):
+    _write_config(tmp_path)
+    barrier = threading.Barrier(2)
+
+    class HealthyClient:
+        def __init__(self, server, timeout):
+            self.server = server
+
+        def get_json(self, path):
+            assert path == 'health'
+            barrier.wait(timeout=5)
+            return {
+                'server_id': self.server['node_id'],
+                'node_role': 'agent',
+                'protocol_version': PROTOCOL_VERSION,
+                'agent_version': '1.0',
+            }
+
+    registry = ControllerRegistry(str(tmp_path), client_factory=HealthyClient)
+    payloads = [
+        {
+            'node_id': 'node_gpu_b', 'name': 'GPU B',
+            'agent_url': 'http://100.64.0.2:6780', 'agent_token': 'token-b',
+        },
+        {
+            'node_id': 'node_gpu_c', 'name': 'GPU C',
+            'agent_url': 'http://100.64.0.3:6780', 'agent_token': 'token-c',
+        },
+    ]
+    results = []
+    errors = []
+
+    def register(payload):
+        try:
+            results.append(registry.register_enrolled_agent(payload))
+        except Exception as exc:  # pragma: no cover - assertion below surfaces it
+            errors.append(exc)
+
+    threads = [threading.Thread(target=register, args=(payload,)) for payload in payloads]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert errors == []
+    assert len(results) == 2
+    persisted = json.loads((tmp_path / 'config.json').read_text())['controller_servers']
+    assert {item['node_id'] for item in persisted} == {'node_gpu_b', 'node_gpu_c'}

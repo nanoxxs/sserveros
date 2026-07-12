@@ -178,8 +178,10 @@ webui.html
 | `/api/servers/<server_id>/<path>` | 多种 | `api_server_proxy()` | 按 `server_id` 将节点作用域请求转发到 Agent |
 | `/api/enrollments` | GET/POST | enrollment list/create routes | 主控列出令牌状态或生成默认 30 分钟有效的一键接入命令 |
 | `/api/enrollments/<enrollment_id>` | DELETE | enrollment revoke route | 提前撤销尚未消费的一次性令牌 |
-| `/api/enroll/bootstrap` | GET | enrollment bootstrap route | Bearer 一次性令牌鉴权，返回 B 端仓库更新与 join shell |
-| `/api/enroll/bootstrap-file/<filename>` | GET | enrollment bootstrap-file route | 同一令牌鉴权，只允许下发 join 所需的固定组件 |
+| `/api/enroll/bootstrap` | GET | enrollment bootstrap route | Bearer 一次性令牌鉴权，返回 B 端安装与 join shell |
+| `/api/enroll/bootstrap-manifest` | GET | enrollment bootstrap manifest route | 返回本次接入固定运行包的版本、文件列表和 SHA-256 清单 |
+| `/api/enroll/bootstrap-bundle` | GET | enrollment bootstrap bundle route | 返回与 manifest 同一快照的完整、白名单化运行包 |
+| `/api/enroll/bootstrap-file/<filename>` | GET | legacy bootstrap-file route | 仅兼容旧脚本的三项顶层组件；新脚本不再使用 |
 | `/api/enroll/register` | POST | enrollment register route | 接收 B 节点身份、Agent 地址和令牌，成功后消费一次性令牌 |
 | `/api/state` | GET | `api_state()` | 返回 `state.json`，补 `monitor_running` 和配置中的 watch PID |
 | `/api/config` | GET | `api_config()` | 返回配置，隐藏密码哈希和 API Key |
@@ -292,24 +294,23 @@ browser -> controller WebUI
 ```text
 A WebUI 生成一次性令牌和 curl 命令
   -> B: GET /api/enroll/bootstrap (Bearer one-time token)
-  -> bootstrap: 自动准备系统包、项目 .venv 和 Python 依赖
-  -> bootstrap: 复用/更新/克隆仓库（新克隆先落到临时目录）
-  -> bootstrap: 从 A 下载固定的 join 组件（不依赖新版已推送到 GitHub）
-  -> bash manage.sh join --controller-url A --token one-time-token
-       ├─ bootstrap_config() + set_node_role agent（保留原配置）
-       ├─ 保留已有 monitor.py / tmux / zellij
-       ├─ install/start Agent API
-       ├─ monitor 未运行时尝试 start_backend 1
+  -> bootstrap: 下载 manifest + 完整白名单 bundle，并校验包/每个文件 SHA-256
+  -> bootstrap: staging 原子切换，保留 config.json/.env/runtime 及可回滚旧版本
+  -> bootstrap: 自动准备系统包、重建损坏 .venv、安装 Python 依赖
+  -> bash manage.sh join --controller-url A --token-file <0600 file>
+       ├─ 预检 Tailscale，暂存 agent_host 为 B 的 Tailnet IP
+       ├─ 暂存 node_role=agent，保留已有 monitor.py / tmux / zellij
+       ├─ install/start Agent API，必要时启动 monitor
        └─ enroll_client.py -> POST A /api/enroll/register
-            ├─ 失败：返回非零，WebUI 和现有进程保持原状
-            └─ 成功：只停止 sserveros-webui.service / 本项目 webui.py
+            ├─ 注册前失败：恢复 role、agent_host、systemd 默认 target 和旧 bundle
+            └─ 成功：永久启用 agent target，按需停止本项目 WebUI
 ```
 
-bootstrap 选择仓库目录的优先级：显式 `$SSERVEROS_DIR`、当前目录已含 `manage.sh` + `monitor.py`、`$HOME/sserveros`。它会先检查目录可写、自动通过常见包管理器准备 Git/Python/venv，再创建项目内 `.venv` 安装依赖。已有 Git 仓库会尝试 HTTP/1.1 的 `git pull --ff-only`；新克隆先在同级临时目录完成校验后再移动，避免网络失败留下半成品。之后只从 A 覆盖 `manage.sh`、`enroll_client.py` 和 `monitor.py` 这三个接入组件，保证 A 的新版尚未推送时也能接入。
+bootstrap 默认使用 root 的 `/root/sserveros` 或普通用户的 `$HOME/sserveros`；可用绝对路径 `$SSERVEROS_DIR` 覆盖。它拒绝 root 从不受信任/可写/符号链接目录执行，并以项目锁避免并发安装。新节点不再 clone GitHub：主控按固定 allowlist 构建完整 bundle，B 校验 manifest、压缩包和逐文件哈希后才原子部署。已有项目会保留配置、环境文件和 runtime；依赖安装或注册前失败会恢复旧版本。已有 `.venv` 没有 pip/ensurepip 时会自动用系统包管理器补齐 venv 支持并重建，不要求用户手工安装项目 Python 依赖。
 
-`join` 参数解析完全非交互，要求同时提供 HTTP(S) `--controller-url` 和非空 `--token`。一次性令牌默认 1800 秒过期，可撤销，持久化时只保存 SHA-256 哈希；B 端只将明文作为 `enroll_client.py` 参数使用，不写入 `config.json`，也不得在日志中回显。Agent API 是注册的前置条件；monitor 启动失败只告警，不阻止节点注册。
+`join` 参数解析完全非交互，要求 HTTP(S) `--controller-url` 与 `--token` 或 `--token-file` 之一。自动 bootstrap 使用 0600 token 文件；`enroll_client.py` 打开后立即删除它，因此令牌不写入 `config.json`、日志或后续进程参数。一次性令牌默认 1800 秒过期、持久化只保存 SHA-256 哈希；claimed 状态不可撤销，避免注册中途出现 A/B 状态不一致。Agent API 是注册的前置条件；monitor 启动失败只告警，不阻止节点注册。
 
-安全边界：`agent_token` 与 `controller_servers[*].token` 不得从公开配置 API 返回；Agent API 不提供 WebUI 登录、静态页面或任意文件/命令接口。分控端默认 `0.0.0.0:6780` 必须配合 Tailscale 地址绑定或防火墙限制；主控本机 Agent 可仅绑定 `127.0.0.1`。
+安全边界：`agent_token`、`controller_servers[*].token` 和通知密钥不得从 Agent/远程配置 API 返回；Agent API 不提供 WebUI 登录、静态页面或任意文件/命令接口。主控代理只允许明确的 Agent 路径/方法，手工节点地址限 Tailscale IP，防止其成为 HTTP 隧道或 SSRF。接入会将分控 Agent 绑定到其 Tailscale IP；主控本机 Agent 可仅绑定 `127.0.0.1`。
 
 ## LLM Agent 架构
 
@@ -454,12 +455,12 @@ WebUI 只负责配置和展示，不直接执行命令：
 - 缺少或无法识别的 `node_role` 必须按 `standalone` 处理，保证旧部署升级兼容。
 - 主控本机也必须通过 `127.0.0.1:<agent_port>` 的 Agent API 访问，避免本地/远端两套行为分叉。
 - Agent API 必须同时满足版本化路径白名单和 Bearer Token 鉴权，不能接受 WebUI Session 作为替代。
-- `agent_token` 和 `controller_servers[*].token` 不得由 WebUI/API 回显；日志中也不能打印完整令牌。
+- `agent_token`、`controller_servers[*].token` 和通知渠道密钥不得由 Agent/远程 WebUI API 回显；日志中也不能打印完整令牌。
 - 节点离线时写操作立即失败，不得在主控排队或重定向到其他节点。
 - 一台 Agent 超时或报错不能阻塞其他节点轮询，失败节点保留最后成功快照并显式标离线。
-- `join` 不得调用 `stop_all_services()`、停止任何 systemd target、停止/重启已有 monitor，或操作 tmux/zellij 会话。
-- `join` 只有在 `enroll_client.py` 成功返回后才能停止 WebUI；注册失败必须保留 WebUI 供排障。
-- 一次性 enrollment token 不得写入配置或输出日志，成功注册后应由主控消费失效。
+- `join` 不得调用 `stop_all_services()`、停止/重启已有 monitor，或操作 tmux/zellij 会话；注册前的临时 service/role 变更必须可回滚。
+- `join` 只有在 `enroll_client.py` 成功返回后才能启用 Agent 默认 target 和停止 WebUI；注册失败必须恢复原 role/host/target，并保留 WebUI 供排障。
+- 一次性 enrollment token 不得写入配置或输出日志，成功注册后应由主控消费失效；自动接入应通过受限 token 文件而非后续进程 argv 传递。
 - `monitor.py` signal handler 不做文件 I/O，只设 flag。
 - 写 JSON 配置和状态优先使用 `storage.atomic_write_json()` / `save_config_file()`。
 - WebUI 保存 PID 或设置时，先写 `config.json`，再发信号；monitor 不运行时不能丢配置。

@@ -60,7 +60,7 @@ def test_create_enrollment_requires_login_and_returns_one_command(
     assert created['enrollment_id'].startswith('enr_')
     assert created['token']
     assert created['expires_at']
-    assert created['command'].startswith('( tmp="$(mktemp)"')
+    assert created['command'].startswith("( export PATH='/usr/sbin:/usr/bin:/sbin:/bin'; umask 077 && ")
     assert 'curl -fsSL ' in created['command']
     assert 'Authorization: Bearer ' + created['token'] in created['command']
     assert 'http://100.64.0.1:6777/api/enroll/bootstrap' in created['command']
@@ -179,7 +179,7 @@ def test_registration_update_returns_200_instead_of_created_status(
     class HealthyAgent:
         def __init__(self, server, timeout):
             assert server['url'] == 'http://100.100.20.30:6780'
-            assert server['token'] == 'rotated-token'
+            assert server['token'] == 'old-token'
 
         def get_json(self, path):
             assert path == 'health'
@@ -200,7 +200,7 @@ def test_registration_update_returns_200_instead_of_created_status(
         json={
             'node_id': 'node_gpu_b',
             'agent_url': 'http://100.100.20.30:6780',
-            'agent_token': 'rotated-token',
+            'agent_token': 'old-token',
         },
     )
 
@@ -211,7 +211,7 @@ def test_registration_update_returns_200_instead_of_created_status(
     assert len(persisted) == 1
     assert persisted[0]['server_id'] == 'srv_existing'
     assert persisted[0]['url'] == 'http://100.100.20.30:6780'
-    assert persisted[0]['token'] == 'rotated-token'
+    assert persisted[0]['token'] == 'old-token'
     assert persisted[0]['enabled'] is True
 
 

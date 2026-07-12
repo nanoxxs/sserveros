@@ -1657,7 +1657,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
         </div>
 
         <div class="enrollment-note">
-          接入命令是一次性的，首次运行会自动准备系统依赖、项目虚拟环境和 Python 包（需要 root 或 sudo）；它不会停止目标机现有的监控服务、训练进程或 tmux/zellij 会话。
+          接入命令是一次性的，首次运行会自动准备系统依赖、项目虚拟环境和 Python 包（需要 root 或 sudo）；它不会停止目标机现有的监控服务、训练进程或 tmux/zellij 会话。重新生成会先撤销本页上一条尚未使用的命令。
         </div>
 
         <div v-if="enrollmentMsg.text" class="notice-msg" :class="enrollmentMsg.kind" style="display:block;text-align:left;margin-top:0">
@@ -2857,6 +2857,25 @@ createApp({
       this.enrollmentLoading = true;
       this.enrollmentMsg = {text:'', kind:''};
       try {
+        // A visible command remains valid until expiry unless it is explicitly
+        // revoked. Replacing it must not leave multiple usable enrollment
+        // tokens behind.
+        if (this.enrollmentId) {
+          const previous = await this.api(
+            `/api/enrollments/${encodeURIComponent(this.enrollmentId)}`,
+            {method:'DELETE'},
+          );
+          const previousPayload = await previous.json().catch(() => ({}));
+          // A consumed/expired record can no longer be used, so a 404 is safe
+          // to replace. A 409 means it is actively registering; leave it alone.
+          if (!previous.ok && previous.status !== 404) {
+            throw new Error(previousPayload.error || '无法撤销上一条接入命令');
+          }
+          this.enrollmentId = '';
+          this.enrollmentCommand = '';
+          this.enrollmentExpiresAt = '';
+          this.enrollmentExpiresIn = 1800;
+        }
         const r = await this.api('/api/enrollments', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
@@ -3510,29 +3529,46 @@ createApp({
 	      this.syncReleaseCommands(cfg.release_commands || [], true);
 	      this.tmuxStatus = cfg.tmux_status || this.tmuxStatus;
 	      this.zellijStatus = cfg.zellij_status || this.zellijStatus;
-      const envScKeys = env.env_serverchan_keys || [];
-      const envBarkConfigs = env.env_bark_configs || [];
-      const scKeys = [...(cfg.serverchan_keys || [])];
-      if (cfg.sendkey && !scKeys.includes(cfg.sendkey)) scKeys.unshift(cfg.sendkey);
-      for (const k of envScKeys) { if (!scKeys.includes(k)) scKeys.push(k); }
-      this.cfgServerchanKeys = scKeys.join('\n');
-      const seenBark = new Set();
-      const allBark = [];
-      for (const b of [...(cfg.bark_configs || []), ...envBarkConfigs]) {
-        const sig = `${b.url}|${b.key}`;
-        if (!seenBark.has(sig)) { seenBark.add(sig); allBark.push({url: b.url||'', key: b.key||''}); }
-      }
-      this.barkConfigs = allBark;
-      if (env.env_active) {
-        const parts = [];
-        if (env.env_serverchan_count) parts.push(`Server Chan ${env.env_serverchan_count} 个`);
-        if (env.env_bark_count) parts.push(`Bark ${env.env_bark_count} 个`);
+      if (cfg.notification_secrets_redacted) {
+        // Remote Agent configuration deliberately never returns notification
+        // credentials to the controller.  Do not turn an omitted secret into
+        // a fake value in the editor; a save here explicitly replaces channels.
+        this.cfgServerchanKeys = '';
+        this.barkConfigs = [];
+        const serverchanCount = Number(env.effective_serverchan_count || 0);
+        const barkCount = Number(env.effective_bark_count || 0);
+        const configured = serverchanCount + barkCount;
         this.envChannelMsg = {
-          text: `已合并来自 .env 的通知渠道（${parts.join('，')}），保存后将从 .env 中清除并迁移至配置文件。`,
+          text: configured
+            ? `为保护远端通知密钥，已配置的 ${configured} 个渠道不会回显；如需修改，请重新填写后保存（将替换现有渠道）。`
+            : '远端通知密钥不会通过主控回显；填写后保存即可配置新的通知渠道。',
           kind: 'warn',
         };
       } else {
-        this.envChannelMsg = {text:'', kind:''};
+        const envScKeys = env.env_serverchan_keys || [];
+        const envBarkConfigs = env.env_bark_configs || [];
+        const scKeys = [...(cfg.serverchan_keys || [])];
+        if (cfg.sendkey && !scKeys.includes(cfg.sendkey)) scKeys.unshift(cfg.sendkey);
+        for (const k of envScKeys) { if (!scKeys.includes(k)) scKeys.push(k); }
+        this.cfgServerchanKeys = scKeys.join('\n');
+        const seenBark = new Set();
+        const allBark = [];
+        for (const b of [...(cfg.bark_configs || []), ...envBarkConfigs]) {
+          const sig = `${b.url}|${b.key}`;
+          if (!seenBark.has(sig)) { seenBark.add(sig); allBark.push({url: b.url||'', key: b.key||''}); }
+        }
+        this.barkConfigs = allBark;
+        if (env.env_active) {
+          const parts = [];
+          if (env.env_serverchan_count) parts.push(`Server Chan ${env.env_serverchan_count} 个`);
+          if (env.env_bark_count) parts.push(`Bark ${env.env_bark_count} 个`);
+          this.envChannelMsg = {
+            text: `已合并来自 .env 的通知渠道（${parts.join('，')}），保存后将从 .env 中清除并迁移至配置文件。`,
+            kind: 'warn',
+          };
+        } else {
+          this.envChannelMsg = {text:'', kind:''};
+        }
       }
     },
 

@@ -10,7 +10,7 @@
 |------|------|--------|-----------|------|------|
 | `node_role` | string | `"standalone"` | 否（`manage.sh` 可改） | 否 | 节点角色：`standalone`、`controller` 或 `agent`；旧配置缺失时按单机模式处理 |
 | `node_id` | string | 首次随机生成 | 否 | 否 | 节点稳定标识，不随主机名或显示名称变化；不要在复制配置到其他服务器时复用 |
-| `agent_host` | string | `"0.0.0.0"` | 否 | 否 | 节点 Agent API 绑定地址；推荐设置为本机 Tailscale IP，修改需重启 Agent API |
+| `agent_host` | string | `"0.0.0.0"` | 否 | 否 | 节点 Agent API 绑定地址；一键接入会暂存并最终设置为本机 Tailscale IP，修改需重启 Agent API |
 | `agent_port` | int | `6780` | 否 | 否 | 节点 Agent API 监听端口，修改需重启 Agent API |
 | `agent_token` | string | 首次随机生成 | 否 | 是 | Agent Bearer Token；主控添加该节点时使用，API 不回显明文 |
 | `controller_poll_interval` | number | `5` | 否 | 否 | 主控轮询全部启用节点的间隔（秒，运行时限制为 1-300） |
@@ -67,12 +67,12 @@
 主控生成的 bootstrap 脚本最终调用：
 
 ```bash
-bash manage.sh join --controller-url URL --token ONE_TIME_TOKEN
+bash manage.sh join --controller-url URL --token-file /path/to/private-token
 ```
 
-该命令会把 `node_role` 写为 `agent`，但不会重建 `config.json`，因此既有的监控阈值、PID、释放队列、启动器和 tmux/zellij 任务配置都会保留。bootstrap 会在必要时通过系统包管理器准备 Git、Python/venv，并在项目目录创建 `.venv` 安装 Python 依赖；`agent_token` / `node_id` 缺失时仍由正常配置初始化流程生成。一次性接入令牌默认 30 分钟过期，只传给 `enroll_client.py`，不会持久化到 B 的本机配置。A 的 `runtime/enrollment_tokens.json` 只保存令牌哈希和状态。
+该命令先暂存 `node_role=agent` 并把 Agent API 绑定到 B 的 Tailscale IPv4，只有主控注册成功后才永久生效。注册前失败会恢复原 `node_role`、`agent_host` 和 systemd 默认 target；既有的监控阈值、PID、释放队列、启动器和 tmux/zellij 任务配置都会保留。bootstrap 从 A 获取完整、校验过的运行包，不要求 B clone GitHub；它会在必要时通过系统包管理器准备 Python/venv，并在项目目录重建缺少 `ensurepip`/pip 的 `.venv` 后安装 Python 依赖。`agent_token` / `node_id` 缺失时仍由正常配置初始化流程生成。一次性接入令牌默认 30 分钟过期，只传给 `enroll_client.py` 的受限临时文件，不会持久化到 B 的本机配置。A 的 `runtime/enrollment_tokens.json` 只保存令牌哈希和状态。
 
-注册成功后，主控保存该节点的 Agent 地址和 `agent_token`，B 端只停止 WebUI；monitor、Agent API、systemd target 和现有任务不停止。注册失败时不停止 WebUI。没有通知渠道时，join 仍会尝试启动 monitor 供主控采集状态，只是不发送通知。
+注册成功后，主控保存该节点的 Agent 地址和 `agent_token`，B 端保持 monitor、Agent API 和现有任务运行，并尝试停止 WebUI、启用 Agent systemd target；后两步失败只警告，不会回滚已经成功的注册。注册前失败时不停止 WebUI，也会恢复角色和启动配置。没有通知渠道时，join 仍会尝试启动 monitor 供主控采集状态，只是不发送通知。
 
 `controller_servers` 中每项的持久化格式为：
 
@@ -92,7 +92,7 @@ bash manage.sh join --controller-url URL --token ONE_TIME_TOKEN
 - 主控本机节点不写入该数组，而是以固定 `server_id=local`、`127.0.0.1:<agent_port>` 自动加入服务器列表。
 - Agent 离线时主控保留最后成功快照，但写操作立即失败，不会排队。
 
-默认 `agent_host=0.0.0.0` 便于首次接入，但也会监听其他网卡。分控端生产环境应优先绑定本机 Tailscale IP，或用防火墙将 6780 端口限制为仅 Tailnet 可访问。主控访问本机 Agent 时固定使用 `127.0.0.1:<agent_port>`，因此主控可改为绑定 `127.0.0.1`，但不要只绑定一个不包含回环地址的 Tailscale IP。Tailnet 内可使用 HTTP，因为链路由 Tailscale 加密；不要把 Agent API 直接暴露到公网。
+默认 `agent_host=0.0.0.0` 便于首次接入，但也会监听其他网卡。一键接入会把分控端改为本机 Tailscale IP；手工配置分控端时也应优先绑定该地址，或用防火墙将 6780 端口限制为仅 Tailnet 可访问。主控访问本机 Agent 时固定使用 `127.0.0.1:<agent_port>`，因此主控可改为绑定 `127.0.0.1`，但不要只绑定一个不包含回环地址的 Tailscale IP。Tailnet 内可使用 HTTP，因为链路由 Tailscale 加密；不要把 Agent API 直接暴露到公网。
 
 ## 敏感配置
 

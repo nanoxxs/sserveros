@@ -109,6 +109,26 @@ def channel_summary(cfg: dict, *, environ: dict = None) -> dict:
     }
 
 
+def public_channel_summary(cfg: dict, *, environ: dict = None) -> dict:
+    """Return notification state without credentials or identifying key fragments.
+
+    This is for data that crosses an Agent/controller or LLM boundary.  The
+    richer ``channel_summary`` remains available to the local, authenticated
+    configuration UI, but must not be used by Agent tools or remote APIs.
+    """
+    summary = channel_summary(cfg, environ=environ)
+    return {
+        key: summary[key]
+        for key in (
+            'env_active',
+            'env_serverchan_count',
+            'env_bark_count',
+            'effective_serverchan_count',
+            'effective_bark_count',
+        )
+    }
+
+
 def has_any_channel(cfg: dict) -> bool:
     return bool(_serverchan_keys(cfg) or _bark_configs(cfg))
 

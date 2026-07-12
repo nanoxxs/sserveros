@@ -29,6 +29,21 @@ COLOR_DIM=""
 PORT_INSPECT_STATE="free"
 declare -a PORT_INSPECT_PROJECT_PIDS=()
 declare -a PORT_INSPECT_OTHER_PIDS=()
+# `join` temporarily changes a node into an Agent so its health endpoint can
+# prove its identity to the controller.  Keep enough state to restore the
+# original local deployment if that staging step fails.
+JOIN_STAGE_ACTIVE=0
+JOIN_ORIGINAL_ROLE=""
+JOIN_ORIGINAL_AGENT_HOST=""
+JOIN_AGENT_HOST_CHANGED=0
+JOIN_TAILSCALE_IP=""
+JOIN_TOKEN_FILE=""
+JOIN_SYSTEMD_AVAILABLE=0
+JOIN_AGENT_API_WAS_RUNNING=0
+JOIN_AGENT_API_STARTED=0
+JOIN_AGENT_API_RESTARTED=0
+JOIN_MONITOR_STARTED=0
+declare -a JOIN_ENABLED_TARGETS=()
 
 need_cmd() {
   local cmd="$1"
@@ -146,6 +161,9 @@ systemd_user_available() {
 }
 
 install_systemd_units() {
+  # Pass 1 while staging a `join`: install/reload unit definitions but do not
+  # change the target enabled at login until the controller accepts the node.
+  local preserve_enabled_target="${1:-0}"
   local python_exec target_unit
   systemd_user_available || return 1
   find_python_bin
@@ -167,6 +185,9 @@ install_systemd_units() {
   install -m 0644 "${SCRIPT_DIR}/systemd/sserveros-controller.target" "${SYSTEMD_UNIT_DIR}/sserveros-controller.target"
   install -m 0644 "${SCRIPT_DIR}/systemd/sserveros-agent.target" "${SYSTEMD_UNIT_DIR}/sserveros-agent.target"
   systemctl --user daemon-reload
+  if [ "${preserve_enabled_target}" = "1" ]; then
+    return 0
+  fi
   target_unit="$(role_target_unit)"
   systemctl --user disable sserveros.target sserveros-controller.target sserveros-agent.target >/dev/null 2>&1 || true
   systemctl --user enable "${target_unit}" >/dev/null
@@ -524,11 +545,67 @@ is_pid_running() {
   kill -0 "${pid}" >/dev/null 2>&1
 }
 
+expected_script_for_pid_file() {
+  case "$1" in
+    "${BACKEND_PID_FILE}") printf '%s/monitor.py\n' "${SCRIPT_DIR}" ;;
+    "${WEBUI_PID_FILE}") printf '%s/webui.py\n' "${SCRIPT_DIR}" ;;
+    "${AGENT_API_PID_FILE}") printf '%s/agent_api.py\n' "${SCRIPT_DIR}" ;;
+    *) return 1 ;;
+  esac
+}
+
+is_project_script_process() {
+  local pid="$1"
+  local script_path="$2"
+  local arg cmd
+
+  is_pid_running "${pid}" || return 1
+
+  # `/proc/<pid>/cmdline` preserves argv boundaries.  Requiring the project
+  # script to be an actual argv entry is deliberately stricter than merely
+  # finding its text in `ps`: a recycled PID could otherwise belong to an
+  # unrelated command whose argument happens to mention this path.
+  if [ -r "/proc/${pid}/cmdline" ]; then
+    while IFS= read -r -d '' arg; do
+      [ "${arg}" = "${script_path}" ] && return 0
+    done < "/proc/${pid}/cmdline"
+    return 1
+  fi
+
+  # Some non-Linux platforms do not expose /proc.  Be conservative there as
+  # well; this fallback is only used when argv boundaries are unavailable.
+  cmd="$(process_cmdline "${pid}")"
+  [[ "${cmd}" == *"${script_path}"* ]]
+}
+
+find_project_script_pids() {
+  local script_path="$1"
+  local line pid cmd
+
+  while IFS= read -r line; do
+    [ -n "${line}" ] || continue
+    if [[ ! "${line}" =~ ^[[:space:]]*([0-9]+)[[:space:]]+(.*)$ ]]; then
+      continue
+    fi
+    pid="${BASH_REMATCH[1]}"
+    cmd="${BASH_REMATCH[2]}"
+    [ "${pid}" = "$$" ] && continue
+    [[ "${cmd}" == *"${script_path}"* ]] || continue
+    is_project_script_process "${pid}" "${script_path}" || continue
+    printf '%s\n' "${pid}"
+  done < <(ps -eo pid=,args=)
+}
+
 service_running() {
   local pid_file="$1"
-  local pid
+  local pid script_path
   pid="$(read_pid_file "${pid_file}" 2>/dev/null || true)"
-  is_pid_running "${pid}"
+  script_path="$(expected_script_for_pid_file "${pid_file}" 2>/dev/null || true)"
+  if [ -n "${script_path}" ]; then
+    is_project_script_process "${pid}" "${script_path}"
+  else
+    is_pid_running "${pid}"
+  fi
 }
 
 print_recent_log() {
@@ -582,6 +659,7 @@ print(password or '')
 
 start_backend() {
   local allow_without_notify="${1:-0}"
+  local preserve_enabled_target="${2:-0}"
   check_backend_requirements
   if ! any_notify_channel_configured && [ "${allow_without_notify}" != "1" ]; then
     echo "当前未配置任何推送渠道，已跳过 monitor.py 启动。"
@@ -592,7 +670,7 @@ start_backend() {
     echo "当前未配置推送渠道；仍将启动 monitor.py 供主控采集状态，通知暂不发送。"
   fi
   if systemd_user_available; then
-    install_systemd_units
+    install_systemd_units "${preserve_enabled_target}"
     systemctl --user start sserveros-monitor.service
     return 0
   fi
@@ -624,11 +702,27 @@ get_agent_host() {
   config_value agent_host 0.0.0.0
 }
 
+set_agent_host() {
+  local host="$1"
+  check_webui_requirements
+  "${PYTHON_BIN}" -c "
+import sys
+sys.path.insert(0, sys.argv[1])
+from storage import load_config_file, save_config_file
+
+path, host = sys.argv[2:]
+cfg = load_config_file(path)
+cfg['agent_host'] = host
+save_config_file(path, cfg)
+" "${SCRIPT_DIR}" "${CONFIG_FILE}" "${host}"
+}
+
 get_agent_port() {
   config_value agent_port 6780
 }
 
 start_agent_api() {
+  local preserve_enabled_target="${1:-0}"
   check_webui_requirements
   if [ ! -f "${SCRIPT_DIR}/agent_api.py" ]; then
     echo "错误：未找到 ${SCRIPT_DIR}/agent_api.py，请先拉取包含 Agent API 的完整版本。"
@@ -636,7 +730,7 @@ start_agent_api() {
   fi
 
   if systemd_user_available; then
-    install_systemd_units
+    install_systemd_units "${preserve_enabled_target}"
     systemctl --user start sserveros-agent-api.service
     return 0
   fi
@@ -687,13 +781,7 @@ process_cmdline() {
 
 is_project_webui_process() {
   local pid="$1"
-  local cmd recorded_pid
-  recorded_pid="$(read_pid_file "${WEBUI_PID_FILE}" 2>/dev/null || true)"
-  if [ -n "${recorded_pid}" ] && [ "${recorded_pid}" = "${pid}" ]; then
-    return 0
-  fi
-  cmd="$(process_cmdline "${pid}")"
-  [[ "${cmd}" == *"${SCRIPT_DIR}/webui.py"* ]]
+  is_project_script_process "${pid}" "${SCRIPT_DIR}/webui.py"
 }
 
 known_service_label() {
@@ -942,21 +1030,31 @@ os.replace(tmp, path)
 stop_service() {
   local label="$1"
   local pid_file="$2"
-  local fallback_pattern="$3"
-  local pid
+  local script_path="$3"
+  local pid cmd
   local -a matched_pids=()
 
   pid="$(read_pid_file "${pid_file}" 2>/dev/null || true)"
   if is_pid_running "${pid}"; then
-    if [ "${pid_file}" = "${BACKEND_PID_FILE}" ]; then
-      record_monitor_stop_context "${pid}" "manage.sh stop_service:${label}"
+    if is_project_script_process "${pid}" "${script_path}"; then
+      if [ "${pid_file}" = "${BACKEND_PID_FILE}" ]; then
+        record_monitor_stop_context "${pid}" "manage.sh stop_service:${label}"
+      fi
+      stop_pid_gracefully "${pid}" "${label}" || return 1
+      rm -f "${pid_file}"
+      return 0
     fi
-    stop_pid_gracefully "${pid}" "${label}" || return 1
+
+    # PID files survive crashes.  A recycled PID must never be trusted just
+    # because it is alive: it may now belong to tmux, a training task, or an
+    # unrelated service.
+    cmd="$(process_cmdline "${pid}")"
+    echo "警告：${pid_file} 中的 PID ${pid} 不属于 ${script_path}，已忽略并清理陈旧 PID 文件。" >&2
+    [ -n "${cmd}" ] && echo "当前命令：${cmd}" >&2
     rm -f "${pid_file}"
-    return 0
   fi
 
-  mapfile -t matched_pids < <(pgrep -f "${fallback_pattern}" || true)
+  mapfile -t matched_pids < <(find_project_script_pids "${script_path}")
   if [ "${#matched_pids[@]}" -gt 0 ]; then
     for pid in "${matched_pids[@]}"; do
       if [ "${pid_file}" = "${BACKEND_PID_FILE}" ]; then
@@ -1380,30 +1478,185 @@ join_usage() {
   cat <<'EOF'
 用法：
   bash manage.sh join --controller-url <主控地址> --token <一次性接入令牌>
+  bash manage.sh join --controller-url <主控地址> --token-file <受限令牌文件>
 
 说明：
-  将当前节点切换为 agent，保留已有 monitor.py / tmux / zellij 任务，启动 Agent API，
-  向主控完成注册；注册成功后只停止本机 WebUI。
+  接入会先暂存角色变更并验证 Agent API；只有主控注册成功后才永久切换为 agent。
+  注册或预检失败会恢复原节点角色和 systemd 默认 target，且不会停止已有
+  monitor.py、WebUI、tmux 或 zellij 任务。--token-file 会由接入客户端安全读取并立即删除。
 EOF
 }
 
 project_script_running() {
   local pid_file="$1"
   local script_path="$2"
-  service_running "${pid_file}" || pgrep -f "${script_path}" >/dev/null 2>&1
+  local -a matched_pids=()
+
+  if service_running "${pid_file}"; then
+    return 0
+  fi
+  mapfile -t matched_pids < <(find_project_script_pids "${script_path}")
+  [ "${#matched_pids[@]}" -gt 0 ]
+}
+
+snapshot_join_systemd_targets() {
+  local target
+  JOIN_SYSTEMD_AVAILABLE=0
+  JOIN_ENABLED_TARGETS=()
+  systemd_user_available || return 0
+
+  JOIN_SYSTEMD_AVAILABLE=1
+  for target in sserveros.target sserveros-controller.target sserveros-agent.target; do
+    if systemctl --user is-enabled --quiet "${target}" 2>/dev/null; then
+      JOIN_ENABLED_TARGETS+=("${target}")
+    fi
+  done
+}
+
+restore_join_systemd_targets() {
+  local target
+  local -a current_targets=()
+
+  [ "${JOIN_SYSTEMD_AVAILABLE}" = "1" ] || return 0
+  if ! systemd_user_available; then
+    echo "警告：无法连接用户级 systemd，未能确认恢复原默认 target。" >&2
+    return 1
+  fi
+
+  for target in sserveros.target sserveros-controller.target sserveros-agent.target; do
+    if systemctl --user is-enabled --quiet "${target}" 2>/dev/null; then
+      current_targets+=("${target}")
+    fi
+  done
+  if [ "${current_targets[*]}" = "${JOIN_ENABLED_TARGETS[*]}" ]; then
+    return 0
+  fi
+
+  systemctl --user disable \
+    sserveros.target \
+    sserveros-controller.target \
+    sserveros-agent.target >/dev/null 2>&1 || true
+  for target in "${JOIN_ENABLED_TARGETS[@]}"; do
+    if ! systemctl --user enable "${target}" >/dev/null; then
+      echo "警告：未能恢复 systemd target ${target}。" >&2
+      return 1
+    fi
+  done
+}
+
+restore_join_config() {
+  check_webui_requirements
+  "${PYTHON_BIN}" -c "
+import sys
+sys.path.insert(0, sys.argv[1])
+from storage import load_config_file, save_config_file
+
+path, role, agent_host = sys.argv[2:]
+cfg = load_config_file(path)
+cfg['node_role'] = role
+cfg['agent_host'] = agent_host
+save_config_file(path, cfg)
+" "${SCRIPT_DIR}" "${CONFIG_FILE}" "${JOIN_ORIGINAL_ROLE}" "${JOIN_ORIGINAL_AGENT_HOST}"
+}
+
+get_join_tailscale_ipv4() {
+  "${PYTHON_BIN}" -c "
+import sys
+sys.path.insert(0, sys.argv[1])
+from enroll_client import EnrollmentClientError, tailscale_ipv4
+
+try:
+    print(tailscale_ipv4())
+except (EnrollmentClientError, OSError) as exc:
+    print(f'Tailscale 预检失败：{exc}', file=sys.stderr)
+    raise SystemExit(1)
+" "${SCRIPT_DIR}"
+}
+
+is_loopback_agent_host() {
+  "${PYTHON_BIN}" -c "
+import ipaddress
+import sys
+
+host = sys.argv[1].strip()
+if host.startswith('[') and host.endswith(']'):
+    host = host[1:-1]
+if not host or host.lower() in {'localhost', 'localhost.'}:
+    raise SystemExit(0)
+try:
+    raise SystemExit(0 if ipaddress.ip_address(host).is_loopback else 1)
+except ValueError:
+    raise SystemExit(1)
+" "$1"
+}
+
+prepare_join_agent_host() {
+  local host
+  if ! JOIN_TAILSCALE_IP="$(get_join_tailscale_ipv4)"; then
+    echo "错误：Tailscale 未就绪，未开始切换节点角色。" >&2
+    return 1
+  fi
+
+  host="$(get_agent_host)"
+  if [ "${host}" = "${JOIN_TAILSCALE_IP}" ]; then
+    return 0
+  fi
+
+  if is_loopback_agent_host "${host}"; then
+    echo "检测到 Agent API 当前只绑定 ${host:-localhost}；接入主控前自动改为本机 Tailscale 地址 ${JOIN_TAILSCALE_IP}。"
+  else
+    echo "将 Agent API 监听地址从 ${host:-0.0.0.0} 暂存为本机 Tailscale 地址 ${JOIN_TAILSCALE_IP}，使接入成功后仅通过 Tailnet 可达。"
+  fi
+  if ! set_agent_host "${JOIN_TAILSCALE_IP}"; then
+    echo "错误：无法更新 Agent API 监听地址。" >&2
+    return 1
+  fi
+  JOIN_AGENT_HOST_CHANGED=1
+}
+
+join_agent_api_was_running() {
+  project_script_running "${AGENT_API_PID_FILE}" "${SCRIPT_DIR}/agent_api.py"
+}
+
+stop_join_temporary_agent_api() {
+  if systemd_user_available && systemd_unit_active sserveros-agent-api.service; then
+    stop_systemd_unit sserveros-agent-api.service || return 1
+  fi
+  stop_service "Agent API" "${AGENT_API_PID_FILE}" "${SCRIPT_DIR}/agent_api.py"
+}
+
+restart_join_agent_api_for_host_change() {
+  # A pre-existing Agent API may still be bound to 127.0.0.1.  Restart only
+  # that component so the temporary Tailscale binding is actually applied.
+  if systemd_user_available && systemd_unit_active sserveros-agent-api.service; then
+    systemctl --user restart sserveros-agent-api.service
+    return $?
+  fi
+
+  stop_service "Agent API" "${AGENT_API_PID_FILE}" "${SCRIPT_DIR}/agent_api.py" || return 1
+  start_agent_api 1
+}
+
+restart_original_join_agent_api() {
+  if systemd_user_available && systemd_unit_active sserveros-agent-api.service; then
+    systemctl --user restart sserveros-agent-api.service
+    return $?
+  fi
+
+  # In a non-systemd deployment, this is the same process type that was
+  # present before staging.  Do not touch monitor.py or WebUI here.
+  stop_service "Agent API" "${AGENT_API_PID_FILE}" "${SCRIPT_DIR}/agent_api.py" || return 1
+  start_agent_api 1
 }
 
 ensure_join_agent_api() {
-  if systemd_user_available; then
-    install_systemd_units
-  fi
-
   if project_script_running "${AGENT_API_PID_FILE}" "${SCRIPT_DIR}/agent_api.py"; then
     echo "Agent API 已在运行，保留现有进程。"
     return 0
   fi
 
-  start_agent_api
+  JOIN_AGENT_API_STARTED=1
+  start_agent_api 1
 }
 
 ensure_join_monitor() {
@@ -1412,25 +1665,124 @@ ensure_join_monitor() {
     return 0
   fi
 
-  if ! (start_backend 1); then
+  JOIN_MONITOR_STARTED=1
+  if ! start_backend 1 1; then
     echo "警告：monitor.py 当前无法启动；节点仍会继续注册，可在修复依赖后从 manage.sh 菜单启动。"
   fi
 }
 
 stop_join_webui_only() {
+  local result=0
   if systemd_user_available; then
-    systemctl --user stop sserveros-webui.service >/dev/null 2>&1 || true
+    if systemd_unit_active sserveros-webui.service \
+      && ! systemctl --user stop sserveros-webui.service; then
+      result=1
+    fi
   fi
-  if pgrep -f "${SCRIPT_DIR}/webui.py" >/dev/null 2>&1; then
-    stop_service "WebUI" "${WEBUI_PID_FILE}" "${SCRIPT_DIR}/webui.py"
-  else
-    rm -f "${WEBUI_PID_FILE}"
-    echo "WebUI 当前未运行。"
+  stop_service "WebUI" "${WEBUI_PID_FILE}" "${SCRIPT_DIR}/webui.py" || result=1
+  return "${result}"
+}
+
+stop_join_temporary_monitor() {
+  if systemd_user_available && systemd_unit_active sserveros-monitor.service; then
+    stop_systemd_unit sserveros-monitor.service || return 1
+  fi
+  stop_service "monitor.py" "${BACKEND_PID_FILE}" "${SCRIPT_DIR}/monitor.py"
+}
+
+create_join_token_file() {
+  local token="$1"
+  local token_file
+
+  if ! command -v mktemp >/dev/null 2>&1; then
+    echo "错误：未找到 mktemp，无法安全传递一次性令牌。" >&2
+    return 1
+  fi
+  ensure_runtime_dir
+  if ! token_file="$(umask 077; mktemp "${RUNTIME_DIR}/.enroll-token.XXXXXX")"; then
+    echo "错误：无法创建受限的一次性令牌文件。" >&2
+    return 1
+  fi
+  if ! printf '%s\n' "${token}" > "${token_file}"; then
+    rm -f "${token_file}" || true
+    echo "错误：无法写入一次性令牌文件。" >&2
+    return 1
+  fi
+  chmod 600 "${token_file}" 2>/dev/null || true
+  JOIN_TOKEN_FILE="${token_file}"
+}
+
+cleanup_join_token_file() {
+  if [ -n "${JOIN_TOKEN_FILE}" ]; then
+    rm -f "${JOIN_TOKEN_FILE}" || true
+    JOIN_TOKEN_FILE=""
   fi
 }
 
+rollback_join_stage() {
+  local failed=0
+  if [ "${JOIN_STAGE_ACTIVE}" != "1" ]; then
+    cleanup_join_token_file
+    return 0
+  fi
+
+  echo "接入未完成，正在恢复原节点角色和服务启动配置……" >&2
+
+  if [ "${JOIN_AGENT_API_STARTED}" = "1" ] && ! stop_join_temporary_agent_api; then
+    failed=1
+  fi
+  if [ "${JOIN_MONITOR_STARTED}" = "1" ] && ! stop_join_temporary_monitor; then
+    failed=1
+  fi
+  if ! restore_join_config; then
+    echo "警告：未能恢复原 node_role / agent_host。" >&2
+    failed=1
+  fi
+  if [ "${JOIN_AGENT_API_RESTARTED}" = "1" ] && ! restart_original_join_agent_api; then
+    echo "警告：未能按原监听地址重启 Agent API。" >&2
+    failed=1
+  fi
+  if ! restore_join_systemd_targets; then
+    failed=1
+  fi
+
+  JOIN_STAGE_ACTIVE=0
+  cleanup_join_token_file
+  return "${failed}"
+}
+
+join_exit_handler() {
+  local status="$?"
+  if [ "${JOIN_STAGE_ACTIVE}" = "1" ]; then
+    echo "接入流程异常退出，正在回滚临时角色切换……" >&2
+    rollback_join_stage || true
+  fi
+  cleanup_join_token_file
+  return "${status}"
+}
+
+join_signal_handler() {
+  local signal_name="$1"
+  echo "收到 ${signal_name}，正在回滚临时角色切换……" >&2
+  rollback_join_stage || true
+  cleanup_join_token_file
+  trap - EXIT INT TERM HUP
+  exit 130
+}
+
+install_join_rollback_traps() {
+  trap 'join_exit_handler' EXIT
+  trap 'join_signal_handler INT' INT
+  trap 'join_signal_handler TERM' TERM
+  trap 'join_signal_handler HUP' HUP
+}
+
+clear_join_rollback_traps() {
+  trap - EXIT INT TERM HUP
+}
+
 join_flow() {
-  local controller_url="" token=""
+  local controller_url="" token="" token_file="" commit_failed=0 webui_stop_failed=0
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -1460,6 +1812,19 @@ join_flow() {
         token="${1#*=}"
         shift
         ;;
+      --token-file)
+        if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+          echo "错误：--token-file 缺少参数。" >&2
+          join_usage >&2
+          return 2
+        fi
+        token_file="$2"
+        shift 2
+        ;;
+      --token-file=*)
+        token_file="${1#*=}"
+        shift
+        ;;
       -h|--help)
         join_usage
         return 0
@@ -1480,8 +1845,17 @@ join_flow() {
     esac
   done
 
-  if [ -z "${controller_url}" ] || [ -z "${token}" ]; then
-    echo "错误：join 必须同时提供 --controller-url 和 --token。" >&2
+  if [ -n "${token}" ] && [ -n "${token_file}" ]; then
+    echo "错误：--token 与 --token-file 不能同时使用。" >&2
+    return 2
+  fi
+  if [ -n "${token_file}" ] && [ ! -f "${token_file}" ]; then
+    echo "错误：一次性令牌文件不存在或不是普通文件。" >&2
+    return 2
+  fi
+
+  if [ -z "${controller_url}" ] || { [ -z "${token}" ] && [ -z "${token_file}" ]; }; then
+    echo "错误：join 必须同时提供 --controller-url 和 --token（或 --token-file）。" >&2
     join_usage >&2
     return 2
   fi
@@ -1496,29 +1870,109 @@ join_flow() {
     echo "错误：未找到 ${SCRIPT_DIR}/enroll_client.py，请先更新到支持一键接入的完整版本。" >&2
     return 1
   fi
+  if [ ! -f "${SCRIPT_DIR}/agent_api.py" ]; then
+    echo "错误：未找到 ${SCRIPT_DIR}/agent_api.py，请先更新到支持一键接入的完整版本。" >&2
+    return 1
+  fi
 
   echo "正在初始化分控端配置……"
-  bootstrap_config
-  set_node_role agent
-  echo "节点角色已设置为：$(node_role_label agent)。"
+  if ! bootstrap_config; then
+    echo "错误：无法初始化分控端配置，未开始切换节点角色。" >&2
+    return 1
+  fi
 
-  ensure_join_agent_api
+  JOIN_ORIGINAL_ROLE="$(get_node_role)"
+  JOIN_ORIGINAL_AGENT_HOST="$(get_agent_host)"
+  JOIN_AGENT_HOST_CHANGED=0
+  JOIN_AGENT_API_WAS_RUNNING=0
+  JOIN_AGENT_API_STARTED=0
+  JOIN_AGENT_API_RESTARTED=0
+  JOIN_MONITOR_STARTED=0
+  snapshot_join_systemd_targets
+  if join_agent_api_was_running; then
+    JOIN_AGENT_API_WAS_RUNNING=1
+  fi
+  JOIN_STAGE_ACTIVE=1
+  install_join_rollback_traps
+
+  if [ -n "${token}" ]; then
+    if ! create_join_token_file "${token}"; then
+      token=""
+      rollback_join_stage || true
+      clear_join_rollback_traps
+      return 1
+    fi
+    token_file="${JOIN_TOKEN_FILE}"
+    token=""
+  fi
+
+  if ! prepare_join_agent_host; then
+    rollback_join_stage || true
+    clear_join_rollback_traps
+    return 1
+  fi
+  if ! set_node_role agent; then
+    echo "错误：无法暂存 agent 角色，已取消接入。" >&2
+    rollback_join_stage || true
+    clear_join_rollback_traps
+    return 1
+  fi
+  echo "节点角色已暂存为：$(node_role_label agent)（主控注册成功后生效）。"
+
+  if [ "${JOIN_AGENT_HOST_CHANGED}" = "1" ] && [ "${JOIN_AGENT_API_WAS_RUNNING}" = "1" ]; then
+    JOIN_AGENT_API_RESTARTED=1
+    if ! restart_join_agent_api_for_host_change; then
+      echo "错误：无法按 Tailscale 地址重启 Agent API，已取消接入。" >&2
+      rollback_join_stage || true
+      clear_join_rollback_traps
+      return 1
+    fi
+  fi
+
+  if ! ensure_join_agent_api; then
+    echo "错误：Agent API 无法启动，已取消接入。" >&2
+    rollback_join_stage || true
+    clear_join_rollback_traps
+    return 1
+  fi
   ensure_join_monitor
 
   echo "正在向主控注册节点……"
   if ! "${PYTHON_BIN}" "${SCRIPT_DIR}/enroll_client.py" \
     --controller-url "${controller_url}" \
-    --token "${token}"; then
-    token=""
-    echo "错误：主控注册失败；现有 monitor.py、tmux 任务和 WebUI 均未停止。" >&2
+    --token-file "${token_file}"; then
+    echo "错误：主控注册失败；现有 monitor.py、tmux 任务和 WebUI 均未停止，正在恢复原角色。" >&2
+    rollback_join_stage || true
+    clear_join_rollback_traps
     return 1
   fi
-  token=""
+  cleanup_join_token_file
+
+  # Registration is now durable on A.  Do not roll back the local Agent role
+  # if persisting the login target fails, otherwise A and B would disagree.
+  JOIN_STAGE_ACTIVE=0
+  clear_join_rollback_traps
+  if systemd_user_available && ! install_systemd_units; then
+    commit_failed=1
+    echo "警告：节点已注册成功，但未能将 agent target 设为开机默认。请修复用户级 systemd 后执行 manage.sh 再次确认。" >&2
+  fi
 
   echo "节点注册成功，正在关闭分控端不需要的 WebUI……"
-  stop_join_webui_only
+  if ! stop_join_webui_only; then
+    webui_stop_failed=1
+    echo "警告：节点已注册成功，但 WebUI 未能完全停止；请检查后手动停止。" >&2
+  fi
   echo "接入完成：monitor.py 和 Agent API 保持运行，现有 tmux/zellij 任务未受影响。"
-  show_status
+  if ! show_status; then
+    echo "警告：节点已注册成功，但无法刷新本地状态摘要。" >&2
+  fi
+  if [ "${commit_failed}" = "1" ] || [ "${webui_stop_failed}" = "1" ]; then
+    # A has already consumed the one-time token and persisted this node.  A
+    # non-zero exit here would make the bootstrapper roll B's files back and
+    # leave A/B inconsistent, so surface the warning but keep this a success.
+    echo "接入已完成；请根据上方警告补做本地 systemd/WebUI 处理。" >&2
+  fi
+  return 0
 }
 
 agent_api_menu() {

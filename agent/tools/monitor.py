@@ -129,7 +129,7 @@ def monitor_settings(script_dir: str) -> dict:
             ),
             'gpus': cfg.get('gpus', []),
         },
-        'notification_summary': notifier.channel_summary(cfg),
+        'notification_summary': notifier.public_channel_summary(cfg),
     }
 
 

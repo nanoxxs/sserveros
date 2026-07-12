@@ -1,14 +1,20 @@
 import hashlib
 import json
+from pathlib import Path
+import subprocess
+import tarfile
+import threading
 
 import pytest
 
 from enrollment import (
+    BOOTSTRAP_BUNDLE_FILES,
     DEFAULT_ENROLLMENT_TTL,
     EnrollmentStore,
     EnrollmentTokenBusy,
     ExpiredEnrollmentToken,
     InvalidEnrollmentToken,
+    build_bootstrap_bundle,
     build_bootstrap_script,
     build_enrollment_command,
 )
@@ -43,6 +49,21 @@ def test_default_enrollment_ttl_allows_first_host_setup(tmp_path, monkeypatch):
     assert created['expires_at']
     record = store.validate('default-ttl-token')
     assert record['expires_at'] - record['created_at'] == DEFAULT_ENROLLMENT_TTL
+
+
+def test_pruning_never_discards_still_valid_enrollment_tokens(tmp_path, monkeypatch):
+    counter = iter(range(101))
+    monkeypatch.setattr(
+        'enrollment.secrets.token_urlsafe', lambda _length: f'valid-token-{next(counter)}'
+    )
+    store = EnrollmentStore(str(tmp_path), now_fn=lambda: 10_000.0)
+    first = store.create('http://100.64.0.1:6777', ttl=600)
+    for _ in range(100):
+        store.create('http://100.64.0.1:6777', ttl=600)
+
+    records = store.list_records()
+    assert len(records) == 101
+    assert store.validate(first['token'])['enrollment_id'] == first['enrollment_id']
 
 
 def test_claim_release_and_consume_enforce_single_use(tmp_path, monkeypatch):
@@ -108,32 +129,132 @@ def test_release_after_expiry_does_not_reactivate_claim(tmp_path, monkeypatch):
     assert store.list_records()[0]['status'] == 'expired'
 
 
+def test_claimed_token_cannot_be_revoked_until_registration_finishes(tmp_path, monkeypatch):
+    clock = [20_000.0]
+    monkeypatch.setattr('enrollment.secrets.token_urlsafe', lambda _length: 'claimed-token')
+    store = EnrollmentStore(str(tmp_path), now_fn=lambda: clock[0])
+    created = store.create('http://controller:6777', ttl=600)
+    store.claim(created['token'])
+
+    # A slow reverse health check must not silently turn an in-flight claim
+    # back into an issued token and re-open the revoke race after 60 seconds.
+    clock[0] += 61
+
+    with pytest.raises(EnrollmentTokenBusy, match='不能撤销'):
+        store.revoke(created['enrollment_id'])
+
+    assert store.list_records()[0]['status'] == 'claimed'
+
+
+def test_invalid_token_does_not_rewrite_unchanged_store(tmp_path, monkeypatch):
+    monkeypatch.setattr('enrollment.secrets.token_urlsafe', lambda _length: 'valid-token')
+    store = EnrollmentStore(str(tmp_path), now_fn=lambda: 20_000.0)
+    store.create('http://controller:6777', ttl=600)
+    writes = []
+    monkeypatch.setattr(store, '_save', lambda data: writes.append(data))
+
+    with pytest.raises(InvalidEnrollmentToken):
+        store.validate('definitely-invalid')
+
+    assert writes == []
+
+
+def test_separate_store_instances_serialize_competing_claims(tmp_path, monkeypatch):
+    monkeypatch.setattr('enrollment.secrets.token_urlsafe', lambda _length: 'shared-token')
+    first = EnrollmentStore(str(tmp_path), now_fn=lambda: 20_000.0)
+    created = first.create('http://controller:6777', ttl=600)
+    second = EnrollmentStore(str(tmp_path), now_fn=lambda: 20_000.0)
+    barrier = threading.Barrier(3)
+    outcomes = []
+
+    def claim(store):
+        barrier.wait()
+        try:
+            store.claim(created['token'])
+            outcomes.append('claimed')
+        except EnrollmentTokenBusy:
+            outcomes.append('busy')
+
+    workers = [threading.Thread(target=claim, args=(store,)) for store in (first, second)]
+    for worker in workers:
+        worker.start()
+    barrier.wait()
+    for worker in workers:
+        worker.join()
+
+    assert sorted(outcomes) == ['busy', 'claimed']
+
+
 def test_enrollment_command_and_bootstrap_keep_controller_and_token_scoped():
     command = build_enrollment_command('http://100.64.0.1:6777/', 'one-time-token')
     script = build_bootstrap_script('http://100.64.0.1:6777/', 'one-time-token')
 
-    assert command.startswith('( tmp="$(mktemp)" && trap ')
+    assert command.startswith("( export PATH='/usr/sbin:/usr/bin:/sbin:/bin'; umask 077 && ")
+    assert 'tmp="$(mktemp)" && headers="$(mktemp)"' in command
     assert 'curl -fsSL --connect-timeout 10 ' in command
+    assert '--max-time 60 --retry 2 --retry-delay 1' in command
     assert "--noproxy '*'" in command
     assert 'Authorization: Bearer one-time-token' in command
+    assert '-H @"$headers"' in command
     assert 'http://100.64.0.1:6777/api/enroll/bootstrap' in command
     assert command.endswith('bash "$tmp" )')
     assert 'CONTROLLER_URL=http://100.64.0.1:6777' in script
     assert 'ENROLL_TOKEN=one-time-token' in script
-    assert 'api/enroll/bootstrap-file/${filename}' in script
-    assert 'download_bootstrap_file manage.sh' in script
-    assert 'download_bootstrap_file enroll_client.py' in script
-    assert 'download_bootstrap_file monitor.py' in script
+    assert "PATH='/usr/sbin:/usr/bin:/sbin:/bin'" in script
+    assert 'api/enroll/bootstrap-manifest' in script
+    assert 'api/enroll/bootstrap-bundle' in script
+    assert '接入包 SHA-256 校验失败' in script
+    assert '接入组件哈希校验失败' in script
+    assert 'download_bootstrap_file' not in script
+    assert 'git -c http.version=HTTP/1.1 clone' not in script
     assert "--noproxy '*'" in script
-    assert '无法从 GitHub 更新，将继续使用主控下发的接入组件' in script
+    assert '无法从 GitHub 更新，将继续使用主控下发的接入组件' not in script
     assert 'install_bootstrap_packages' in script
+    assert 'acquire_install_lock' in script
+    assert 'flock -n "${LOCK_FD}"' in script
+    assert '--max-time 60 --retry 2 --retry-delay 1' in script
     assert 'python3-venv' in script
     assert 'ensure_project_venv' in script
+    assert '检测到现有虚拟环境缺少可用的 pip/ensurepip，正在自动重建' in script
+    assert '-m ensurepip --upgrade' not in script
     assert "pip install --disable-pip-version-check --no-input flask psutil" in script
-    assert 'git -c http.version=HTTP/1.1 clone --depth 1' in script
     assert 'manage.sh" join' in script
     assert '--controller-url "${CONTROLLER_URL}"' in script
-    assert '--token "${ENROLL_TOKEN}"' in script
+    assert '--token "${ENROLL_TOKEN}"' not in script
+    assert '--token-file "${FINAL_TOKEN_FILE}"' in script
+    completed = subprocess.run(['bash', '-n'], input=script, text=True, capture_output=True)
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_bootstrap_bundle_is_complete_deterministic_and_hashed():
+    project_dir = str(Path(__file__).resolve().parents[1])
+    first_bundle, first_manifest = build_bootstrap_bundle(project_dir)
+    second_bundle, second_manifest = build_bootstrap_bundle(project_dir)
+
+    assert first_bundle == second_bundle
+    assert first_manifest == second_manifest
+    assert first_manifest['bundle_url'] == '/api/enroll/bootstrap-bundle'
+    assert set(first_manifest['files']) == set(BOOTSTRAP_BUNDLE_FILES)
+    assert first_manifest['sha256'] == hashlib.sha256(first_bundle).hexdigest()
+
+    import io
+    with tarfile.open(fileobj=io.BytesIO(first_bundle), mode='r:gz') as archive:
+        members = archive.getmembers()
+        assert [member.name for member in members] == list(BOOTSTRAP_BUNDLE_FILES)
+        assert all(member.isfile() for member in members)
+        for member in members:
+            content = archive.extractfile(member).read()
+            assert hashlib.sha256(content).hexdigest() == first_manifest['files'][member.name]
+
+
+def test_bootstrap_bundle_refuses_controller_source_symlinks(tmp_path, monkeypatch):
+    target = tmp_path / 'outside.py'
+    target.write_text('print("outside")\n')
+    (tmp_path / 'managed.py').symlink_to(target)
+    monkeypatch.setattr('enrollment.BOOTSTRAP_BUNDLE_FILES', ('managed.py',))
+
+    with pytest.raises(ValueError, match='不是普通文件'):
+        build_bootstrap_bundle(str(tmp_path))
 
 
 @pytest.mark.parametrize('bad_url', [

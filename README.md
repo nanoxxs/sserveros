@@ -144,30 +144,21 @@ bash ./manage.sh
 
 ### 2. 在 A 生成一键接入命令
 
-登录 A 的 WebUI，在服务器管理中生成一次性接入命令。命令结构如下，实际界面会填入主控地址和一次性令牌：
+登录 A 的 WebUI，在服务器管理中生成并复制一次性接入命令。`CONTROLLER_URL` 必须是 B 能访问的 A 的 Tailscale 地址，例如 `http://100.64.0.10:6777` 或 MagicDNS 地址。
 
-```bash
-( tmp="$(mktemp)" && trap 'rm -f "$tmp"' EXIT && \
-  curl -fsSL --connect-timeout 10 --noproxy '*' \
-    -H 'Authorization: Bearer <ONE_TIME_TOKEN>' \
-    '<CONTROLLER_URL>/api/enroll/bootstrap' -o "$tmp" && bash "$tmp" )
-```
-
-`CONTROLLER_URL` 必须是 B 能访问的 A 的 Tailscale 地址，例如 `http://100.64.0.10:6777` 或 MagicDNS 地址。一次性令牌默认 30 分钟过期，也可在 WebUI 中提前撤销；它属于敏感信息，不要发到聊天记录或公共日志，注册成功后即被消费。
+令牌默认 30 分钟过期，成功注册后即被消费。生成命令仍会因首次粘贴而进入 shell history，因此不要把它发送到聊天记录、终端录屏或公共日志；脚本内部已改用权限受限的临时文件，不会再把令牌传给后续 `curl`、`bash` 或 Python 进程参数。
 
 ### 3. 在 B/C/D/E 执行命令
 
 在每台分控服务器上粘贴 A 生成的命令即可。A 返回的 bootstrap 脚本会：
 
-- 显式设置 `$SSERVEROS_DIR` 时优先使用该目录。
-- 未设置时，当前目录已有 `manage.sh` 和 `monitor.py` 就直接复用，兼容升级早于 Agent API 的旧单机仓库。
-- 两者都不满足时默认使用 `$HOME/sserveros`。
-- 自动识别 `apt`、`dnf`、`yum`、`apk`、`pacman` 或 `zypper`，必要时用 root/sudo 安装系统依赖；随后在项目内创建 `.venv` 并安装 Flask、psutil、httpx 等 Python 包。
-- 已有 Git 仓库执行 HTTP/1.1 的 `git pull --ff-only`；没有仓库则先克隆到同级临时目录、校验后再移动，避免网络失败留下半成品。
-- 主控会用同一枚一次性令牌下发 `manage.sh`、`enroll_client.py` 和 `monitor.py`；因此即使 A 的新版尚未推送到 GitHub，B 也能执行一键接入。
-- 最后执行 `bash manage.sh join --controller-url ... --token ...` 完成角色切换、服务启动和注册。
+- 默认安装到 root 的 `/root/sserveros` 或普通用户的 `$HOME/sserveros`；`SSERVEROS_DIR` 可指定绝对路径，但 root 模式会拒绝不安全、可被其他用户写入或符号链接的目录。
+- 从 A 下载完整、固定白名单的运行包，而非从 GitHub 克隆再混合少量文件；会校验包和每个文件的 SHA-256，解压到 staging 后原子切换。B 首次接入不再依赖 GitHub 可用。
+- 自动识别 `apt`、`dnf`、`yum`、`apk`、`pacman` 或 `zypper`，安装 Python/venv 所需系统包；已有 `.venv` 缺少 `ensurepip` 或 pip 时会自动丢弃并重建，再安装项目依赖，无需手工执行 `pip install`。
+- 接入期间保留原版本备份；在依赖安装或注册前失败时自动恢复旧代码和配置。重复粘贴同一命令会被项目锁阻止。
+- 临时把 B 的 Agent API 绑定到本机 Tailscale IPv4，随后以受限 token 文件完成注册。
 
-`join` 是非交互命令。它会保留已经运行的 `monitor.py`、tmux/zellij 会话和 GPU 任务，启动节点 Agent API，并在条件允许时启动 monitor；只有主控确认注册成功后，才会停止 B 上不再需要的 WebUI。它不会停止 monitor，也不会停止任何 systemd target。注册失败时 WebUI 同样保持原状，方便排查和重试。
+`join` 是非交互、分阶段的流程。注册前的预检、Agent 启动或主控校验失败会恢复 B 原来的 `node_role`、`agent_host` 和 systemd 默认 target；已有的 `monitor.py`、WebUI、tmux/zellij 会话和 GPU 任务不会被停止。只有主控确认注册成功后，B 才永久成为 Agent 并尝试停止不再需要的 WebUI。若停止 WebUI 或写入 systemd 默认 target 失败，会明确警告，但不会回滚已经成功的注册。
 
 需要手动排障时，也可在已更新的项目目录直接运行：
 
@@ -177,14 +168,16 @@ bash manage.sh join \
   --token '<ONE_TIME_TOKEN>'
 ```
 
+自动生成的命令优先使用 `--token-file`；手动使用 `--token` 仍兼容，但令牌会短暂出现在这条命令的进程参数中。
+
 完成后服务器会自动出现在 A 的服务器列表中，无需再手工复制 Agent Token。主控默认每 5 秒并发轮询所有启用节点，单次请求超时为 3 秒；某台离线不会阻塞其他节点，并会保留该节点最后一次成功快照和最后在线时间。
 
 ### 接入前提
 
 - A 和 B 已登录同一 Tailnet，B 能访问 A 的 WebUI 地址，A 能访问 B 的 Agent 端口 `6780`。
 - B 至少已有 `bash` 和 `curl`；脚本会自动准备其余系统/Python 依赖。若需要安装系统包，B 必须使用 root 或可用的 `sudo`。
-- 首次部署时 B 需能访问系统软件源、GitHub 与 PyPI；启动监控仍需要预先可用的 NVIDIA 驱动及 `nvidia-smi`。
-- 默认 Agent API 监听 `0.0.0.0:6780`；建议绑定 B 的 Tailscale IP，或用防火墙保证 6780 只允许 Tailnet 访问。
+- 首次部署时 B 需能访问系统软件源和 PyPI；不再要求 B 能访问 GitHub。启动监控仍需要预先可用的 NVIDIA 驱动及 `nvidia-smi`。
+- 一键接入会把 B 的 Agent API 绑定为其 Tailscale IPv4。手工改角色时仍应将 `6780` 限制为仅 Tailnet 可访问，不能暴露到普通 LAN 或公网。
 
 也可从主控机器直接验证 Agent：
 
@@ -215,7 +208,7 @@ nohup python "$(pwd)/agent_api.py" >> "$(pwd)/runtime/agent_api.log" 2>&1 &
 
 或直接使用 `manage.sh`，它会自动处理初始化和启停。
 
-分控端自动接入使用 `bash manage.sh join --controller-url URL --token TOKEN`。该子命令只用于 A 生成的一次性令牌，不会进入交互菜单。
+分控端自动接入使用 `bash manage.sh join --controller-url URL --token-file PRIVATE_TOKEN_FILE`；兼容的 `--token TOKEN` 会立即转换为权限 `0600` 的临时文件。该子命令只用于 A 生成的一次性令牌，不会进入交互菜单。
 
 普通交互启动在尚未配置通知渠道时会跳过 `monitor.py`；可以先启动 WebUI 完成设置。`join` 是例外，它会为主控状态采集尝试启动 monitor，但不会发送通知。
 分控端没有 WebUI 时，也可以直接编辑 `config.json` 配置通知渠道，再通过 `manage.sh` 启动监控。

@@ -3,11 +3,13 @@ import gzip
 import hmac
 import json
 import os
+import re
 import socket
 import signal
 import shutil
 import subprocess
 import threading
+import time
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -28,6 +30,7 @@ from enrollment import (
     EnrollmentTokenBusy,
     ExpiredEnrollmentToken,
     InvalidEnrollmentToken,
+    build_bootstrap_bundle,
     build_bootstrap_script,
     build_enrollment_command,
 )
@@ -63,6 +66,139 @@ _RELEASE_COMMAND_NUMERIC_SETTINGS = (
 _WEBUI_NUMERIC_SETTINGS = ('log_max_size_mb', 'log_archive_keep')
 _ENV_CHANNEL_KEYS = ('SERVERCHAN_KEYS', 'BARK_CONFIGS', 'SENDKEY')
 AGENT_VERSION = '1.0'
+
+
+# The controller proxy is intentionally not a general HTTP tunnel.  Keep this
+# list in lockstep with the versioned Agent API surface instead of accepting an
+# arbitrary path that could be normalised by an HTTP client into another URL
+# path (for example ``../`` escaping ``/agent/api/v1``).
+_AGENT_PROXY_STATIC_PATHS = {
+    'GET': frozenset({
+        'health',
+        'state',
+        'config',
+        'sysinfo',
+        'sysinfo/cpu',
+        'sysinfo/memory',
+        'log',
+        'log/archives',
+    }),
+    'POST': frozenset({
+        'pids/add',
+        'pids/remove',
+        'pids/clear-dead',
+        'release-commands/add',
+        'release-commands/remove',
+        'release-commands/clear',
+        'release-commands/requeue',
+        'release-commands/pause',
+        'release-commands/edit',
+        'release-commands/reorder',
+        'log/clear',
+        'notify/test',
+        'settings',
+        'actions/execute',
+    }),
+}
+_AGENT_PROXY_GPU_PATH_RE = re.compile(r'^gpu/[0-9]+/processes$')
+_AGENT_PROXY_ARCHIVE_PATH_RE = re.compile(r'^log/archives/log_[A-Za-z0-9_.-]+\.json\.gz$')
+_AGENT_PROXY_TOOL_PATH_RE = re.compile(r'^tools/([A-Za-z0-9_]+)(/stage)?$')
+_PUBLIC_CHANNEL_SUMMARY_KEYS = (
+    'env_active',
+    'env_serverchan_count',
+    'env_bark_count',
+    'effective_serverchan_count',
+    'effective_bark_count',
+)
+_NOTIFICATION_SECRET_CONFIG_KEYS = ('sendkey', 'serverchan_keys', 'bark_configs')
+_BOOTSTRAP_BUNDLE_CACHE_TTL_SECONDS = 600
+_BOOTSTRAP_BUNDLE_CACHE_MAX_ENTRIES = 32
+
+
+def _session_version(cfg: dict) -> int:
+    """Return a defensive, stable session generation from config.json."""
+    value = cfg.get('session_version', 0)
+    if isinstance(value, bool):
+        return 0
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, value)
+
+
+def _redact_notification_secrets(payload: dict) -> dict:
+    """Remove notification credentials from a payload crossing Agent trust boundaries.
+
+    A controller has an Agent bearer token, but that token must not implicitly
+    grant the ability to read the Agent's Server Chan/Bark credentials.  Keep
+    only counts in the environment summary so the remote UI can still explain
+    that notifications are configured.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    for key in _NOTIFICATION_SECRET_CONFIG_KEYS:
+        payload.pop(key, None)
+    summary = payload.get('env_channel_summary')
+    if isinstance(summary, dict):
+        payload['env_channel_summary'] = {
+            key: summary[key]
+            for key in _PUBLIC_CHANNEL_SUMMARY_KEYS
+            if key in summary
+        }
+    payload['notification_secrets_redacted'] = True
+    return payload
+
+
+def _raw_proxy_subpath_contains_escape() -> bool:
+    """Reject encoded proxy path components when the WSGI server exposes them.
+
+    Werkzeug decodes ``%2e`` before the route function receives it.  The
+    allowlist below still rejects the decoded traversal, while this additional
+    check also rejects encoded separators/double-encoding rather than treating
+    them as an alternative spelling of a permitted path.
+    """
+    raw_uri = request.environ.get('RAW_URI') or request.environ.get('REQUEST_URI')
+    if not isinstance(raw_uri, str):
+        return False
+    raw_path = raw_uri.split('?', 1)[0]
+    marker = '/api/servers/'
+    if marker not in raw_path:
+        return False
+    remainder = raw_path.split(marker, 1)[1]
+    _server, slash, encoded_subpath = remainder.partition('/')
+    return bool(slash and '%' in encoded_subpath)
+
+
+def _allowed_agent_proxy_path(method: str, subpath: str) -> bool:
+    """Validate an exact controller-to-Agent API route and HTTP method."""
+    if not isinstance(subpath, str) or not subpath or len(subpath) > 255:
+        return False
+    if (
+        subpath != subpath.strip('/')
+        or '%' in subpath
+        or '\\' in subpath
+        or '\x00' in subpath
+        or any(part in ('.', '..', '') for part in subpath.split('/'))
+    ):
+        return False
+    method = str(method or '').upper()
+    if subpath in _AGENT_PROXY_STATIC_PATHS.get(method, ()):
+        return True
+    if method == 'GET':
+        return bool(
+            _AGENT_PROXY_GPU_PATH_RE.fullmatch(subpath)
+            or _AGENT_PROXY_ARCHIVE_PATH_RE.fullmatch(subpath)
+        )
+    if method == 'DELETE':
+        return bool(_AGENT_PROXY_ARCHIVE_PATH_RE.fullmatch(subpath))
+    if method == 'POST':
+        match = _AGENT_PROXY_TOOL_PATH_RE.fullmatch(subpath)
+        if not match:
+            return False
+        tool_name, stage = match.groups()
+        return tool_name in (WRITE_TOOLS if stage else READ_ONLY_TOOLS)
+    return False
 
 
 def _terminal_status(command: str, version_arg: str) -> dict:
@@ -137,6 +273,11 @@ def create_app(
     app.extensions['controller_registry'] = controller_registry
     enrollment_store = EnrollmentStore(script_dir)
     app.extensions['enrollment_store'] = enrollment_store
+    # Manifest and bundle are downloaded as two HTTP requests.  Keep a bounded
+    # per-enrollment snapshot so an in-progress source update cannot make their
+    # checksums disagree halfway through one bootstrap transaction.
+    bootstrap_bundle_cache: dict[str, tuple[float, bytes, dict]] = {}
+    bootstrap_bundle_lock = threading.RLock()
     if (
         start_background
         and not agent_api_only
@@ -163,7 +304,12 @@ def create_app(
                 if not expected or not hmac.compare_digest(supplied, expected):
                     return jsonify({'error': 'unauthorized'}), 401
                 return f(*args, **kwargs)
-            if not session.get('authenticated'):
+            cfg = load_config_file(_config_path(script_dir))
+            if (
+                not session.get('authenticated')
+                or session.get('auth_version') != _session_version(cfg)
+            ):
+                session.clear()
                 return jsonify({'error': 'unauthorized'}), 401
             return f(*args, **kwargs)
         return decorated
@@ -202,7 +348,9 @@ def create_app(
         data = request.get_json() or {}
         cfg = load_config_file(_config_path(script_dir))
         if check_password_hash(cfg.get('password_hash', ''), data.get('password', '')):
+            session.clear()
             session['authenticated'] = True
+            session['auth_version'] = _session_version(cfg)
             session.permanent = True
             return jsonify({'ok': True})
         return jsonify({'error': 'invalid password'}), 401
@@ -321,6 +469,8 @@ def create_app(
         cfg['tmux_status'] = _tmux_status()
         cfg['zellij_status'] = _zellij_status()
         cfg['env_channel_summary'] = summary
+        if app.config.get('AGENT_API_ONLY'):
+            _redact_notification_secrets(cfg)
         return jsonify(cfg)
 
     def _controller_required():
@@ -440,7 +590,11 @@ def create_app(
         error = _controller_required()
         if error:
             return error
-        if not enrollment_store.revoke(enrollment_id):
+        try:
+            revoked = enrollment_store.revoke(enrollment_id)
+        except EnrollmentTokenBusy as exc:
+            return jsonify({'error': str(exc)}), 409
+        if not revoked:
             return jsonify({'error': '接入令牌不存在或已失效'}), 404
         return jsonify({'ok': True})
 
@@ -495,6 +649,82 @@ def create_app(
         response.headers['X-Content-Type-Options'] = 'nosniff'
         return response
 
+    def _bootstrap_bundle_response_error():
+        # Do not turn this into a file-existence oracle.  The token holder only
+        # needs to know that the controller installation is incomplete.
+        return jsonify({'error': '主控端接入组件不完整，请更新主控端后重试'}), 500
+
+    def _bootstrap_bundle_for_enrollment(record: dict) -> tuple[bytes, dict]:
+        enrollment_id = str(record.get('enrollment_id') or '')
+        if not enrollment_id:
+            raise ValueError('接入令牌记录无效')
+        now = time.monotonic()
+        with bootstrap_bundle_lock:
+            for key, (expires_at, _bundle, _manifest) in list(bootstrap_bundle_cache.items()):
+                if expires_at <= now:
+                    bootstrap_bundle_cache.pop(key, None)
+            cached = bootstrap_bundle_cache.get(enrollment_id)
+            if cached is not None:
+                return cached[1], cached[2]
+            bundle, manifest = build_bootstrap_bundle(script_dir)
+            # The cache may never outlive the enrollment itself.  The short
+            # cap bounds memory and is long enough for manifest+bundle to be
+            # downloaded as one bootstrap operation.
+            remaining = max(0.0, float(record.get('expires_at') or 0) - time.time())
+            expires_at = now + min(_BOOTSTRAP_BUNDLE_CACHE_TTL_SECONDS, remaining)
+            if len(bootstrap_bundle_cache) >= _BOOTSTRAP_BUNDLE_CACHE_MAX_ENTRIES:
+                oldest = min(bootstrap_bundle_cache, key=lambda key: bootstrap_bundle_cache[key][0])
+                bootstrap_bundle_cache.pop(oldest, None)
+            bootstrap_bundle_cache[enrollment_id] = (expires_at, bundle, manifest)
+            return bundle, manifest
+
+    def _validated_bootstrap_bundle_token():
+        if load_config_file(_config_path(script_dir)).get('node_role') != 'controller':
+            return None, (jsonify({'error': '当前节点不是主控端'}), 404)
+        token = _request_bearer_token()
+        try:
+            record = enrollment_store.validate(token)
+        except (InvalidEnrollmentToken, ExpiredEnrollmentToken, EnrollmentTokenBusy) as exc:
+            return None, _enrollment_token_error(exc)
+        return record, None
+
+    @app.route('/api/enroll/bootstrap-manifest', methods=['GET'])
+    def api_enroll_bootstrap_manifest():
+        record, error = _validated_bootstrap_bundle_token()
+        if error:
+            return error
+        try:
+            _bundle, manifest = _bootstrap_bundle_for_enrollment(record)
+        except (OSError, ValueError):
+            return _bootstrap_bundle_response_error()
+        response = jsonify(manifest)
+        response.headers['Cache-Control'] = 'no-store, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
+
+    @app.route('/api/enroll/bootstrap-bundle', methods=['GET'])
+    def api_enroll_bootstrap_bundle():
+        record, error = _validated_bootstrap_bundle_token()
+        if error:
+            return error
+        try:
+            bundle, manifest = _bootstrap_bundle_for_enrollment(record)
+        except (OSError, ValueError):
+            return _bootstrap_bundle_response_error()
+        return Response(
+            bundle,
+            mimetype='application/gzip',
+            headers={
+                'Cache-Control': 'no-store, max-age=0',
+                'Pragma': 'no-cache',
+                'X-Content-Type-Options': 'nosniff',
+                'Content-Disposition': 'attachment; filename="sserveros-bootstrap.tar.gz"',
+                'X-Sserveros-Bundle-Sha256': manifest['sha256'],
+                'X-Sserveros-Bundle-Version': manifest['version'],
+            },
+        )
+
     @app.route('/api/enroll/register', methods=['POST'])
     def api_enroll_register():
         if load_config_file(_config_path(script_dir)).get('node_role') != 'controller':
@@ -529,6 +759,9 @@ def create_app(
         error = _controller_required()
         if error:
             return error
+        if _raw_proxy_subpath_contains_escape() or not _allowed_agent_proxy_path(
+                request.method, subpath):
+            return jsonify({'error': 'not found'}), 404
         try:
             json_body = request.get_json(silent=True) if request.is_json else None
             content = None if request.is_json else request.get_data()
@@ -566,6 +799,8 @@ def create_app(
                     payload.setdefault('controller_server_name', controller_registry.get_server(server_id)['name'])
                 except ServerNotFound:
                     pass
+                if subpath == 'config':
+                    _redact_notification_secrets(payload)
             return jsonify(payload), upstream.status_code
 
         response = Response(upstream.content, status=upstream.status_code, content_type=content_type or None)
@@ -1432,10 +1667,19 @@ def create_app(
                                        data.get('current_password', '')):
                 return jsonify({'error': 'current password incorrect'}), 401
             cfg['password_hash'] = generate_password_hash(data['new_password'])
+            cfg['session_version'] = _session_version(cfg) + 1
             password_changed = True
         if 'serverchan_keys' in data or 'bark_configs' in data:
             cfg['notification_channels_source'] = 'config'
         save_config_file(_config_path(script_dir), cfg)
+        if password_changed and not app.config.get('AGENT_API_ONLY'):
+            # Retain the session that performed the password change, while all
+            # other signed cookies carry the prior generation and fail on their
+            # very next request.
+            session.clear()
+            session['authenticated'] = True
+            session['auth_version'] = _session_version(cfg)
+            session.permanent = True
         if 'serverchan_keys' in data or 'bark_configs' in data:
             if any(os.environ.get(k) for k in _ENV_CHANNEL_KEYS):
                 _clear_env_channel_keys(script_dir)

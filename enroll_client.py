@@ -8,6 +8,7 @@ import ipaddress
 import json
 import os
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -24,6 +25,51 @@ _TAILSCALE_V4 = ipaddress.ip_network('100.64.0.0/10')
 
 class EnrollmentClientError(RuntimeError):
     pass
+
+
+def consume_enrollment_token_file(path: str) -> str:
+    """Read and unlink a private one-line enrollment token file.
+
+    The bootstrapper passes a filename rather than a bearer in argv.  Open the
+    file without following symlinks, verify its ownership/mode, unlink it as
+    soon as it is safely open, then read it from the descriptor.  This keeps
+    the token out of process listings and limits its on-disk lifetime.
+    """
+    path = str(path or '')
+    if not path:
+        raise EnrollmentClientError('一次性令牌文件路径为空')
+    flags = os.O_RDONLY
+    if hasattr(os, 'O_NOFOLLOW'):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise EnrollmentClientError('无法安全读取一次性令牌文件') from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise EnrollmentClientError('一次性令牌文件必须是普通文件')
+        if info.st_uid != os.getuid():
+            raise EnrollmentClientError('一次性令牌文件必须属于当前用户')
+        if info.st_mode & 0o077:
+            raise EnrollmentClientError('一次性令牌文件权限必须为仅当前用户可读')
+        try:
+            os.unlink(path)
+        except OSError as exc:
+            raise EnrollmentClientError('无法在读取前删除一次性令牌文件') from exc
+        with os.fdopen(fd, 'rb', closefd=False) as source:
+            raw = source.read(4097)
+        if len(raw) > 4096:
+            raise EnrollmentClientError('一次性令牌文件内容过长')
+    finally:
+        os.close(fd)
+    try:
+        token = raw.decode('utf-8').strip()
+    except UnicodeDecodeError as exc:
+        raise EnrollmentClientError('一次性令牌文件不是 UTF-8 文本') from exc
+    if not token:
+        raise EnrollmentClientError('一次性配对令牌为空')
+    return token
 
 
 def normalize_controller_url(value: str) -> str:
@@ -162,12 +208,18 @@ def register_with_controller(
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description='Join this node to a sserveros controller')
     parser.add_argument('--controller-url', required=True)
-    parser.add_argument('--token', required=True)
+    token_source = parser.add_mutually_exclusive_group(required=True)
+    token_source.add_argument('--token')
+    token_source.add_argument('--token-file')
     args = parser.parse_args(argv)
     script_dir = os.path.dirname(os.path.abspath(__file__))
     try:
+        enrollment_token = (
+            args.token if args.token is not None
+            else consume_enrollment_token_file(args.token_file)
+        )
         payload = collect_registration_payload(script_dir)
-        result = register_with_controller(args.controller_url, args.token, payload)
+        result = register_with_controller(args.controller_url, enrollment_token, payload)
     except (EnrollmentClientError, ValueError) as exc:
         print(f'接入失败：{exc}', file=sys.stderr)
         return 1

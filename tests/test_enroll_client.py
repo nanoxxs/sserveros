@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import subprocess
 import urllib.error
 
@@ -8,6 +9,7 @@ import pytest
 from enroll_client import (
     EnrollmentClientError,
     collect_registration_payload,
+    consume_enrollment_token_file,
     register_with_controller,
     tailscale_ipv4,
 )
@@ -50,6 +52,25 @@ def test_tailscale_ipv4_selects_only_tailnet_address():
         )
 
     assert tailscale_ipv4(run=fake_run) == '100.100.20.30'
+
+
+def test_consume_enrollment_token_file_unlinks_private_file(tmp_path):
+    token_file = tmp_path / 'token'
+    token_file.write_text('one-time-token\n')
+    token_file.chmod(0o600)
+
+    assert consume_enrollment_token_file(str(token_file)) == 'one-time-token'
+    assert not token_file.exists()
+
+
+def test_consume_enrollment_token_file_rejects_insecure_permissions(tmp_path):
+    token_file = tmp_path / 'token'
+    token_file.write_text('one-time-token\n')
+    token_file.chmod(0o644)
+
+    with pytest.raises(EnrollmentClientError, match='权限'):
+        consume_enrollment_token_file(str(token_file))
+    assert token_file.exists()
 
 
 @pytest.mark.parametrize('result', [

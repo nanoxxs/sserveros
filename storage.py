@@ -1,7 +1,14 @@
 import copy
+from contextlib import contextmanager
 import json
 import os
 import threading
+import tempfile
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - sserveros is deployed on Linux
+    fcntl = None
 
 DEFAULT_CONFIG = {
     'node_role': 'standalone',
@@ -47,7 +54,7 @@ DEFAULT_CONFIG = {
     'llm_temperature': 0.2,
 }
 
-_config_lock = threading.Lock()
+_config_lock = threading.RLock()
 
 
 def config_path(script_dir: str) -> str:
@@ -83,17 +90,69 @@ def ensure_private_file(path: str, mode: int = 0o600):
 
 
 def atomic_write_json(path: str, data, *, mode: int = 0o600):
-    tmp = path + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write('\n')
-    os.chmod(tmp, mode)
-    os.replace(tmp, path)
-    ensure_private_file(path, mode)
+    """Atomically replace a JSON file without sharing a fixed ``.tmp`` name."""
+    directory = os.path.dirname(os.path.abspath(path)) or '.'
+    fd, tmp = tempfile.mkstemp(
+        prefix=f'.{os.path.basename(path)}.', suffix='.tmp', dir=directory,
+    )
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.write('\n')
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+        ensure_private_file(path, mode)
+        try:
+            directory_fd = os.open(directory, os.O_DIRECTORY)
+        except OSError:
+            directory_fd = None
+        if directory_fd is not None:
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+
+
+@contextmanager
+def config_file_lock(path: str):
+    """Serialize config mutations across threads and local processes.
+
+    ``os.replace`` prevents torn files, but it cannot prevent two writers from
+    independently reading the same old config and overwriting one another.  A
+    sidecar lock protects the complete read-modify-write transaction.
+    """
+    lock_path = path + '.lock'
+    with _config_lock:
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            ensure_private_file(lock_path)
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+
+def mutate_config_file(path: str, mutator):
+    """Run ``mutator(config)`` and persist it as one locked transaction."""
+    with config_file_lock(path):
+        cfg = load_config_file(path)
+        result = mutator(cfg)
+        atomic_write_json(path, cfg)
+        return result
 
 
 def save_config_file(path: str, cfg: dict):
-    with _config_lock:
+    with config_file_lock(path):
         atomic_write_json(path, cfg)
 
 

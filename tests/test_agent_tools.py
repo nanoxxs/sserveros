@@ -175,6 +175,26 @@ class TestMonitorSettingsAndReleaseCommands:
             '0': {'mem_threshold_mib': 256, 'check_interval': 30, 'confirm_times': 1},
         }
 
+    def test_monitor_settings_never_returns_notification_credentials(self, tmp_path, monkeypatch):
+        cfg = {
+            'sendkey': 'SCT-local-secret',
+            'serverchan_keys': ['SCT-serverchan-secret'],
+            'bark_configs': [{'url': 'https://api.day.app', 'key': 'bark-secret'}],
+        }
+        (tmp_path / 'config.json').write_text(json.dumps(cfg))
+        monkeypatch.setenv('SERVERCHAN_KEYS', 'SCT-env-secret')
+        monkeypatch.setenv('BARK_CONFIGS', 'https://api.day.app|bark-env-secret')
+
+        result = monitor_settings(str(tmp_path))
+        rendered = json.dumps(result, sort_keys=True)
+
+        assert result['ok'] is True
+        assert result['notification_summary']['env_active'] is True
+        assert result['notification_summary']['effective_serverchan_count'] == 1
+        for secret in ('SCT-local-secret', 'SCT-serverchan-secret', 'bark-secret',
+                       'SCT-env-secret', 'bark-env-secret'):
+            assert secret not in rendered
+
     def test_list_release_commands_reads_config(self, tmp_path):
         cfg = {
             'release_command_enabled': True,

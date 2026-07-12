@@ -11,11 +11,11 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import httpx
 
-from storage import config_path, load_config_file, save_config_file
+from storage import config_path, load_config_file, mutate_config_file
 
 
 PROTOCOL_VERSION = 1
@@ -66,10 +66,35 @@ def _validate_tailnet_agent_url(value: str) -> str:
     try:
         address = ipaddress.ip_address(hostname)
     except ValueError as exc:
-        raise ValueError('自动接入必须使用 B 的 Tailscale IP 地址') from exc
+        raise ValueError('Agent 地址必须使用 B 的 Tailscale IP 地址') from exc
     if address not in _TAILSCALE_V4 and address not in _TAILSCALE_V6:
         raise ValueError('自动接入地址不在 Tailscale 地址范围内')
     return value
+
+
+def _normalize_agent_path(value: str) -> str:
+    """Return a safe relative Agent API path.
+
+    URL libraries normalise dot segments while preparing a request.  Without
+    validating them before concatenating the fixed Agent prefix, a scoped
+    controller request such as ``%2e%2e/...`` can escape that prefix entirely.
+    Decode repeatedly to reject double-encoded variants as well.
+    """
+    path = str(value or '').strip().replace('\\', '/').lstrip('/')
+    if not path or '?' in path or '#' in path:
+        raise AgentRequestError('Agent API 路径无效', status_code=400)
+    decoded = path
+    for _ in range(3):
+        next_value = unquote(decoded)
+        if next_value == decoded:
+            break
+        decoded = next_value
+    if decoded.startswith('/') or decoded.endswith('/'):
+        raise AgentRequestError('Agent API 路径无效', status_code=400)
+    parts = decoded.split('/')
+    if any(part in ('', '.', '..') for part in parts):
+        raise AgentRequestError('Agent API 路径无效', status_code=400)
+    return '/'.join(parts)
 
 
 class AgentClient:
@@ -89,7 +114,8 @@ class AgentClient:
         content=None,
         headers=None,
     ) -> httpx.Response:
-        url = f"{self.server['url'].rstrip('/')}/agent/api/v1/{path.lstrip('/')}"
+        path = _normalize_agent_path(path)
+        url = f"{self.server['url'].rstrip('/')}/agent/api/v1/{path}"
         request_headers = {
             'Authorization': f"Bearer {self.server['token']}",
             'Accept': 'application/json',
@@ -153,6 +179,33 @@ class ControllerRegistry:
 
     def _config(self) -> dict:
         return load_config_file(self.config_file)
+
+    def _mutate_config(self, mutator):
+        """Apply a registry change without losing a concurrent config update."""
+        return mutate_config_file(self.config_file, mutator)
+
+    @staticmethod
+    def _server_generation(server: dict) -> tuple:
+        """Fields that make an in-flight poll result stale when they change."""
+        return (
+            str(server.get('server_id') or ''),
+            str(server.get('node_id') or ''),
+            str(server.get('url') or '').rstrip('/'),
+            str(server.get('token') or ''),
+            bool(server.get('enabled', True)),
+        )
+
+    @staticmethod
+    def _validate_health_identity(server: dict, health: dict) -> None:
+        """Bind an enrolled record to the Agent that answered a health check."""
+        expected_node_id = str(server.get('node_id') or '').strip()
+        if not expected_node_id:
+            # Legacy manually-added entries have no persistent Agent identity.
+            return
+        if str(health.get('server_id') or '').strip() != expected_node_id:
+            raise AgentRequestError('Agent 身份校验失败', status_code=409)
+        if not server.get('local') and health.get('node_role') != 'agent':
+            raise AgentRequestError('目标节点不是分控端', status_code=409)
 
     def _configured_servers(self) -> list[dict]:
         cfg = self._config()
@@ -229,7 +282,10 @@ class ControllerRegistry:
                 raise ValueError('服务器名称不能超过 80 个字符')
             result['name'] = name
         if not partial or 'url' in payload:
-            result['url'] = _normalize_url(payload.get('url'))
+            # This project is intentionally a Tailnet controller.  Accepting
+            # arbitrary HTTP origins here turns the scoped proxy into an SSRF
+            # primitive even if its path handling is otherwise correct.
+            result['url'] = _validate_tailnet_agent_url(payload.get('url'))
         if not partial or 'token' in payload:
             token = str(payload.get('token') or '').strip()
             if not token:
@@ -244,14 +300,20 @@ class ControllerRegistry:
         return result
 
     def add_server(self, payload: dict) -> dict:
-        item = self._validate_payload(payload)
-        cfg = self._config()
-        existing = cfg.setdefault('controller_servers', [])
-        if any(str(s.get('url', '')).rstrip('/') == item['url'] for s in existing if isinstance(s, dict)):
-            raise ValueError('该 Agent 地址已经存在')
-        item['server_id'] = f"srv_{uuid.uuid4().hex[:12]}"
-        existing.append(item)
-        save_config_file(self.config_file, cfg)
+        requested = self._validate_payload(payload)
+
+        def mutate(cfg):
+            existing = cfg.setdefault('controller_servers', [])
+            if any(
+                str(server.get('url', '')).rstrip('/') == requested['url']
+                for server in existing if isinstance(server, dict)
+            ):
+                raise ValueError('该 Agent 地址已经存在')
+            item = {**requested, 'server_id': f"srv_{uuid.uuid4().hex[:12]}"}
+            existing.append(item)
+            return copy.deepcopy(item)
+
+        item = self._mutate_config(mutate)
         return _public_server({**item, 'local': False})
 
     def register_enrolled_agent(self, payload: dict) -> dict:
@@ -280,42 +342,54 @@ class ControllerRegistry:
         health = self._client(candidate).get_json('health')
         if health.get('protocol_version') != PROTOCOL_VERSION:
             raise AgentRequestError('Agent 协议版本不兼容', status_code=409)
-        if str(health.get('server_id') or '') != node_id:
-            raise AgentRequestError('Agent 身份校验失败', status_code=409)
-        if health.get('node_role') != 'agent':
-            raise AgentRequestError('目标节点尚未切换为分控端', status_code=409)
+        self._validate_health_identity(candidate, health)
 
-        cfg = self._config()
-        servers = cfg.setdefault('controller_servers', [])
-        node_target = next(
-            (
-                item for item in servers
-                if isinstance(item, dict) and str(item.get('node_id') or '') == node_id
-            ),
-            None,
-        )
-        url_target = next(
-            (
-                item for item in servers
-                if isinstance(item, dict) and str(item.get('url') or '').rstrip('/') == url
-            ),
-            None,
-        )
-        if node_target is not None and url_target is not None and node_target is not url_target:
-            raise ValueError('该 Tailscale 地址已属于另一台服务器')
-        target = node_target or url_target
-        created = target is None
-        if target is None:
-            target = {'server_id': f"srv_{uuid.uuid4().hex[:12]}"}
-            servers.append(target)
-        target.update({
-            'node_id': node_id,
-            'name': name,
-            'url': url,
-            'token': token,
-            'enabled': True,
-        })
-        save_config_file(self.config_file, cfg)
+        def mutate(cfg):
+            servers = cfg.setdefault('controller_servers', [])
+            node_target = next(
+                (
+                    item for item in servers
+                    if isinstance(item, dict) and str(item.get('node_id') or '') == node_id
+                ),
+                None,
+            )
+            url_target = next(
+                (
+                    item for item in servers
+                    if isinstance(item, dict) and str(item.get('url') or '').rstrip('/') == url
+                ),
+                None,
+            )
+            if node_target is not None and url_target is not None and node_target is not url_target:
+                raise ValueError('该 Tailscale 地址已属于另一台服务器')
+            if node_target is not None:
+                existing_token = str(node_target.get('token') or '')
+                # A normal rejoin retains the Agent's long-lived pairing
+                # token while its Tailnet address may change.  Do not let a
+                # newly-issued enrollment token plus a copied public node_id
+                # silently redirect an existing server record to another
+                # Agent.  Deliberate token rotation remains possible through
+                # the authenticated server edit flow (or delete/re-enroll).
+                if existing_token and existing_token != token:
+                    raise ValueError(
+                        '该 node_id 已属于现有节点且 Agent 令牌不匹配；'
+                        '请先在主控端显式更新或删除旧节点'
+                    )
+            target = node_target or url_target
+            created = target is None
+            if target is None:
+                target = {'server_id': f"srv_{uuid.uuid4().hex[:12]}"}
+                servers.append(target)
+            target.update({
+                'node_id': node_id,
+                'name': name,
+                'url': url,
+                'token': token,
+                'enabled': True,
+            })
+            return created, copy.deepcopy(target)
+
+        created, target = self._mutate_config(mutate)
         with self._lock:
             self._cache.pop(target['server_id'], None)
         return {
@@ -335,22 +409,27 @@ class ControllerRegistry:
         updates = self._validate_payload(payload, partial=True)
         if not updates:
             raise ValueError('没有可更新的字段')
-        cfg = self._config()
-        target = next(
-            (s for s in cfg.get('controller_servers', []) if isinstance(s, dict) and s.get('server_id') == server_id),
-            None,
-        )
-        if not target:
-            raise ServerNotFound('服务器不存在')
-        if 'url' in updates and any(
-            isinstance(item, dict)
-            and item.get('server_id') != server_id
-            and str(item.get('url', '')).rstrip('/') == updates['url']
-            for item in cfg.get('controller_servers', [])
-        ):
-            raise ValueError('该 Agent 地址已经存在')
-        target.update(updates)
-        save_config_file(self.config_file, cfg)
+        def mutate(cfg):
+            target = next(
+                (
+                    item for item in cfg.get('controller_servers', [])
+                    if isinstance(item, dict) and item.get('server_id') == server_id
+                ),
+                None,
+            )
+            if not target:
+                raise ServerNotFound('服务器不存在')
+            if 'url' in updates and any(
+                isinstance(item, dict)
+                and item.get('server_id') != server_id
+                and str(item.get('url', '')).rstrip('/') == updates['url']
+                for item in cfg.get('controller_servers', [])
+            ):
+                raise ValueError('该 Agent 地址已经存在')
+            target.update(updates)
+            return copy.deepcopy(target)
+
+        target = self._mutate_config(mutate)
         if 'url' in updates or 'token' in updates:
             with self._lock:
                 self._cache.pop(server_id, None)
@@ -359,13 +438,18 @@ class ControllerRegistry:
     def remove_server(self, server_id: str) -> None:
         if server_id == 'local':
             raise ValueError('不能删除主控本机 Agent')
-        cfg = self._config()
-        servers = cfg.get('controller_servers', [])
-        kept = [s for s in servers if not (isinstance(s, dict) and s.get('server_id') == server_id)]
-        if len(kept) == len(servers):
-            raise ServerNotFound('服务器不存在')
-        cfg['controller_servers'] = kept
-        save_config_file(self.config_file, cfg)
+
+        def mutate(cfg):
+            servers = cfg.get('controller_servers', [])
+            kept = [
+                item for item in servers
+                if not (isinstance(item, dict) and item.get('server_id') == server_id)
+            ]
+            if len(kept) == len(servers):
+                raise ServerNotFound('服务器不存在')
+            cfg['controller_servers'] = kept
+
+        self._mutate_config(mutate)
         with self._lock:
             self._cache.pop(server_id, None)
 
@@ -390,8 +474,10 @@ class ControllerRegistry:
 
     def test_server(self, server_id: str) -> dict:
         server = self.get_server(server_id)
+        generation = self._server_generation(server)
         started = time.monotonic()
         health = self._client(server).get_json('health')
+        self._validate_health_identity(server, health)
         latency = round((time.monotonic() - started) * 1000)
         protocol = health.get('protocol_version')
         checked_at = _now_text()
@@ -401,22 +487,28 @@ class ControllerRegistry:
             'latency_ms': latency,
             'compatible': protocol == PROTOCOL_VERSION,
         }
-        with self._lock:
-            cached = copy.deepcopy(self._cache.get(server_id, {}))
-            cached.update({
-                'online': True,
-                'last_seen_at': checked_at,
-                'last_checked_at': checked_at,
-                'latency_ms': latency,
-                'connection_error': '',
-                'compatible': result['compatible'],
-                'agent_version': health.get('agent_version', ''),
-                'protocol_version': protocol,
-            })
-            self._cache[server_id] = cached
+        try:
+            current = self.get_server(server_id)
+        except ServerNotFound:
+            current = None
+        if current is not None and self._server_generation(current) == generation:
+            with self._lock:
+                cached = copy.deepcopy(self._cache.get(server_id, {}))
+                cached.update({
+                    'online': True,
+                    'last_seen_at': checked_at,
+                    'last_checked_at': checked_at,
+                    'latency_ms': latency,
+                    'connection_error': '',
+                    'compatible': result['compatible'],
+                    'agent_version': health.get('agent_version', ''),
+                    'protocol_version': protocol,
+                })
+                self._cache[server_id] = cached
         return result
 
-    def _poll_server(self, server: dict) -> tuple[str, dict]:
+    def _poll_server(self, server: dict) -> tuple[str, dict, tuple]:
+        generation = self._server_generation(server)
         checked_at = _now_text()
         if not server.get('enabled', True):
             with self._lock:
@@ -427,11 +519,12 @@ class ControllerRegistry:
                 'connection_error': '服务器已禁用',
                 'stale': True,
             })
-            return server['server_id'], previous
+            return server['server_id'], previous, generation
         started = time.monotonic()
         try:
             client = self._client(server)
             health = client.get_json('health')
+            self._validate_health_identity(server, health)
             state = client.get_json('state')
             partial_error = ''
             try:
@@ -455,7 +548,7 @@ class ControllerRegistry:
                 'protocol_version': protocol,
                 'sampled_at': sampled_at,
                 'state': state,
-            }
+            }, generation
         except Exception as exc:
             with self._lock:
                 previous = copy.deepcopy(self._cache.get(server['server_id'], {}))
@@ -466,7 +559,7 @@ class ControllerRegistry:
                 'connection_error': str(exc),
                 'stale': True,
             })
-            return server['server_id'], previous
+            return server['server_id'], previous, generation
 
     def poll_once(self) -> list[dict]:
         servers = self._configured_servers()
@@ -477,7 +570,13 @@ class ControllerRegistry:
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='sserveros-poll') as pool:
             futures = [pool.submit(self._poll_server, server) for server in servers]
             for future in as_completed(futures):
-                server_id, status = future.result()
+                server_id, status, generation = future.result()
+                try:
+                    current = self.get_server(server_id)
+                except ServerNotFound:
+                    current = None
+                if current is None or self._server_generation(current) != generation:
+                    continue
                 with self._lock:
                     self._cache[server_id] = status
                 updates.append({'server_id': server_id, **copy.deepcopy(status)})
