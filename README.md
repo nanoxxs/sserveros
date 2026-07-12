@@ -16,10 +16,10 @@ bash ./manage.sh
 
 ### 使用指定 Release 版本
 
-将 `v1.2.3` 替换为 GitHub Releases 页面中的实际标签：
+将 `v0.1.3` 替换为 GitHub Releases 页面中的实际标签：
 
 ```bash
-VERSION=v1.2.3
+VERSION=v0.1.3
 git clone --depth 1 --branch "$VERSION" https://github.com/nanoxxs/sserveros.git sserveros && \
 cd sserveros && \
 bash ./manage.sh
