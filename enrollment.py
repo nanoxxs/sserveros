@@ -447,8 +447,14 @@ append_trusted_system_path
 
 cleanup() {
   local status=$?
+  # Disable this trap before attempting recovery.  A recovery helper may need
+  # to return an error of its own; re-entering EXIT while it is restoring a
+  # directory can otherwise leave the old tree and the new tree interleaved.
+  trap - EXIT
   if [ "${status}" -ne 0 ] && declare -F rollback_to_previous_install >/dev/null 2>&1; then
-    rollback_to_previous_install || true
+    if ! rollback_to_previous_install; then
+      echo '警告：接入失败后的项目回滚已完成，但虚拟环境自动修复未完成。原项目和配置仍已保留。' >&2
+    fi
   fi
   if [ -n "${FINAL_TOKEN_FILE:-}" ]; then
     rm -f -- "${FINAL_TOKEN_FILE}" || true
@@ -462,7 +468,6 @@ cleanup() {
   if [ -n "${LOCK_DIR:-}" ] && [ -d "${LOCK_DIR}" ]; then
     rmdir -- "${LOCK_DIR}" || true
   fi
-  trap - EXIT
   exit "${status}"
 }
 trap cleanup EXIT
@@ -601,26 +606,26 @@ run_privileged() {
 install_bootstrap_packages() {
   echo '正在自动安装 sserveros 所需的 Python、venv 和系统工具……'
   if command -v apt-get >/dev/null 2>&1; then
-    run_privileged apt-get update
+    run_privileged apt-get update || return 1
     run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      bash ca-certificates curl python3 python3-venv python3-pip coreutils findutils grep procps
+      bash ca-certificates curl python3 python3-venv python3-pip coreutils findutils grep procps || return 1
   elif command -v dnf >/dev/null 2>&1; then
     run_privileged dnf install -y \
-      bash ca-certificates curl python3 python3-pip coreutils findutils grep procps-ng
+      bash ca-certificates curl python3 python3-pip coreutils findutils grep procps-ng || return 1
     run_privileged dnf install -y python3-virtualenv >/dev/null 2>&1 || true
   elif command -v yum >/dev/null 2>&1; then
     run_privileged yum install -y \
-      bash ca-certificates curl python3 python3-pip coreutils findutils grep procps-ng
+      bash ca-certificates curl python3 python3-pip coreutils findutils grep procps-ng || return 1
     run_privileged yum install -y python3-virtualenv >/dev/null 2>&1 || true
   elif command -v apk >/dev/null 2>&1; then
     run_privileged apk add --no-cache \
-      bash ca-certificates curl python3 py3-pip py3-virtualenv coreutils findutils grep procps
+      bash ca-certificates curl python3 py3-pip py3-virtualenv coreutils findutils grep procps || return 1
   elif command -v pacman >/dev/null 2>&1; then
     run_privileged pacman -S --needed --noconfirm \
-      bash ca-certificates curl python python-pip python-virtualenv coreutils findutils grep procps-ng
+      bash ca-certificates curl python python-pip python-virtualenv coreutils findutils grep procps-ng || return 1
   elif command -v zypper >/dev/null 2>&1; then
     run_privileged zypper --non-interactive install \
-      bash ca-certificates curl python3 python3-pip python3-virtualenv coreutils findutils grep procps
+      bash ca-certificates curl python3 python3-pip python3-virtualenv coreutils findutils grep procps || return 1
   else
     echo '错误：未识别的系统包管理器，无法自动安装 Python venv 组件。支持 apt、dnf、yum、apk、pacman、zypper。' >&2
     return 1
@@ -656,12 +661,12 @@ ensure_bootstrap_runtime() {
   done
   find_base_python || needs_packages=1
   if [ "${needs_packages}" -eq 1 ]; then
-    install_bootstrap_packages
+    install_bootstrap_packages || fail '无法自动安装 sserveros 所需的系统依赖。'
     find_base_python || fail '自动安装后仍未找到 Python 3.8+。'
   fi
   if ! base_has_venv_support; then
     echo '检测到 Python 缺少 venv/ensurepip 组件，正在自动补齐……' >&2
-    install_bootstrap_packages
+    install_bootstrap_packages || fail '无法自动安装 Python venv/ensurepip 组件。'
     find_base_python || fail '自动安装 venv 组件后仍未找到 Python 3.8+。'
   fi
   if ! base_has_venv_support && ! command -v virtualenv >/dev/null 2>&1; then
@@ -683,9 +688,15 @@ create_clean_venv() {
 remove_project_venv() {
   case "${VENV_DIR}" in
     "${INSTALL_DIR}"/.venv) ;;
-    *) fail '拒绝删除预期安装目录之外的虚拟环境。' ;;
+    *)
+      echo '错误：拒绝删除预期安装目录之外的虚拟环境。' >&2
+      return 1
+      ;;
   esac
-  [ ! -L "${VENV_DIR}" ] || fail '拒绝删除符号链接形式的虚拟环境。'
+  if [ -L "${VENV_DIR}" ]; then
+    echo '错误：拒绝删除符号链接形式的虚拟环境。' >&2
+    return 1
+  fi
   rm -rf -- "${VENV_DIR}"
 }
 
@@ -694,31 +705,59 @@ venv_has_working_pip() {
   [ -x "${venv_python}" ] && "${venv_python}" -m pip --version >/dev/null 2>&1
 }
 
+venv_has_project_dependencies() {
+  local venv_python="${VENV_DIR}/bin/python"
+  venv_has_working_pip \
+    && "${venv_python}" -c 'import flask, psutil, httpx, httpcore, socksio, werkzeug.security' >/dev/null 2>&1
+}
+
 ensure_project_venv() {
   local venv_python="${VENV_DIR}/bin/python"
   if ! venv_has_working_pip; then
     if [ -e "${VENV_DIR}" ] || [ -L "${VENV_DIR}" ]; then
       echo '检测到现有虚拟环境缺少可用的 pip/ensurepip，正在自动重建……' >&2
-      remove_project_venv
+      remove_project_venv || return 1
     fi
     echo "正在创建项目隔离的 Python 环境：${VENV_DIR}"
     if ! create_clean_venv "${VENV_DIR}" || ! venv_has_working_pip; then
       echo '首次创建虚拟环境未获得可用 pip，正在自动补齐 venv/ensurepip 组件并重试……' >&2
-      remove_project_venv
-      install_bootstrap_packages
-      find_base_python || fail '自动安装 venv 组件后仍未找到 Python 3.8+。'
-      create_clean_venv "${VENV_DIR}" || fail '无法创建 Python 虚拟环境。'
-      venv_has_working_pip || fail '自动重建虚拟环境后仍没有 pip/ensurepip。请确认系统软件源提供 python3-venv 或 python3-virtualenv，然后重新执行接入命令；无需手工 pip 安装项目依赖。'
+      if [ -e "${VENV_DIR}" ] || [ -L "${VENV_DIR}" ]; then
+        remove_project_venv || return 1
+      fi
+      install_bootstrap_packages || return 1
+      if ! find_base_python; then
+        echo '错误：自动安装 venv 组件后仍未找到 Python 3.8+。' >&2
+        return 1
+      fi
+      if ! create_clean_venv "${VENV_DIR}"; then
+        echo '错误：无法创建 Python 虚拟环境。' >&2
+        return 1
+      fi
+      if ! venv_has_working_pip; then
+        echo '错误：自动重建虚拟环境后仍没有 pip/ensurepip。请确认系统软件源提供 python3-venv 或 python3-virtualenv，然后重新执行接入命令；无需手工 pip 安装项目依赖。' >&2
+        return 1
+      fi
     fi
   fi
   venv_python="${VENV_DIR}/bin/python"
-  if ! "${venv_python}" -c 'import flask, psutil, httpx, httpcore, socksio, werkzeug.security' >/dev/null 2>&1; then
+  if ! venv_has_project_dependencies; then
     echo '正在安装 sserveros 的 Python 依赖……'
-    "${venv_python}" -m pip install --disable-pip-version-check --no-input --upgrade pip
-    "${venv_python}" -m pip install --disable-pip-version-check --no-input flask psutil 'httpx[socks]' 'httpcore[socks]'
+    if ! "${venv_python}" -m pip install --disable-pip-version-check --no-input --upgrade pip; then
+      echo '错误：无法升级虚拟环境中的 pip。' >&2
+      return 1
+    fi
+    if ! "${venv_python}" -m pip install --disable-pip-version-check --no-input flask psutil 'httpx[socks]' 'httpcore[socks]'; then
+      echo '错误：无法安装 sserveros 所需的 Python 依赖。' >&2
+      return 1
+    fi
+  fi
+  if ! venv_has_project_dependencies; then
+    echo '错误：Python 依赖安装后仍不完整。' >&2
+    return 1
   fi
   export VIRTUAL_ENV="${VENV_DIR}"
   export PATH="${VENV_DIR}/bin:${PATH}"
+  return 0
 }
 
 download_and_verify_bundle() {
@@ -846,7 +885,21 @@ rollback_to_previous_install() {
     return 1
   fi
   BACKUP_DIR=""
+  # The previous project directory is restored verbatim, including its old
+  # .venv.  That environment may already have been incomplete before the
+  # enrollment attempt (for example a former Python build without ensurepip).
+  # Repair only the project-local runtime when necessary; config/.env/runtime
+  # are never touched by this step.
+  VENV_DIR="${INSTALL_DIR}/.venv"
+  if ! venv_has_project_dependencies; then
+    echo '已恢复原项目，正在检查并修复原虚拟环境……' >&2
+    if ! ensure_project_venv; then
+      echo '警告：原项目已恢复，但无法自动修复其虚拟环境。配置和运行数据未被修改。' >&2
+      return 1
+    fi
+  fi
   echo '接入失败，已自动恢复接入前的 sserveros 版本和配置。' >&2
+  return 0
 }
 
 finalize_previous_install() {
@@ -896,7 +949,7 @@ ensure_bootstrap_runtime
 download_and_verify_bundle
 deploy_verified_bundle
 VENV_DIR="${INSTALL_DIR}/.venv"
-ensure_project_venv
+ensure_project_venv || fail '无法准备 sserveros 所需的 Python 虚拟环境。'
 
 mkdir -p -- "${INSTALL_DIR}/runtime"
 FINAL_TOKEN_FILE="${INSTALL_DIR}/runtime/.enroll-token.$$"

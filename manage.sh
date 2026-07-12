@@ -638,6 +638,7 @@ wait_for_service() {
 }
 
 bootstrap_config() {
+  local announce_password="${1:-1}"
   check_webui_requirements
   load_env_exports
   LAST_GENERATED_PASSWORD="$("${PYTHON_BIN}" -c "
@@ -648,7 +649,7 @@ _, password = ensure_config(sys.argv[1], initial_password=os.environ.get('SSERVE
 print(password or '')
 " "${SCRIPT_DIR}")"
 
-  if [ -n "${LAST_GENERATED_PASSWORD}" ]; then
+  if [ "${announce_password}" = "1" ] && [ -n "${LAST_GENERATED_PASSWORD}" ]; then
     echo
     printf '首次运行已生成 WebUI 初始密码：%s%s%s\n' \
       "${COLOR_HIGHLIGHT}" "${LAST_GENERATED_PASSWORD}" "${COLOR_RESET}"
@@ -1666,9 +1667,18 @@ ensure_join_monitor() {
   fi
 
   JOIN_MONITOR_STARTED=1
-  if ! start_backend 1 1; then
+  # start_backend's prerequisite helpers intentionally use `exit` for the
+  # interactive monitor command.  Run that optional path in a subshell so a
+  # missing GPU/monitor dependency only fails the monitor attempt, rather
+  # than terminating `join` and firing its rollback trap.
+  if ! ( start_backend 1 1 ); then
     echo "警告：monitor.py 当前无法启动；节点仍会继续注册，可在修复依赖后从 manage.sh 菜单启动。"
   fi
+  # monitor.py is optional while a node is being enrolled: the Agent API is
+  # sufficient for the controller's identity/health validation.  Make that
+  # contract explicit so `set -e` cannot turn an expected monitor failure
+  # into a failed registration.
+  return 0
 }
 
 stop_join_webui_only() {
@@ -1876,7 +1886,11 @@ join_flow() {
   fi
 
   echo "正在初始化分控端配置……"
-  if ! bootstrap_config; then
+  # A bootstrap wrapper may roll the whole staged project back after a failed
+  # join. Do not show a newly generated password until registration is durable:
+  # otherwise users could save a password for a config.json that is about to
+  # disappear during rollback.
+  if ! bootstrap_config 0; then
     echo "错误：无法初始化分控端配置，未开始切换节点角色。" >&2
     return 1
   fi
@@ -1963,6 +1977,12 @@ join_flow() {
     echo "警告：节点已注册成功，但 WebUI 未能完全停止；请检查后手动停止。" >&2
   fi
   echo "接入完成：monitor.py 和 Agent API 保持运行，现有 tmux/zellij 任务未受影响。"
+  if [ -n "${LAST_GENERATED_PASSWORD}" ]; then
+    echo
+    printf '本次接入已生效；该节点配置的初始密码：%s%s%s\n' \
+      "${COLOR_HIGHLIGHT}" "${LAST_GENERATED_PASSWORD}" "${COLOR_RESET}"
+    echo "请妥善保存；它仅在未来启用该节点 WebUI 时使用。"
+  fi
   if ! show_status; then
     echo "警告：节点已注册成功，但无法刷新本地状态摘要。" >&2
   fi

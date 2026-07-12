@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import tarfile
@@ -218,12 +219,82 @@ def test_enrollment_command_and_bootstrap_keep_controller_and_token_scoped():
     assert '检测到现有虚拟环境缺少可用的 pip/ensurepip，正在自动重建' in script
     assert '-m ensurepip --upgrade' not in script
     assert "pip install --disable-pip-version-check --no-input flask psutil" in script
+    assert 'venv_has_project_dependencies' in script
+    assert '已恢复原项目，正在检查并修复原虚拟环境' in script
+    assert 'trap - EXIT\n  if [ "${status}" -ne 0 ]' in script
+    assert 'run_privileged apt-get update || return 1' in script
     assert 'manage.sh" join' in script
     assert '--controller-url "${CONTROLLER_URL}"' in script
     assert '--token "${ENROLL_TOKEN}"' not in script
     assert '--token-file "${FINAL_TOKEN_FILE}"' in script
     completed = subprocess.run(['bash', '-n'], input=script, text=True, capture_output=True)
     assert completed.returncode == 0, completed.stderr
+
+
+def test_bootstrap_rollback_restores_old_tree_then_repairs_old_venv(tmp_path):
+    """A failed join must not leave the staged .venv in the restored project.
+
+    The generated script intentionally retains the previous project as a
+    directory-level backup.  Exercise its shell rollback helper directly with
+    a stubbed venv repair routine: it proves the old tree (and its state) is
+    restored before repair is attempted, while the failed/new tree is moved
+    aside.
+    """
+    script = build_bootstrap_script('http://100.64.0.1:6777/', 'one-time-token')
+    shell_library, separator, _ = script.partition('\nensure_install_directory\n')
+    assert separator
+
+    install_dir = tmp_path / 'sserveros'
+    backup_dir = tmp_path / '.sserveros-previous-test'
+    repair_marker = tmp_path / 'venv-repaired'
+    (install_dir / '.venv').mkdir(parents=True)
+    (install_dir / '.venv' / 'created-by-failed-enrollment').write_text('new')
+    (install_dir / 'new-release-marker').write_text('new')
+    (backup_dir / '.venv').mkdir(parents=True)
+    (backup_dir / '.venv' / 'preexisting-broken-venv').write_text('old')
+    (backup_dir / 'config.json').write_text('{"preserved": true}')
+
+    shell = shell_library + r'''
+trap - EXIT
+INSTALL_PARENT="${TEST_INSTALL_PARENT}"
+INSTALL_DIR="${TEST_INSTALL_DIR}"
+VENV_DIR="${INSTALL_DIR}/.venv"
+BACKUP_DIR="${TEST_BACKUP_DIR}"
+
+# Avoid creating a real virtual environment or downloading packages here.  A
+# successful repair records the directory it was asked to repair instead.
+ensure_project_venv() {
+  [ "${VENV_DIR}" = "${INSTALL_DIR}/.venv" ]
+  [ -f "${VENV_DIR}/preexisting-broken-venv" ]
+  printf '%s\n' "${VENV_DIR}" > "${TEST_REPAIR_MARKER}"
+}
+
+rollback_to_previous_install
+[ -f "${INSTALL_DIR}/config.json" ]
+[ -f "${INSTALL_DIR}/.venv/preexisting-broken-venv" ]
+[ ! -e "${INSTALL_DIR}/new-release-marker" ]
+[ -f "${TEST_REPAIR_MARKER}" ]
+'''
+    completed = subprocess.run(
+        ['bash', '-c', shell],
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            'TEST_INSTALL_PARENT': str(tmp_path),
+            'TEST_INSTALL_DIR': str(install_dir),
+            'TEST_BACKUP_DIR': str(backup_dir),
+            'TEST_REPAIR_MARKER': str(repair_marker),
+        },
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert repair_marker.read_text().strip() == str(install_dir / '.venv')
+    assert (install_dir / 'config.json').read_text() == '{"preserved": true}'
+    assert (install_dir / '.venv' / 'preexisting-broken-venv').read_text() == 'old'
+    failed_trees = list(tmp_path.glob('.sserveros-failed-*'))
+    assert len(failed_trees) == 1
+    assert (failed_trees[0] / '.venv' / 'created-by-failed-enrollment').read_text() == 'new'
 
 
 def test_bootstrap_bundle_is_complete_deterministic_and_hashed():
