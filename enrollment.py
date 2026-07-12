@@ -16,7 +16,10 @@ from urllib.parse import urlparse
 from storage import atomic_write_json, ensure_runtime_dir, runtime_path
 
 
-DEFAULT_ENROLLMENT_TTL = 600
+# A fresh host may need to install Python packages before it can register.
+# Keep the bearer short-lived and one-time, but give that first deployment
+# enough time to finish on a slow package mirror.
+DEFAULT_ENROLLMENT_TTL = 1800
 MAX_ENROLLMENT_TTL = 3600
 REPO_URL = 'https://github.com/nanoxxs/sserveros.git'
 # A deliberately small allowlist for files served to a joining node.  The
@@ -136,7 +139,7 @@ class EnrollmentStore:
             self._prune(data, now)
             data['tokens'].append(record)
             self._save(data)
-        return {**_public_record(record), 'token': raw_token}
+        return {**_public_record(record), 'token': raw_token, 'expires_in': ttl}
 
     def _find(self, data: dict, token: str) -> dict | None:
         supplied = _token_hash(token)
@@ -234,9 +237,10 @@ class EnrollmentStore:
 def build_enrollment_command(controller_url: str, token: str) -> str:
     endpoint = f'{normalize_controller_url(controller_url)}/api/enroll/bootstrap'
     return (
+        "( tmp=\"$(mktemp)\" && trap 'rm -f \"$tmp\"' EXIT && "
         "curl -fsSL --connect-timeout 10 --noproxy '*' "
         f'-H {shlex.quote("Authorization: Bearer " + token)} '
-        f'{shlex.quote(endpoint)} | bash'
+        f'{shlex.quote(endpoint)} -o "$tmp" && bash "$tmp" )'
     )
 
 
@@ -257,27 +261,150 @@ else
   INSTALL_DIR="${{HOME}}/sserveros"
 fi
 
+BASE_PYTHON=""
+VENV_DIR="${{INSTALL_DIR}}/.venv"
+REQUIRED_PROJECT_FILES=(agent_api.py config_bootstrap.py storage.py)
+
+run_privileged() {{
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    echo "错误：需要安装系统依赖，但当前用户没有 root 或 sudo 权限。" >&2
+    return 1
+  fi
+}}
+
+install_bootstrap_packages() {{
+  echo "正在安装 sserveros 所需的系统依赖（git、Python 和 venv）……"
+  if command -v apt-get >/dev/null 2>&1; then
+    run_privileged apt-get update
+    run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y bash ca-certificates curl git python3 python3-venv python3-pip coreutils findutils grep procps
+  elif command -v dnf >/dev/null 2>&1; then
+    run_privileged dnf install -y bash ca-certificates curl git python3 python3-pip coreutils findutils grep procps-ng
+    if ! find_base_python; then
+      run_privileged dnf install -y python38 python38-pip || true
+    fi
+  elif command -v yum >/dev/null 2>&1; then
+    run_privileged yum install -y bash ca-certificates curl git python3 python3-pip coreutils findutils grep procps-ng
+    if ! find_base_python; then
+      run_privileged yum install -y python38 python38-pip || true
+    fi
+  elif command -v apk >/dev/null 2>&1; then
+    run_privileged apk add --no-cache bash ca-certificates curl git python3 py3-pip py3-virtualenv coreutils findutils grep procps
+  elif command -v pacman >/dev/null 2>&1; then
+    run_privileged pacman -S --needed --noconfirm bash ca-certificates curl git python python-pip coreutils findutils grep procps-ng
+  elif command -v zypper >/dev/null 2>&1; then
+    run_privileged zypper --non-interactive install bash ca-certificates curl git python3 python3-pip coreutils findutils grep procps
+  else
+    echo "错误：未识别的系统包管理器，无法自动安装 git/Python。" >&2
+    return 1
+  fi
+}}
+
+find_base_python() {{
+  local candidate
+  for candidate in python3.13 python3.12 python3.11 python3.10 python3.9 python3.8 python38 python3 python; do
+    command -v "${{candidate}}" >/dev/null 2>&1 || continue
+    if "${{candidate}}" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
+      BASE_PYTHON="$(command -v "${{candidate}}")"
+      return 0
+    fi
+  done
+  return 1
+}}
+
+ensure_bootstrap_runtime() {{
+  local needs_packages=0 tool
+  command -v git >/dev/null 2>&1 || needs_packages=1
+  find_base_python || needs_packages=1
+  for tool in nohup grep cut tail tr pgrep pkill ps; do
+    command -v "${{tool}}" >/dev/null 2>&1 || needs_packages=1
+  done
+  if [ "${{needs_packages}}" -eq 1 ]; then
+    install_bootstrap_packages
+    find_base_python || {{ echo "错误：自动安装后仍未找到 Python 3.8+。" >&2; return 1; }}
+  fi
+  if ! "${{BASE_PYTHON}}" -c 'import venv' >/dev/null 2>&1; then
+    install_bootstrap_packages
+  fi
+  "${{BASE_PYTHON}}" -c 'import venv' >/dev/null 2>&1 || {{
+    echo "错误：Python 缺少 venv 模块，无法创建隔离运行环境。" >&2
+    return 1
+  }}
+  command -v git >/dev/null 2>&1 || {{ echo "错误：自动安装后仍未找到 git。" >&2; return 1; }}
+}}
+
+ensure_install_directory() {{
+  local parent_dir
+  if [ -e "${{INSTALL_DIR}}" ]; then
+    [ -w "${{INSTALL_DIR}}" ] || {{
+      echo "错误：安装目录不可写：${{INSTALL_DIR}}" >&2
+      return 1
+    }}
+    return 0
+  fi
+  parent_dir="$(dirname "${{INSTALL_DIR}}")"
+  mkdir -p "${{parent_dir}}"
+  [ -w "${{parent_dir}}" ] || {{
+    echo "错误：安装目录的父目录不可写：${{parent_dir}}" >&2
+    return 1
+  }}
+}}
+
+project_has_required_files() {{
+  local project_dir="$1" required_file
+  for required_file in "${{REQUIRED_PROJECT_FILES[@]}}"; do
+    [ -f "${{project_dir}}/${{required_file}}" ] || return 1
+  done
+}}
+
+clone_project_atomically() {{
+  local staging_dir
+  staging_dir="${{INSTALL_DIR}}.bootstrap-$$"
+  if [ -e "${{staging_dir}}" ]; then
+    echo "错误：临时安装目录已存在：${{staging_dir}}" >&2
+    return 1
+  fi
+  echo "安装 sserveros：${{INSTALL_DIR}}"
+  git -c http.version=HTTP/1.1 clone --depth 1 "${{REPO_URL}}" "${{staging_dir}}"
+  if ! project_has_required_files "${{staging_dir}}"; then
+    echo "错误：下载的仓库不完整，已保留临时目录供排查：${{staging_dir}}" >&2
+    return 1
+  fi
+  mv "${{staging_dir}}" "${{INSTALL_DIR}}"
+}}
+
+ensure_install_directory
+ensure_bootstrap_runtime
+
 if [ -d "${{INSTALL_DIR}}/.git" ]; then
   echo "更新现有 sserveros：${{INSTALL_DIR}}"
-  if ! git -C "${{INSTALL_DIR}}" pull --ff-only; then
+  if ! git -c http.version=HTTP/1.1 -C "${{INSTALL_DIR}}" pull --ff-only; then
     echo "警告：无法从 GitHub 更新，将继续使用主控下发的接入组件。" >&2
   fi
+  if ! project_has_required_files "${{INSTALL_DIR}}"; then
+    backup_dir="${{INSTALL_DIR}}.incomplete-$(date +%Y%m%d-%H%M%S)-$$"
+    echo "检测到不完整的旧克隆，已保留到：${{backup_dir}}" >&2
+    mv "${{INSTALL_DIR}}" "${{backup_dir}}"
+    clone_project_atomically
+  fi
 elif [ -e "${{INSTALL_DIR}}" ] && [ -n "$(ls -A "${{INSTALL_DIR}}" 2>/dev/null || true)" ]; then
-  echo "错误：安装目录已存在且不是 Git 仓库：${{INSTALL_DIR}}" >&2
-  echo "请设置 SSERVEROS_DIR 指向现有项目目录后重试。" >&2
-  exit 1
-else
-  command -v git >/dev/null 2>&1 || {{ echo "错误：未安装 git" >&2; exit 1; }}
-  echo "安装 sserveros：${{INSTALL_DIR}}"
-  git clone "${{REPO_URL}}" "${{INSTALL_DIR}}"
-fi
-
-for required_file in agent_api.py config_bootstrap.py storage.py; do
-  if [ ! -f "${{INSTALL_DIR}}/${{required_file}}" ]; then
-    echo "错误：${{INSTALL_DIR}} 不是完整的 sserveros 项目目录（缺少 ${{required_file}}）。" >&2
+  if ! project_has_required_files "${{INSTALL_DIR}}"; then
+    echo "错误：安装目录已存在但不是完整的 sserveros 项目：${{INSTALL_DIR}}" >&2
+    echo "请设置 SSERVEROS_DIR 指向正确的项目目录后重试。" >&2
     exit 1
   fi
-done
+  echo "复用现有的非 Git sserveros 目录：${{INSTALL_DIR}}"
+else
+  clone_project_atomically
+fi
+
+project_has_required_files "${{INSTALL_DIR}}" || {{
+  echo "错误：${{INSTALL_DIR}} 不是完整的 sserveros 项目目录。" >&2
+  exit 1
+}}
 
 download_bootstrap_file() {{
   local filename="$1"
@@ -296,6 +423,32 @@ download_bootstrap_file manage.sh
 download_bootstrap_file enroll_client.py
 download_bootstrap_file monitor.py
 chmod +x "${{INSTALL_DIR}}/manage.sh"
+
+ensure_project_venv() {{
+  local venv_python="${{VENV_DIR}}/bin/python"
+  if [ ! -x "${{venv_python}}" ]; then
+    echo "正在创建项目隔离的 Python 环境：${{VENV_DIR}}"
+    if ! "${{BASE_PYTHON}}" -m venv "${{VENV_DIR}}"; then
+      echo "检测到 Python venv 组件不可用，正在尝试补齐系统依赖……" >&2
+      install_bootstrap_packages
+      find_base_python || {{ echo "错误：自动安装后仍未找到 Python 3.8+。" >&2; return 1; }}
+      "${{BASE_PYTHON}}" -m venv "${{VENV_DIR}}"
+    fi
+  fi
+  if ! "${{venv_python}}" -m pip --version >/dev/null 2>&1; then
+    echo "正在初始化虚拟环境中的 pip……"
+    "${{venv_python}}" -m ensurepip --upgrade
+  fi
+  if ! "${{venv_python}}" -c 'import flask, psutil, httpx, httpcore, socksio, werkzeug.security' >/dev/null 2>&1; then
+    echo "正在安装 sserveros 的 Python 依赖……"
+    "${{venv_python}}" -m pip install --disable-pip-version-check --no-input --upgrade pip
+    "${{venv_python}}" -m pip install --disable-pip-version-check --no-input flask psutil 'httpx[socks]' 'httpcore[socks]'
+  fi
+  export VIRTUAL_ENV="${{VENV_DIR}}"
+  export PATH="${{VENV_DIR}}/bin:${{PATH}}"
+}}
+
+ensure_project_venv
 
 exec bash "${{INSTALL_DIR}}/manage.sh" join \
   --controller-url "${{CONTROLLER_URL}}" \

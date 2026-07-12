@@ -26,7 +26,7 @@ bash ./manage.sh
 ## 前置条件
 
 - Linux 系统
-- Python 3.8+，需安装依赖：`pip install flask psutil "httpx[socks]" "httpcore[socks]"`
+- 一键接入会自动通过常见系统包管理器安装 Git、Python、venv 和项目 Python 依赖；首次执行仍需要 `bash` 与 `curl`，并且当前用户需要 root 或 `sudo`（系统已有依赖时不需要提权）
 - `nvidia-smi`（NVIDIA 驱动已正确安装）
 - `curl`（Server Chan 推送依赖）
 
@@ -147,12 +147,13 @@ bash ./manage.sh
 登录 A 的 WebUI，在服务器管理中生成一次性接入命令。命令结构如下，实际界面会填入主控地址和一次性令牌：
 
 ```bash
-curl -fsSL --connect-timeout 10 --noproxy '*' \
-  -H 'Authorization: Bearer <ONE_TIME_TOKEN>' \
-  '<CONTROLLER_URL>/api/enroll/bootstrap' | bash
+( tmp="$(mktemp)" && trap 'rm -f "$tmp"' EXIT && \
+  curl -fsSL --connect-timeout 10 --noproxy '*' \
+    -H 'Authorization: Bearer <ONE_TIME_TOKEN>' \
+    '<CONTROLLER_URL>/api/enroll/bootstrap' -o "$tmp" && bash "$tmp" )
 ```
 
-`CONTROLLER_URL` 必须是 B 能访问的 A 的 Tailscale 地址，例如 `http://100.64.0.10:6777` 或 MagicDNS 地址。一次性令牌默认 10 分钟过期，也可在 WebUI 中提前撤销；它属于敏感信息，不要发到聊天记录或公共日志，注册成功后即被消费。
+`CONTROLLER_URL` 必须是 B 能访问的 A 的 Tailscale 地址，例如 `http://100.64.0.10:6777` 或 MagicDNS 地址。一次性令牌默认 30 分钟过期，也可在 WebUI 中提前撤销；它属于敏感信息，不要发到聊天记录或公共日志，注册成功后即被消费。
 
 ### 3. 在 B/C/D/E 执行命令
 
@@ -161,7 +162,8 @@ curl -fsSL --connect-timeout 10 --noproxy '*' \
 - 显式设置 `$SSERVEROS_DIR` 时优先使用该目录。
 - 未设置时，当前目录已有 `manage.sh` 和 `monitor.py` 就直接复用，兼容升级早于 Agent API 的旧单机仓库。
 - 两者都不满足时默认使用 `$HOME/sserveros`。
-- 已有 Git 仓库执行 `git pull --ff-only`，没有仓库则从 GitHub `main` 分支克隆。
+- 自动识别 `apt`、`dnf`、`yum`、`apk`、`pacman` 或 `zypper`，必要时用 root/sudo 安装系统依赖；随后在项目内创建 `.venv` 并安装 Flask、psutil、httpx 等 Python 包。
+- 已有 Git 仓库执行 HTTP/1.1 的 `git pull --ff-only`；没有仓库则先克隆到同级临时目录、校验后再移动，避免网络失败留下半成品。
 - 主控会用同一枚一次性令牌下发 `manage.sh`、`enroll_client.py` 和 `monitor.py`；因此即使 A 的新版尚未推送到 GitHub，B 也能执行一键接入。
 - 最后执行 `bash manage.sh join --controller-url ... --token ...` 完成角色切换、服务启动和注册。
 
@@ -180,8 +182,8 @@ bash manage.sh join \
 ### 接入前提
 
 - A 和 B 已登录同一 Tailnet，B 能访问 A 的 WebUI 地址，A 能访问 B 的 Agent 端口 `6780`。
-- B 已安装 `bash`、`curl`、`git`、Python 3 和项目 Python 依赖；启动监控还需要 NVIDIA 驱动及可用的 `nvidia-smi`。
-- 首次克隆时 B 能访问 GitHub；如果不能，应提前把项目放到 `$SSERVEROS_DIR` 或当前目录。
+- B 至少已有 `bash` 和 `curl`；脚本会自动准备其余系统/Python 依赖。若需要安装系统包，B 必须使用 root 或可用的 `sudo`。
+- 首次部署时 B 需能访问系统软件源、GitHub 与 PyPI；启动监控仍需要预先可用的 NVIDIA 驱动及 `nvidia-smi`。
 - 默认 Agent API 监听 `0.0.0.0:6780`；建议绑定 B 的 Tailscale IP，或用防火墙保证 6780 只允许 Tailnet 访问。
 
 也可从主控机器直接验证 Agent：

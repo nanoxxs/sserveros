@@ -1657,7 +1657,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
         </div>
 
         <div class="enrollment-note">
-          接入命令是一次性的，并将在 10 分钟后自动失效。它不会停止目标机现有的监控服务、训练进程或 tmux/zellij 会话。
+          接入命令是一次性的，首次运行会自动准备系统依赖、项目虚拟环境和 Python 包（需要 root 或 sudo）；它不会停止目标机现有的监控服务、训练进程或 tmux/zellij 会话。
         </div>
 
         <div v-if="enrollmentMsg.text" class="notice-msg" :class="enrollmentMsg.kind" style="display:block;text-align:left;margin-top:0">
@@ -1669,7 +1669,7 @@ body, .header, .tabs, .card, .sysinfo-card, .gpu-card, .login-card, .modal-box, 
             <div class="enrollment-command-title">在待接入服务器的终端中执行</div>
             <div class="server-card-badges">
               <span class="server-chip local">一次性</span>
-              <span class="server-chip disabled" style="color:var(--warn-fg);background:var(--warn-bg)">10 分钟有效</span>
+              <span class="server-chip disabled" style="color:var(--warn-fg);background:var(--warn-bg)">{{ Math.max(1, Math.ceil(enrollmentExpiresIn / 60)) }} 分钟有效</span>
             </div>
           </div>
           <pre class="enrollment-command">{{ enrollmentCommand }}</pre>
@@ -2182,7 +2182,7 @@ createApp({
       enrollmentId: '',
       enrollmentCommand: '',
       enrollmentExpiresAt: '',
-      enrollmentExpiresIn: 600,
+      enrollmentExpiresIn: 1800,
       enrollmentMsg: {text:'', kind:''},
       hostname: '',
       monitorRunning: false,
@@ -2878,9 +2878,9 @@ createApp({
         this.enrollmentExpiresAt = enrollment.expires_at || enrollment.expiry || payload.expires_at || '';
         this.enrollmentExpiresIn = Number(
           enrollment.expires_in_seconds ?? enrollment.expires_in
-          ?? payload.expires_in_seconds ?? payload.expires_in ?? 600
-        ) || 600;
-        this.enrollmentMsg = {text:'接入命令已生成，请在 10 分钟内于目标服务器执行', kind:'success'};
+          ?? payload.expires_in_seconds ?? payload.expires_in ?? 1800
+        ) || 1800;
+        this.enrollmentMsg = {text:'接入命令已生成，请尽快在目标服务器执行', kind:'success'};
       } catch(e) {
         this.enrollmentMsg = {text:e.message || '生成接入命令失败', kind:'error'};
       } finally {
@@ -2909,7 +2909,7 @@ createApp({
       }
     },
 
-    formatEnrollmentExpiry(value, expiresIn = 600) {
+    formatEnrollmentExpiry(value, expiresIn = 1800) {
       if (value) {
         const raw = Number(value);
         const date = Number.isFinite(raw)
@@ -2921,7 +2921,7 @@ createApp({
       const seconds = Number(expiresIn);
       return Number.isFinite(seconds) && seconds > 0
         ? `约 ${Math.max(1, Math.ceil(seconds / 60))} 分钟后`
-        : '约 10 分钟后';
+        : '约 30 分钟后';
     },
 
     async revokeEnrollment() {
@@ -2935,7 +2935,7 @@ createApp({
         this.enrollmentId = '';
         this.enrollmentCommand = '';
         this.enrollmentExpiresAt = '';
-        this.enrollmentExpiresIn = 600;
+        this.enrollmentExpiresIn = 1800;
         this.enrollmentMsg = {text:payload.message || '接入命令已撤销', kind:'success'};
         this.showToast('接入命令已撤销', true);
       } catch(e) {

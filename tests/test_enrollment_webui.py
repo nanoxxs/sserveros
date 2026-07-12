@@ -4,6 +4,7 @@ import pytest
 from werkzeug.security import generate_password_hash
 
 from controller import AgentRequestError
+from enrollment import DEFAULT_ENROLLMENT_TTL
 from storage import default_config
 from webui import create_app
 
@@ -59,9 +60,11 @@ def test_create_enrollment_requires_login_and_returns_one_command(
     assert created['enrollment_id'].startswith('enr_')
     assert created['token']
     assert created['expires_at']
-    assert created['command'].startswith('curl -fsSL ')
+    assert created['command'].startswith('( tmp="$(mktemp)"')
+    assert 'curl -fsSL ' in created['command']
     assert 'Authorization: Bearer ' + created['token'] in created['command']
     assert 'http://100.64.0.1:6777/api/enroll/bootstrap' in created['command']
+    assert created['expires_in'] == 300
     raw_store = (enrollment_dir / 'runtime' / 'enrollment_tokens.json').read_text()
     assert created['token'] not in raw_store
 
@@ -69,6 +72,15 @@ def test_create_enrollment_requires_login_and_returns_one_command(
     assert listed['enrollment_id'] == created['enrollment_id']
     assert listed['status'] == 'issued'
     assert 'token' not in listed
+
+
+def test_webui_uses_shared_default_enrollment_ttl(enrollment_client):
+    response = enrollment_client.post('/api/enrollments', json={
+        'controller_url': 'http://100.64.0.1:6777',
+    })
+
+    assert response.status_code == 201
+    assert response.get_json()['expires_in'] == DEFAULT_ENROLLMENT_TTL
 
 
 def test_bootstrap_is_public_bearer_authenticated_and_does_not_consume_token(

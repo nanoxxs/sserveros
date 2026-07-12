@@ -176,7 +176,7 @@ webui.html
 | `/api/servers/<server_id>` | PUT/DELETE | `api_servers_update()` / `api_servers_delete()` | 修改、禁用或删除远端节点；本机 `local` 不可删除 |
 | `/api/servers/<server_id>/test` | POST | `api_servers_test()` | 测试 Agent 鉴权、延迟和协议兼容性 |
 | `/api/servers/<server_id>/<path>` | 多种 | `api_server_proxy()` | 按 `server_id` 将节点作用域请求转发到 Agent |
-| `/api/enrollments` | GET/POST | enrollment list/create routes | 主控列出令牌状态或生成默认 10 分钟有效的一键接入命令 |
+| `/api/enrollments` | GET/POST | enrollment list/create routes | 主控列出令牌状态或生成默认 30 分钟有效的一键接入命令 |
 | `/api/enrollments/<enrollment_id>` | DELETE | enrollment revoke route | 提前撤销尚未消费的一次性令牌 |
 | `/api/enroll/bootstrap` | GET | enrollment bootstrap route | Bearer 一次性令牌鉴权，返回 B 端仓库更新与 join shell |
 | `/api/enroll/bootstrap-file/<filename>` | GET | enrollment bootstrap-file route | 同一令牌鉴权，只允许下发 join 所需的固定组件 |
@@ -292,7 +292,8 @@ browser -> controller WebUI
 ```text
 A WebUI 生成一次性令牌和 curl 命令
   -> B: GET /api/enroll/bootstrap (Bearer one-time token)
-  -> bootstrap: 复用/更新/克隆仓库
+  -> bootstrap: 自动准备系统包、项目 .venv 和 Python 依赖
+  -> bootstrap: 复用/更新/克隆仓库（新克隆先落到临时目录）
   -> bootstrap: 从 A 下载固定的 join 组件（不依赖新版已推送到 GitHub）
   -> bash manage.sh join --controller-url A --token one-time-token
        ├─ bootstrap_config() + set_node_role agent（保留原配置）
@@ -304,9 +305,9 @@ A WebUI 生成一次性令牌和 curl 命令
             └─ 成功：只停止 sserveros-webui.service / 本项目 webui.py
 ```
 
-bootstrap 选择仓库目录的优先级：显式 `$SSERVEROS_DIR`、当前目录已含 `manage.sh` + `monitor.py`、`$HOME/sserveros`。使用 `monitor.py` 作为旧仓库标志，以便升级早于 Agent API 的单机部署。已有 Git 仓库会尝试 `git pull --ff-only`，不存在时克隆 GitHub `main`；之后只从 A 覆盖 `manage.sh`、`enroll_client.py` 和 `monitor.py` 这三个接入组件，保证 A 的新版尚未推送时也能接入。
+bootstrap 选择仓库目录的优先级：显式 `$SSERVEROS_DIR`、当前目录已含 `manage.sh` + `monitor.py`、`$HOME/sserveros`。它会先检查目录可写、自动通过常见包管理器准备 Git/Python/venv，再创建项目内 `.venv` 安装依赖。已有 Git 仓库会尝试 HTTP/1.1 的 `git pull --ff-only`；新克隆先在同级临时目录完成校验后再移动，避免网络失败留下半成品。之后只从 A 覆盖 `manage.sh`、`enroll_client.py` 和 `monitor.py` 这三个接入组件，保证 A 的新版尚未推送时也能接入。
 
-`join` 参数解析完全非交互，要求同时提供 HTTP(S) `--controller-url` 和非空 `--token`。一次性令牌默认 600 秒过期，可撤销，持久化时只保存 SHA-256 哈希；B 端只将明文作为 `enroll_client.py` 参数使用，不写入 `config.json`，也不得在日志中回显。Agent API 是注册的前置条件；monitor 启动失败只告警，不阻止节点注册。
+`join` 参数解析完全非交互，要求同时提供 HTTP(S) `--controller-url` 和非空 `--token`。一次性令牌默认 1800 秒过期，可撤销，持久化时只保存 SHA-256 哈希；B 端只将明文作为 `enroll_client.py` 参数使用，不写入 `config.json`，也不得在日志中回显。Agent API 是注册的前置条件；monitor 启动失败只告警，不阻止节点注册。
 
 安全边界：`agent_token` 与 `controller_servers[*].token` 不得从公开配置 API 返回；Agent API 不提供 WebUI 登录、静态页面或任意文件/命令接口。分控端默认 `0.0.0.0:6780` 必须配合 Tailscale 地址绑定或防火墙限制；主控本机 Agent 可仅绑定 `127.0.0.1`。
 

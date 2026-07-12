@@ -4,6 +4,7 @@ import json
 import pytest
 
 from enrollment import (
+    DEFAULT_ENROLLMENT_TTL,
     EnrollmentStore,
     EnrollmentTokenBusy,
     ExpiredEnrollmentToken,
@@ -30,6 +31,18 @@ def test_enrollment_store_persists_only_token_hash_with_private_permissions(
     assert 'token' not in persisted
     assert persisted['token_hash'] == hashlib.sha256(b'raw-enroll-token').hexdigest()
     assert oct(path.stat().st_mode & 0o777) == '0o600'
+
+
+def test_default_enrollment_ttl_allows_first_host_setup(tmp_path, monkeypatch):
+    monkeypatch.setattr('enrollment.secrets.token_urlsafe', lambda _length: 'default-ttl-token')
+    store = EnrollmentStore(str(tmp_path), now_fn=lambda: 10_000.0)
+
+    created = store.create('http://100.64.0.1:6777')
+
+    assert DEFAULT_ENROLLMENT_TTL == 1800
+    assert created['expires_at']
+    record = store.validate('default-ttl-token')
+    assert record['expires_at'] - record['created_at'] == DEFAULT_ENROLLMENT_TTL
 
 
 def test_claim_release_and_consume_enforce_single_use(tmp_path, monkeypatch):
@@ -99,11 +112,12 @@ def test_enrollment_command_and_bootstrap_keep_controller_and_token_scoped():
     command = build_enrollment_command('http://100.64.0.1:6777/', 'one-time-token')
     script = build_bootstrap_script('http://100.64.0.1:6777/', 'one-time-token')
 
-    assert command.startswith('curl -fsSL --connect-timeout 10 ')
+    assert command.startswith('( tmp="$(mktemp)" && trap ')
+    assert 'curl -fsSL --connect-timeout 10 ' in command
     assert "--noproxy '*'" in command
     assert 'Authorization: Bearer one-time-token' in command
     assert 'http://100.64.0.1:6777/api/enroll/bootstrap' in command
-    assert command.endswith('| bash')
+    assert command.endswith('bash "$tmp" )')
     assert 'CONTROLLER_URL=http://100.64.0.1:6777' in script
     assert 'ENROLL_TOKEN=one-time-token' in script
     assert 'api/enroll/bootstrap-file/${filename}' in script
@@ -112,6 +126,11 @@ def test_enrollment_command_and_bootstrap_keep_controller_and_token_scoped():
     assert 'download_bootstrap_file monitor.py' in script
     assert "--noproxy '*'" in script
     assert '无法从 GitHub 更新，将继续使用主控下发的接入组件' in script
+    assert 'install_bootstrap_packages' in script
+    assert 'python3-venv' in script
+    assert 'ensure_project_venv' in script
+    assert "pip install --disable-pip-version-check --no-input flask psutil" in script
+    assert 'git -c http.version=HTTP/1.1 clone --depth 1' in script
     assert 'manage.sh" join' in script
     assert '--controller-url "${CONTROLLER_URL}"' in script
     assert '--token "${ENROLL_TOKEN}"' in script

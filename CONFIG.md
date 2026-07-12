@@ -70,7 +70,7 @@
 bash manage.sh join --controller-url URL --token ONE_TIME_TOKEN
 ```
 
-该命令会把 `node_role` 写为 `agent`，但不会重建 `config.json`，因此既有的监控阈值、PID、释放队列、启动器和 tmux/zellij 任务配置都会保留。`agent_token` / `node_id` 缺失时仍由正常配置初始化流程生成；一次性接入令牌默认 10 分钟过期，只传给 `enroll_client.py`，不会持久化到 B 的本机配置。A 的 `runtime/enrollment_tokens.json` 只保存令牌哈希和状态。
+该命令会把 `node_role` 写为 `agent`，但不会重建 `config.json`，因此既有的监控阈值、PID、释放队列、启动器和 tmux/zellij 任务配置都会保留。bootstrap 会在必要时通过系统包管理器准备 Git、Python/venv，并在项目目录创建 `.venv` 安装 Python 依赖；`agent_token` / `node_id` 缺失时仍由正常配置初始化流程生成。一次性接入令牌默认 30 分钟过期，只传给 `enroll_client.py`，不会持久化到 B 的本机配置。A 的 `runtime/enrollment_tokens.json` 只保存令牌哈希和状态。
 
 注册成功后，主控保存该节点的 Agent 地址和 `agent_token`，B 端只停止 WebUI；monitor、Agent API、systemd target 和现有任务不停止。注册失败时不停止 WebUI。没有通知渠道时，join 仍会尝试启动 monitor 供主控采集状态，只是不发送通知。
 

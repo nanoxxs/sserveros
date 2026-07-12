@@ -103,8 +103,12 @@ find_python_bin() {
     return 0
   fi
 
-  for candidate in python3 python; do
-    command -v "${candidate}" >/dev/null 2>&1 || continue
+  # Enrollment creates a project-local venv. Prefer it so both interactive
+  # commands and generated systemd units keep using the installed packages.
+  for candidate in "${SCRIPT_DIR}/.venv/bin/python" python3 python; do
+    if [ ! -x "${candidate}" ] && ! command -v "${candidate}" >/dev/null 2>&1; then
+      continue
+    fi
     # 找到解释器，逐个检测依赖
     missing=""
     "${candidate}" -c "import werkzeug.security" >/dev/null 2>&1 || missing="${missing} flask"

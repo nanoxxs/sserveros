@@ -23,6 +23,7 @@ from controller import (
 )
 from enrollment import (
     BOOTSTRAP_AGENT_FILES,
+    DEFAULT_ENROLLMENT_TTL,
     EnrollmentStore,
     EnrollmentTokenBusy,
     ExpiredEnrollmentToken,
@@ -418,7 +419,7 @@ def create_app(
             return error
         data = request.get_json() or {}
         try:
-            ttl = data.get('ttl', 600)
+            ttl = data.get('ttl', DEFAULT_ENROLLMENT_TTL)
             record = enrollment_store.create(data.get('controller_url'), ttl=ttl)
             command = build_enrollment_command(record['controller_url'], record['token'])
             return jsonify({
@@ -427,6 +428,7 @@ def create_app(
                 'token': record['token'],
                 'controller_url': record['controller_url'],
                 'expires_at': record['expires_at'],
+                'expires_in': record['expires_in'],
                 'command': command,
             }), 201
         except ValueError as exc:
