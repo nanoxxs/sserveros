@@ -39,6 +39,10 @@ def tmp_config(tmp_path):
         os.path.join(os.path.dirname(__file__), '..', 'webui.html'),
         tmp_path / 'webui.html',
     )
+    shutil.copytree(
+        os.path.join(os.path.dirname(__file__), '..', 'vendor'),
+        tmp_path / 'vendor',
+    )
     return tmp_path
 
 
@@ -141,6 +145,24 @@ def test_index_uses_dark_console_login(client):
     assert '$ sserveros status' in text
     assert 'Secure Shell' in text
     assert '>Login</button>' in text
+
+
+def test_index_uses_local_vendor_assets(client):
+    r = client.get('/')
+    text = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert 'https://unpkg.com/' not in text
+    assert 'https://cdn.jsdelivr.net/' not in text
+    for filename in ('vue.global.prod.js', 'marked.min.js', 'purify.min.js'):
+        assert f'src="/vendor/{filename}"' in text
+        asset = client.get(f'/vendor/{filename}')
+        assert asset.status_code == 200
+        assert asset.mimetype in ('text/javascript', 'application/javascript')
+        assert asset.headers['Cache-Control'].endswith('max-age=31536000')
+
+
+def test_vendor_route_rejects_unknown_files(client):
+    assert client.get('/vendor/unknown.js').status_code == 404
 
 
 def test_index_contains_compact_mobile_system_rings(client):

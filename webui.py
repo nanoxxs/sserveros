@@ -65,6 +65,11 @@ _RELEASE_COMMAND_NUMERIC_SETTINGS = (
 )
 _WEBUI_NUMERIC_SETTINGS = ('log_max_size_mb', 'log_archive_keep')
 _ENV_CHANNEL_KEYS = ('SERVERCHAN_KEYS', 'BARK_CONFIGS', 'SENDKEY')
+_VENDOR_ASSETS = frozenset({
+    'vue.global.prod.js',
+    'marked.min.js',
+    'purify.min.js',
+})
 AGENT_VERSION = '1.0'
 
 
@@ -342,6 +347,15 @@ def create_app(
     def index():
         html = os.path.join(script_dir, 'webui.html')
         return send_file(html) if os.path.exists(html) else ('<h1>webui.html not found</h1>', 404)
+
+    @app.route('/vendor/<filename>')
+    def vendor_asset(filename):
+        if filename not in _VENDOR_ASSETS:
+            return jsonify({'error': 'not found'}), 404
+        path = os.path.join(script_dir, 'vendor', filename)
+        if not os.path.isfile(path):
+            return jsonify({'error': 'vendor asset missing'}), 404
+        return send_file(path, conditional=True, max_age=31536000)
 
     @app.route('/api/auth/login', methods=['POST'])
     def login():

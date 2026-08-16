@@ -70,6 +70,7 @@ sserveros/
 ├── enroll_client.py     # 分控端一次性注册客户端
 ├── webui.py             # Web 后端（Flask）
 ├── webui.html           # 前端页面（单文件）
+├── vendor/              # WebUI 本地前端运行库（不依赖外网 CDN）
 ├── config_bootstrap.py  # 首启自动生成配置
 ├── storage.py           # 配置读写 / 路径管理
 ├── systemd/             # standalone / controller / agent 用户级服务单元
@@ -234,6 +235,7 @@ nohup python "$(pwd)/agent_api.py" >> "$(pwd)/runtime/agent_api.log" 2>&1 &
 - 初始密码：首次启动时自动生成并打印到终端
 - 修改密码：WebUI → 右上角菜单 → 修改密码
 - Agent：WebUI → 设置 → Agent 中开启并填写 OpenAI 兼容 API Base URL、API Key 和模型名；电脑端点击右下角 AI 按钮，手机端进入 Agent 标签页
+- Vue、marked 和 DOMPurify 随项目保存在 `vendor/`，登录和主界面不依赖浏览器访问外网 CDN
 
 设置页的显存告警默认阈值为 5120 MiB、检测间隔为 120 秒、确认次数为 3。
 
